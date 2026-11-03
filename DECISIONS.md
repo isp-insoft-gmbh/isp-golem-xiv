@@ -3,6 +3,23 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-03: Container compatibility diagnosis
+
+- Linux CI `41693321024` (`69a0b0c`) and `41695226429` (`14a8728`) passed `mise run ci` but failed the separate agent-container step; neither constitutes a green required `ci` check.
+- Trusted preparation now exposes credential-free image build diagnostics; agent execution diagnostics remain suppressed and bounded.
+  Second run identifies the final `--max-turns` help-text grep as the failing build operation.
+- Exact Claude 2.1.317 Linux ELF (SHA-256 `eb224419e344575faa4a1f39b290b649425a10cd5ee2ef1d003480cd9ae57eb0`) was installed through mise into isolated WSL temp space.
+  In a fresh HOME with cleared environment and network namespace disabled: unknown option rejected; invalid `--max-turns` value rejected with numeric parser error; valid value reached the not-logged-in error.
+  Binary option registration also contains `--max-turns <turns>`; ordinary help omits it.
+- Dockerfile replaces the false help-text assumption with the same positive/negative parser probes under `RUN --network=none`, fresh HOME, cleared env, hard timeout.
+  This proves parser compatibility only, not authenticated turn-limit enforcement.
+  Existing image-build/watchdog test and acceptance gates are unchanged.
+  WSL probe block passed twice; temporary 638 MiB install cleaned.
+- Intermittent local oversized-request ECONNRESET reproduced with a trivial early-413 Worker, both Miniflare dispatchFetch and direct HTTP, independent of Rust code.
+  Fixed 20-trial conditions included 262186-byte and 2097194-byte JSON and chunked bodies; early-response variants failed transport requests, while all following requests and valid-body controls returned 200.
+  Bounded reading eliminated resets only for the near-limit body, not larger/chunked uploads; no arbitrary draining, retries, assertion removal, or dependency change made to manufacture a pass.
+  Linux full CI has passed this unchanged test on both completed runs; Windows transport nondeterminism remains recorded.
+
 ## 2026-11-03: Slice 1 implementation
 
 - Rust workspace separates host-tested router policy, wasm edge I/O, trusted native runner, stdlib-only xtask.
