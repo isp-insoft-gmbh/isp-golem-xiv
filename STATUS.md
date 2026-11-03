@@ -1,16 +1,21 @@
 # Status
 
-- **Current slice:** 1, deployed; all preflight promises green, authenticated runner acceptance not yet run.
-- **Branch:** `docs/slice-1-evidence` tracks milestones and forthcoming live proofs.
-- **Next step:** review/test/publish the codeload PAX fix through a green PR; release next immutable tag `v1`, update ops pin, rerun full Slice 1 acceptance until three consecutive passes.
+- **Current slice:** 2, not started; Slice 1 passed three consecutive full deployed acceptance runs.
+- **Branch:** `docs/slice-1-run-proof` tracks milestones and forthcoming authenticated run proofs.
+- **Next step:** implement Slice 2 change/verify/publication, retained FIFO serialization, event/schedule owner selection, stop and incomplete outcomes.
+  Slice 2 preflight remains red only for missing schedule-owner, bot-owner and incomplete evidence.
+- **Slice 1 proven:** three consecutive full passes using released `v1`; private ops successful runs `41733197463`, `41733919165`, `41734601072` show authenticated reply/audit/no-loop behavior.
+- **Ops release:** PR #1 merged after green `ci` and published `v1`; remote workflow byte-compared to reviewed local source at `6180155`.
+- **Codeload fix merged:** PR #5 required `ci` green on exact head `4fea340` (`41706413676`); merged trunk `88c9e52` subsequently passed `ci` (`41707082205`), `v1` tagged from clean trunk.
+  Actual immutable public archive old→exact deployed error, current→correct extraction/content proof repeated twice; independent review closed its verification objection.
 - **First full acceptance:** failed `reply` and `audit`; `no-loop` skipped because reply failed.
   Index, eyes, dispatch, unknown-golem refusal passed.
   Private ops run `41702041018` failed before agent execution: `snapshot contains a link or special file`.
   Root cause: actual GitHub codeload archives begin with a 52-byte PAX global commit-comment header; extractor rejected it.
   Local fix allows only that bounded metadata record and preserves hostile archive rejection; regression red→green, actual public code archive extraction green.
-  Authenticated Claude execution remains unproven.
+  Corrected released runner now proves authenticated execution via the three successful full acceptance runs above.
 - **Trunk:** `ci` (`41697718686`) and deploy (`41697718711`) succeeded on `8b13b0f`.
-- **Release:** immutable `v0` published successfully (`41700313107`); ops still pins `v0` until corrected runner release is published.
+- **Release:** immutable `v1` published successfully (`41707721080`); ops pins `v1`.
 - **Last acceptance:** `mise run accept -- --preflight --slice 1` passed every static/evidence check.
 - **Merged:** PR #4 through green required `ci` on exact head `b18fa24`; rebase merge preserves agent authors on trunk `8b13b0f`.
 - **Blocked on Oliver:** nothing for Slice 1.
