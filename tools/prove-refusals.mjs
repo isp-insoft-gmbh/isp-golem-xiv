@@ -105,7 +105,7 @@ function appJwt(privateKey) {
   return `${unsigned}.${signer.sign(privateKey).toString('base64url')}`;
 }
 
-async function appGet(path, privateKey) {
+async function appGet(path, privateKey, preserveDeliveryIds = false) {
   const response = await fetch(`https://api.github.com${path}`, {
     signal: AbortSignal.timeout(30_000),
     headers: {
@@ -117,7 +117,9 @@ async function appGet(path, privateKey) {
   });
   if (!response.ok) fail(`GitHub App API answered ${response.status}`);
   try {
-    return await response.json();
+    if (!preserveDeliveryIds) return await response.json();
+    const text = await response.text();
+    return JSON.parse(text.replaceAll(/"id":(\d{16,})/g, '"id":"$1"'));
   } catch {
     fail('GitHub App API returned invalid JSON');
   }
@@ -125,7 +127,7 @@ async function appGet(path, privateKey) {
 
 async function findCapturedDelivery(privateKey, repository, commentId) {
   return until(deliveryTimeoutMs, async () => {
-    const deliveries = await appGet('/app/hook/deliveries?per_page=100', privateKey);
+    const deliveries = await appGet('/app/hook/deliveries?per_page=100', privateKey, true);
     for (const delivery of deliveries) {
       if (delivery.event !== 'issue_comment') continue;
       const detail = await appGet(`/app/hook/deliveries/${delivery.id}`, privateKey);
@@ -199,6 +201,27 @@ async function waitForRefusal(repository, issue, reason) {
   }, `${reason} refusal`);
 }
 
+async function repositoryForResume(repository) {
+  if (!repository.startsWith(`${organization}/${testPrefix}`)) fail('Resume repository lacks the required test prefix');
+  const [details, topics] = await Promise.all([
+    apiJson(`repos/${repository}`),
+    apiJson(`repos/${repository}/topics`),
+  ]);
+  if (!details.private) fail('Resume repository is not private');
+  if (!topics.names.includes(testTopic)) fail('Resume repository lacks the required test topic');
+  return repository;
+}
+
+async function existingRefusalEvidence(repository) {
+  const issues = await apiJson(`repos/${repository}/issues?state=open&per_page=100`);
+  const issue = issues.find(candidate => candidate.title === 'Refusal evidence');
+  if (!issue) fail('Resume repository has no refusal evidence issue');
+  const comments = await issueComments(repository, issue.number);
+  const templateComment = comments.find(comment => comment.body === `@${appSlug} template`);
+  if (!templateComment) fail('Resume repository has no template comment');
+  return {issue, templateComment};
+}
+
 async function matchingRuns(repository) {
   const runs = await apiJson(`repos/${opsRepository}/actions/workflows/runner.yml/runs?per_page=100`);
   return runs.workflow_runs.filter(run => run.display_title === `${repository} hello`);
@@ -212,27 +235,40 @@ async function noNewDispatch(repository, baseline) {
 }
 
 async function main() {
-  if (!process.argv.slice(2).every(argument => argument === '--keep')) fail('Usage: node tools/prove-refusals.mjs [--keep]');
+  const arguments_ = process.argv.slice(2);
+  const keep = arguments_.filter(argument => argument === '--keep');
+  const repositoryIndex = arguments_.indexOf('--repo');
+  const resumeRepository = repositoryIndex === -1 ? null : arguments_[repositoryIndex + 1];
+  const allowed = keep.length === 1 && (arguments_.length === 1 || (arguments_.length === 3 && repositoryIndex !== -1 && resumeRepository));
+  if (!allowed) fail('Usage: node tools/prove-refusals.mjs --keep [--repo owner/name]');
   const [webhookSecret, appPrivateKey] = await Promise.all([
     readFile(webhookSecretPath, 'utf8').then(value => value.trim()),
     readFile(appPrivateKeyPath, 'utf8'),
   ]);
   if (!webhookSecret || !appPrivateKey) fail('Required local webhook or App key is empty');
 
-  const suffix = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
-  const repository = `${organization}/${testPrefix}${suffix}`;
-  await gh(['repo', 'create', repository, '--private', '--disable-wiki', '--add-readme']);
-  await api(`repos/${repository}/topics`, {method: 'PUT', fields: {'names[]': testTopic}});
-  const hello = Buffer.from('---\n---\nReply with one short greeting.\n').toString('base64');
-  await api(`repos/${repository}/contents/.golems/hello.md`, {
-    method: 'PUT',
-    fields: {message: 'Add hello golem', content: hello},
-  });
-  const issue = await apiJson(`repos/${repository}/issues`, {method: 'POST', fields: {title: 'Refusal evidence'}});
-  const templateComment = await apiJson(`repos/${repository}/issues/${issue.number}/comments`, {
-    method: 'POST',
-    fields: {body: `@${appSlug} template`},
-  });
+  let repository;
+  let issue;
+  let templateComment;
+  if (resumeRepository) {
+    repository = await repositoryForResume(resumeRepository);
+    ({issue, templateComment} = await existingRefusalEvidence(repository));
+  } else {
+    const suffix = `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+    repository = `${organization}/${testPrefix}${suffix}`;
+    await gh(['repo', 'create', repository, '--private', '--disable-wiki', '--add-readme']);
+    await api(`repos/${repository}/topics`, {method: 'PUT', fields: {'names[]': testTopic}});
+    const hello = Buffer.from('---\n---\nReply with one short greeting.\n').toString('base64');
+    await api(`repos/${repository}/contents/.golems/hello.md`, {
+      method: 'PUT',
+      fields: {message: 'Add hello golem', content: hello},
+    });
+    issue = await apiJson(`repos/${repository}/issues`, {method: 'POST', fields: {title: 'Refusal evidence'}});
+    templateComment = await apiJson(`repos/${repository}/issues/${issue.number}/comments`, {
+      method: 'POST',
+      fields: {body: `@${appSlug} template`},
+    });
+  }
 
   const template = await findCapturedDelivery(appPrivateKey, repository, templateComment.id);
   const [withoutSeat, octocat] = await Promise.all([memberWithoutSeat(), verifyNonmember('octocat')]);
@@ -248,6 +284,8 @@ async function main() {
   await noNewDispatch(repository, baseline);
 
   console.log(`https://github.com/${repository}`);
+  console.log(`no-seat actor: ${withoutSeat.login}`);
+  console.log(`not-member actor: ${octocat.login}`);
   console.log(noSeat.html_url);
   console.log(notMember.html_url);
 }
