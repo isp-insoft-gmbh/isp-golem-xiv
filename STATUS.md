@@ -2,11 +2,19 @@
 
 - **Current slice:** 1, implementation integrated locally; not deployed.
 - **Branch:** `feat/slice-1`.
-- **Next step:** independent final review, `mise run ci`, PR → green `ci` → merge → CI deployment → release `v0` → live acceptance.
+- **Next step:** diagnose Linux container build failure on PR #4; merge only after `ci` is green on intended head, then CI deployment → release `v0` → live acceptance.
 - **Blocked on Oliver:** nothing for Slice 1.
 - **Implemented:** Rust Worker router, isolated Claude runner, private ops workflow, Rust xtask, pinned lint/build tools, CI-only deployment/release.
 - **Verified locally:** fresh full `mise run ci` passed after mention/rerun hardening and again after container-test CI wiring (27 Rust tests, workerd suites, packaging, linters).
-- **Container verification:** Docker unavailable locally; mandatory Linux CI `mise run test-agent` builds pinned image and exercises version, invalid timeout, forced timeout, cleanup.
+- **Container verification:** Docker unavailable locally; Linux run `41693321024` on `69a0b0c` passed `mise run ci` but FAILED `Agent container` during image build with suppressed diagnostics.
+  Run `41695226429` on `14a8728` also failed image build; diagnostics locate unsupported help-text assumption for `--max-turns`.
+  Exact pinned Linux binary parser probes passed offline in isolated WSL; Dockerfile now repeats positive/negative parser probes instead of help grep.
+  Fresh local `mise run ci` passes on this correction; independent different-model review found no defect in parser probes or trusted build diagnostics.
+  Bookworm image build and timeout enforcement remain unproven until next Linux CI.
+- **Local transport gap:** subsequent full CI runs intermittently fail oversized-body workerd requests with ECONNRESET.
+  Isolated 20-trial/condition experiment reproduced failure in trivial early-413 Worker, both dispatchFetch and direct Miniflare HTTP, proving simulator transport behavior independent of Rust router; no gate/assertion changed.
+- **Runner fix:** empty LF/CRLF frontmatter failed a new regression case before correction and passed afterwards.
+- **Live evidence:** `tools/prove-refusals.mjs` implemented/syntax-checked/reviewed, NOT executed.
 - **Independent review:** gpt-5.6-terra found no demonstrated auth/secret exploit; live/container proof still pending.
 - **Provisioned:** private `isp-insoft-gmbh/isp-golem-xiv-ops` initialized on `trunk`; tester Anthropic seat and App key stored as encrypted secrets; code `production` environment has Cloudflare token/account, App key, matching generated webhook secret.
 - **Webhook:** configured active production URL; local secret retained at `~/.secrets/isp-golem-xiv/webhook.secret`, never printed.
