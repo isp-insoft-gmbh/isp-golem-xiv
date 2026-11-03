@@ -101,7 +101,8 @@ def preflight [c: record] {
       if $wf == null { return $"no workflow at ($c.ops.runner_workflow)" }
       if $wf.state != active { return $"workflow state is ($wf.state)" }
       let text = gh-ok api $"repos/($c.ops.repo)/contents/($c.ops.runner_workflow)" -H "Accept: application/vnd.github.raw"
-      if not ($text has $c.code.repo) or not ($text =~ '\bv\d+\b') { "the workflow does not pin a release tag v<n> of the code repository" }
+      let pinned = $text | lines | any {|l| ($l has $c.code.repo) and ($l =~ '\bv\d+\b') and not ($l =~ '^\s*#') }
+      if not $pinned { "no line of the workflow names the code repository together with a release tag v<n>" }
     })
     (check tester-seat {||
       let name = seat-secret $c (gh-ok api user --jq .login | str trim) $c.tester.provider
@@ -127,7 +128,10 @@ def preflight [c: record] {
       let anonymous = try { http get --full --allow-errors $url } catch {|e| return $"unreachable: ($e.msg)" }
       if $anonymous.status != 401 { return $"without a token answered ($anonymous.status)" }
       let bogus = http get --full --allow-errors --headers [Authorization "Bearer ghp_invalidtokenforacceptance0000000000"] $url
-      if $bogus.status not-in [401 403 404] { $"with an invalid token answered ($bogus.status)" }
+      if $bogus.status not-in [401 403 404] { return $"with an invalid token answered ($bogus.status)" }
+      let absent = $c.router.url + ($c.router.golems | str replace '{repo}' $"($c.org)/accept-absent-(random chars --length 8)")
+      let unreadable = http get --full --allow-errors --headers [Authorization $"Bearer (gh-ok auth token | str trim)"] $absent
+      if $unreadable.status not-in [403 404] { $"with a valid token for a repository it cannot read answered ($unreadable.status)" }
     })
     (check app-oauth {||
       let client = gh-json api $"/apps/($c.app.slug)" | get client_id
@@ -166,8 +170,9 @@ def core [ctx: record] {
     [".golems/slow.md" (golem {timeout: "20m"} "Run the shell command `sleep 900`, then reply `done`.")]
     ["golem-secret.txt" $secret_text]
   ]
-  let sha = head-sha $repo
   let index = router-index $c $repo
+  # Check runs sit on the head at dispatch time, which router-index moved by pushing a golem.
+  let sha = head-sha $repo
   let hello = mention-hello $ctx $repo $sha $secret_text
   let refused = refused-unknown $ctx $repo
   {repo: $repo, results: ([$index] ++ $hello ++ [$refused])}
@@ -276,9 +281,9 @@ def changes [ctx: record, repo: string] {
   }
 
   let serial = check serial {||
-    let since = date now
     let issues = [hello hello hi] | each {|g| {golem: $g, issue: (new-issue $repo $"serial ($g)")} }
-    $issues | par-each {|i| new-comment $repo $i.issue $"@($c.app.slug) ($i.golem)" } | ignore
+    # GitHub's clock, not the local one, bounds the runs to look at.
+    let since = $issues | par-each {|i| new-comment $repo $i.issue $"@($c.app.slug) ($i.golem)" } | get created | sort | first
     let runs = wait-for $c $c.limits.serial {||
       let r = (ops-runs $c $repo hello $since) ++ (ops-runs $c $repo hi $since)
       if ($r | length) >= 3 and ($r | all {|x| $x.status == completed }) { $r }
@@ -310,13 +315,15 @@ def changes [ctx: record, repo: string] {
 # Slice 2 event triggers in repository B.
 def events [ctx: record] {
   let c = $ctx.c
+  # The owner is another member, so a run charged to the owner instead of the causer shows in the seat line.
+  let owner = gh-json api $"orgs/($c.org)/members?per_page=100" | get login | where {|l| $l != $ctx.login } | first
   let repo = new-repo $ctx events [
     [path content];
-    [".golems/quiet.md" (golem {triggers: ["issues.opened"], owner: $ctx.login} "Do nothing and change nothing; there is nothing to do.")]
-    [".golems/echo.md" (golem {triggers: ["issue_comment.created"], owner: $ctx.login} "Reply by quoting the comment that triggered you.")]
+    [".golems/quiet.md" (golem {triggers: ["issues.opened"], owner: $owner} "Do nothing and change nothing; there is nothing to do.")]
+    [".golems/echo.md" (golem {triggers: ["issue_comment.created"], owner: $owner} "Reply by quoting the comment that triggered you.")]
   ]
   let sha = head-sha $repo
-  let since = date now
+  if (indexed $c $repo echo) == null { error make {msg: $"the router did not index ($repo) within ($c.limits.indexed)"} }
   let issue = new-issue $repo "event"
   let trigger = check event-trigger {||
     let result = audit-latest $ctx $repo $sha quiet no_change --wait $c.limits.reply
@@ -360,7 +367,7 @@ def onboarding [ctx: record] {
     if $issue == null { return $"no pinned issue ($c.dashboard.title) by ($c.app.bot) within ($c.limits.dashboard)" }
     let missing = $c.dashboard.sections | where {|s| not ($issue.body =~ $"\(?m\)^#+\\s*($s)\\s*$") }
     if ($missing | is-not-empty) { return $"dashboard lacks sections: ($missing | str join ', ')" }
-    if not ($issue.body has hello) { "dashboard does not list hello" }
+    if not (section $issue.body Golems | str contains hello) { "the Golems section does not list hello" }
   }
 
   let ask = new-issue $repo "ask"
@@ -380,6 +387,7 @@ def onboarding [ctx: record] {
   put-file $repo .golems/foreign.md (golem {harness: codex, provider: github-copilot} "Reply with one short greeting.\nChange nothing in the repository.")
   let sha = head-sha $repo
   let fallback = check fallback {||
+    if (indexed $c $repo foreign) == null { return $"the router did not index foreign within ($c.limits.indexed)" }
     let issue = new-issue $repo "fallback"
     new-comment $repo $issue $"@($c.app.slug) foreign" | ignore
     let reply = wait-for $c $c.limits.reply {|| bot-comments $c $repo $issue | where {|m| $m.body | str trim | str starts-with (marker $c reply foreign) } | get -o 0 }
@@ -393,16 +401,17 @@ def onboarding [ctx: record] {
 
   let validation = check validation {||
     let branch = "accept/broken"
+    let name = $"bad(random chars --length 6 | str lowercase)"
     gh-ok api -X POST $"repos/($repo)/git/refs" -f $"ref=refs/heads/($branch)" -f $"sha=($sha)" | ignore
-    put-file $repo .golems/invalid.md (golem {schedule: someday} "Invalid on purpose.") --branch $branch
+    put-file $repo $".golems/($name).md" (golem {schedule: someday} "Invalid on purpose.") --branch $branch
     let number = gh-ok pr create --repo $repo --head $branch --title "add invalid golem" --body "accept.nu validation scenario" | str trim | split row '/' | last | into int
     let head = gh-json api $"repos/($repo)/pulls/($number)" | get head.sha
     let run = wait-for $c $c.limits.validation {|| check-runs $repo $head $c.validation_check | where status == completed | get -o 0 }
     if $run == null { return $"no completed check ($c.validation_check) within ($c.limits.validation)" }
     if $run.conclusion != failure { return $"the check concluded ($run.conclusion)" }
     gh-ok pr merge $number --repo $repo --squash | ignore
-    let listed = wait-for $c $c.limits.dashboard {|| let d = pinned-dashboard $c $repo; if $d != null and ($d.body | str contains "invalid") { true } }
-    if $listed == null { $"the dashboard did not list invalid within ($c.limits.dashboard)" }
+    let listed = wait-for $c $c.limits.dashboard {|| let d = pinned-dashboard $c $repo; if $d != null and (section $d.body Disabled | str contains $name) { true } }
+    if $listed == null { $"the Disabled section of the dashboard did not list ($name) within ($c.limits.dashboard)" }
   }
   {results: [$onboard $board $help $seat $fallback $validation]}
 }
@@ -526,7 +535,22 @@ def sign-in-redirect [c: record, path: string] {
   let r = try { http get --full --allow-errors --redirect-mode manual ($c.router.url + $path) } catch {|e| return $"unreachable: ($e.msg)" }
   let location = $r.headers.response? | default [] | where {|h| ($h.name | str lowercase) == location } | get -o 0.value | default ""
   if $r.status not-in [302 303 307] or not ($location | str starts-with "https://github.com/login/oauth/authorize") or not ($location has $client) {
-    $"answered ($r.status) with location ($location)"
+    return $"answered ($r.status) with location ($location)"
+  }
+  let redirect = $location | url parse | get params | where key == redirect_uri | get -o 0.value
+  if $redirect != null and $redirect != ($c.router.url + $c.router.oauth_callback) { $"redirect_uri is ($redirect)" }
+}
+
+# The text under a Markdown heading, up to the next heading.
+def section [body: string, heading: string] {
+  $body | parse -r $"\(?ms\)^#+[ \\t]*($heading)[ \\t]*$\(?<text>.*?\)\(?=^#|\\z\)" | get -o 0.text | default ""
+}
+
+# true once the router lists the golem for the repository, null after limits.indexed.
+def indexed [c: record, repo: string, golem: string] {
+  wait-for $c $c.limits.indexed {||
+    let r = http get --full --allow-errors --headers [Authorization $"Bearer (gh-ok auth token | str trim)"] ($c.router.url + ($c.router.golems | str replace '{repo}' $repo))
+    if $r.status == 200 and ($golem in ($r.body.golems?.name? | default [])) { true }
   }
 }
 
