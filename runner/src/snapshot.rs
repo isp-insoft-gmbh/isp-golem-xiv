@@ -10,6 +10,7 @@ use std::{
 const EXPANDED_BYTES_MAX: u64 = 64 * 1024 * 1024;
 const FILE_BYTES_MAX: u64 = 4 * 1024 * 1024;
 const ENTRIES_MAX: usize = 10_000;
+const GLOBAL_METADATA_BYTES: u64 = 52;
 
 pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
     let decoder = GzDecoder::new(bytes).take(EXPANDED_BYTES_MAX + 1);
@@ -20,6 +21,8 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
     for (index, entry) in archive
         .entries()
         .map_err(|_| "invalid snapshot archive")?
+        // Inspect extensions before tar can consume them or apply path/size overrides.
+        .raw(true)
         .enumerate()
     {
         if index >= ENTRIES_MAX {
@@ -30,8 +33,37 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
             .path()
             .map_err(|_| "invalid snapshot path")?
             .into_owned();
-        let relative = relative_path(&path, &mut root)?;
+        let size = entry.size();
+        total = total.checked_add(size).ok_or("snapshot size overflow")?;
+        if size > FILE_BYTES_MAX || total > EXPANDED_BYTES_MAX {
+            return Err("snapshot exceeds size limit");
+        }
         let kind = entry.header().entry_type();
+        if kind.is_pax_global_extensions() {
+            // GitHub codeload's only supported archive metadata is Git's commit
+            // comment. Never interpret metadata as filesystem state or overrides.
+            if index != 0 || path != Path::new("pax_global_header") || size != GLOBAL_METADATA_BYTES
+            {
+                return Err("unsupported snapshot metadata");
+            }
+            let mut metadata = Vec::new();
+            entry
+                .read_to_end(&mut metadata)
+                .map_err(|_| "invalid snapshot metadata")?;
+            let commit = metadata
+                .strip_prefix(b"52 comment=")
+                .and_then(|value| value.strip_suffix(b"\n"))
+                .ok_or("invalid snapshot metadata")?;
+            if commit.len() != 40
+                || !commit
+                    .iter()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+            {
+                return Err("invalid snapshot metadata");
+            }
+            continue;
+        }
+        let relative = relative_path(&path, &mut root)?;
         if !kind.is_file() && !kind.is_dir() {
             return Err("snapshot contains a link or special file");
         }
@@ -43,11 +75,6 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
         }
         if !seen.insert(relative.clone()) {
             return Err("duplicate snapshot path");
-        }
-        let size = entry.size();
-        total = total.checked_add(size).ok_or("snapshot size overflow")?;
-        if size > FILE_BYTES_MAX || total > EXPANDED_BYTES_MAX {
-            return Err("snapshot exceeds size limit");
         }
         let target = destination.join(relative);
         if kind.is_dir() {
@@ -66,10 +93,7 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
     }
     // The byte limit includes tar headers and padding, not just file payloads.
     let mut decoder = archive.into_inner();
-    let mut tail = Vec::new();
-    decoder
-        .read_to_end(&mut tail)
-        .map_err(|_| "invalid compressed snapshot")?;
+    std::io::copy(&mut decoder, &mut std::io::sink()).map_err(|_| "invalid compressed snapshot")?;
     if decoder.limit() == 0 || root.is_none() {
         return Err("snapshot expanded size exceeds limit or archive is empty");
     }
@@ -173,7 +197,7 @@ mod tests {
     fn archive(entries: &[(&str, &[u8], u8)]) -> Vec<u8> {
         let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
         for (path, contents, kind) in entries {
-            let mut header = tar::Header::new_gnu();
+            let mut header = tar::Header::new_ustar();
             header.set_size(contents.len() as u64);
             header.set_mode(0o644);
             header.set_entry_type(tar::EntryType::new(*kind));
@@ -195,6 +219,10 @@ mod tests {
             fs::read_to_string(temp.path().join("README.md")).unwrap(),
             "hello"
         );
+        for kind in *b"12346LKSZ" {
+            let target = tempfile::tempdir().unwrap();
+            assert!(extract(&archive(&[("snapshot/special", b"", kind)]), target.path(),).is_err());
+        }
         for entries in [
             vec![("snapshot/link", b"".as_slice(), b'2')],
             vec![("snapshot/.git/config", b"".as_slice(), b'0')],
@@ -209,6 +237,112 @@ mod tests {
         ] {
             let target = tempfile::tempdir().unwrap();
             assert!(extract(&archive(&entries), target.path()).is_err());
+        }
+    }
+
+    // Public codeload trunk archive, 8b13b0f: USTAR type 'g', name
+    // pax_global_header, 52-byte comment record, then the repository directory.
+    // Only metadata shape is reproduced; file content is synthetic.
+    const CODELOAD_METADATA: &[u8] = b"52 comment=8b13b0f1a33b10d9b26738002e6d697785a228d0\n";
+
+    #[test]
+    fn codeload_global_commit_metadata_extracts_without_becoming_a_file_or_root() {
+        let target = tempfile::tempdir().unwrap();
+        extract(
+            &archive(&[
+                ("pax_global_header", CODELOAD_METADATA, b'g'),
+                ("snapshot/", b"", b'5'),
+                ("snapshot/README.md", b"synthetic repository", b'0'),
+            ]),
+            target.path(),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(target.path().join("README.md")).unwrap(),
+            b"synthetic repository"
+        );
+        assert_eq!(fs::read_dir(target.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn snapshot_rejects_malformed_oversized_and_overriding_metadata() {
+        let oversized = vec![b'x'; 4097];
+        for metadata in [
+            b"".as_slice(),
+            b"51 comment=8b13b0f1a33b10d9b26738002e6d697785a228d0\n",
+            b"52 comment=8b13b0f1a33b10d9b26738002e6d697785a228d0",
+            b"52 comment=zb13b0f1a33b10d9b26738002e6d697785a228d0\n",
+            b"22 path=../outside.md\n",
+            b"22 linkpath=../escape\n",
+            b"12 size=999\n",
+            b"12 uid=1000\n",
+            b"52 comment=8b13b0f1a33b10d9b26738002e6d697785a228d0\n\n22 path=../outside.md\n",
+            oversized.as_slice(),
+        ] {
+            for kind in *b"gx" {
+                let target = tempfile::tempdir().unwrap();
+                assert!(
+                    extract(
+                        &archive(&[
+                            ("pax_global_header", metadata, kind),
+                            ("snapshot/file", b"content", b'0'),
+                        ]),
+                        target.path(),
+                    )
+                    .is_err()
+                );
+                assert_eq!(fs::read_dir(target.path()).unwrap().count(), 0);
+            }
+        }
+        for entries in [
+            vec![("pax_global_header", CODELOAD_METADATA, b'g')],
+            vec![
+                ("other", CODELOAD_METADATA, b'g'),
+                ("snapshot/file", b"", b'0'),
+            ],
+            vec![
+                ("snapshot/", b"".as_slice(), b'5'),
+                ("pax_global_header", CODELOAD_METADATA, b'g'),
+            ],
+            vec![
+                ("pax_global_header", CODELOAD_METADATA, b'g'),
+                ("pax_global_header", CODELOAD_METADATA, b'g'),
+            ],
+            vec![
+                ("pax_global_header", CODELOAD_METADATA, b'x'),
+                ("snapshot/file", b"", b'0'),
+            ],
+        ] {
+            let target = tempfile::tempdir().unwrap();
+            assert!(extract(&archive(&entries), target.path()).is_err());
+        }
+    }
+
+    #[test]
+    fn snapshot_expanded_limit_includes_headers_padding_and_trailing_bytes() {
+        let mut plain = Vec::new();
+        GzDecoder::new(
+            archive(&[
+                ("pax_global_header", CODELOAD_METADATA, b'g'),
+                ("snapshot/file", b"content", b'0'),
+            ])
+            .as_slice(),
+        )
+        .read_to_end(&mut plain)
+        .unwrap();
+        for expanded_size in [EXPANDED_BYTES_MAX, EXPANDED_BYTES_MAX + 1] {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+            std::io::Write::write_all(&mut encoder, &plain).unwrap();
+            std::io::copy(
+                &mut std::io::repeat(0).take(expanded_size - plain.len() as u64),
+                &mut encoder,
+            )
+            .unwrap();
+            let target = tempfile::tempdir().unwrap();
+            assert_eq!(
+                extract(&encoder.finish().unwrap(), target.path()).is_ok(),
+                expanded_size == EXPANDED_BYTES_MAX,
+            );
         }
     }
 
