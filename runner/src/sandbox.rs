@@ -124,7 +124,17 @@ pub async fn prepare(mise: &Path) -> Result<()> {
     command
         .args(["build", "--pull", "--tag", IMAGE])
         .arg(context.path());
-    execute(command, None, Duration::from_secs(600)).await?;
+    // Trusted image preparation has no seat, target, or App credentials.
+    // Preserve build diagnostics here; execution output remains private and bounded.
+    command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+    let mut child = command.spawn().map_err(|_| "cannot start image build")?;
+    let status = tokio::time::timeout(Duration::from_secs(600), child.wait())
+        .await
+        .map_err(|_| "image build exceeded time limit")?
+        .map_err(|_| "cannot wait for image build")?;
+    if !status.success() {
+        return Err("trusted image build failed");
+    }
     Ok(())
 }
 
