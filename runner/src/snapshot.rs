@@ -128,14 +128,21 @@ pub fn prompt(root: &Path, request: &DispatchV1) -> Result<String> {
         .strip_prefix("---\n")
         .or_else(|| definition.strip_prefix("---\r\n"))
     {
-        let boundary = frontmatter
-            .find("\n---\n")
-            .map(|offset| (offset, 5))
-            .or_else(|| frontmatter.find("\r\n---\r\n").map(|offset| (offset, 7)))
-            .ok_or("unterminated golem frontmatter")?;
-        frontmatter
-            .get(boundary.0 + boundary.1..)
-            .ok_or("invalid task boundary")?
+        if let Some(task) = frontmatter
+            .strip_prefix("---\n")
+            .or_else(|| frontmatter.strip_prefix("---\r\n"))
+        {
+            task
+        } else {
+            let boundary = frontmatter
+                .find("\n---\n")
+                .map(|offset| (offset, 5))
+                .or_else(|| frontmatter.find("\r\n---\r\n").map(|offset| (offset, 7)))
+                .ok_or("unterminated golem frontmatter")?;
+            frontmatter
+                .get(boundary.0 + boundary.1..)
+                .ok_or("invalid task boundary")?
+        }
     } else {
         definition.as_str()
     };
@@ -215,6 +222,8 @@ mod tests {
         fs::write(root.join("AGENTS.md"), "Agent instruction sentinel.").unwrap();
         let request = crate::tests::request();
         for definition in [
+            "---\n---\nActual task sentinel.",
+            "---\r\n---\r\nActual task sentinel.",
             "---\nharness: claude\n---\nActual task sentinel.",
             "---\r\nharness: claude\r\n---\r\nActual task sentinel.",
             "Actual task sentinel.",
