@@ -1,7 +1,7 @@
 # Acceptance contract of isp-golem-xiv: the single source of truth for promises the implementation keeps.
-# accept.nu checks every promise below; PLAN.md explains the rules for changing this file.
+# accept.nu checks every promise below; PLAN.md, section "Acceptance contract", has the rules for changing this file.
 {
-  version: 1
+  version: 2
 
   org: "isp-insoft-gmbh"
 
@@ -9,6 +9,8 @@
     slug: "isp-golem-xiv"
     id: 4605060
     installation: 153964219
+    # The installation covers every repository; the router acts only on allowlisted ones until Oliver lifts the allowlist.
+    repository_selection: all
     bot: "isp-golem-xiv[bot]"
     events: [issues issue_comment pull_request pull_request_review push]
     permissions: {
@@ -37,143 +39,442 @@
     repo: "isp-insoft-gmbh/isp-golem-xiv-ops"
     default_branch: "trunk"
     runner_workflow: ".github/workflows/runner.yml"
+    # run-name of every runner workflow run, so runs of one golem in one repository can be found.
+    run_name: "{repo} {golem}"
   }
 
-  # Set by the agent once the router is deployed; null means not deployed yet.
+  # Local files of the person running accept.nu; read, never printed.
+  secrets: {
+    dir: "~/.secrets/isp-golem-xiv"
+    cloudflare_token: "cloudflare.api-token"
+    cloudflare_account: "cloudflare.account-id"
+    app_client_secret: "app.client-secret"
+  }
+
+  # The worker name and URL are fixed, because the App's OAuth callback URL is set to them by hand.
   router: {
-    url: null
+    worker: "isp-golem-xiv"
+    workers_subdomain: "isp-insoft-gmbh"
+    url: "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev"
     health: "/health"
+    webhook: "/webhook"
     golems: "/v1/repos/{repo}/golems"
+    seats: "/seats"
+    oauth_callback: "/auth/github/callback"
+    admin: "/admin"
+    admin_runs: "/v1/admin/runs"
   }
 
   tester: {
     gh_scopes: [repo delete_repo workflow read:org]
+    org_role: admin
     provider: "anthropic"
   }
 
   test_repos: {
     prefix: "isp-golem-xiv-test-"
     topic: "isp-golem-xiv-test"
+    # accept.nu deletes test repositories older than this at start.
+    stale_after: 1day
+  }
+
+  # Provider ids, the harnesses that work with each, and whether its sign-in refreshes.
+  providers: {
+    anthropic: {harnesses: [claude pi], refreshing: false}
+    openai-codex: {harnesses: [codex pi], refreshing: true}
+    github-copilot: {harnesses: [pi], refreshing: true}
   }
 
   seat_secret: "SEAT_{login}__{provider}"
+  preferred_seat_variable: "SEAT_PREFERRED_{login}"
 
+  # Hidden first line of every comment isp-golem-xiv writes.
   marker: {
     reply: "<!-- isp-golem-xiv kind=reply golem={golem} -->"
     refused: "<!-- isp-golem-xiv kind=refused reason={reason} -->"
+    help: "<!-- isp-golem-xiv kind=help -->"
+    seat: "<!-- isp-golem-xiv kind=seat -->"
   }
 
   refusal_reasons: [unknown-golem no-seat not-member]
 
+  outcomes: [changed replied no_change incomplete blocked stopped]
+
+  # Check runs are created on the head of the target's default branch at dispatch time.
+  # {any} stands for one or more non-space characters.
   check_run: {
     name: "golem/{golem}"
-    summary: ["outcome: {outcome}" "seat: {login}/{provider}" "model: "]
+    summary: ["outcome: {outcome}" "seat: {login}/{provider}" "harness: {any}" "model: {any}" "budget: {any}" "log: https://github.com/{ops}/actions/runs/{any}"]
+    no_change: "reason: {any}"
+    fallback: "fallback: {any}"
   }
 
+  pull_request_footer: ["seat: {login}/{provider}" "model: {any}"]
+
+  onboarding: {
+    title: "Enable golems"
+    house_rules: "You are a golem working unattended in this repository."
+    files: [".golems/_golems.md" ".golems/hello.md"]
+  }
+
+  dashboard: {
+    title: "Golems"
+    sections: ["Golems" "Disabled" "Talk to golems" "Seats"]
+  }
+
+  validation_check: "golems/validate"
+
   limits: {
+    poll: 10sec
     seen: 1min
     indexed: 1min
     refusal: 2min
     reply: 15min
+    change: 20min
+    stop: 3min
+    serial: 45min
     loop_watch: 3min
+    onboarding: 5min
+    dashboard: 5min
+    validation: 5min
+    admin: 5min
   }
 
+  # kind: prerequisite = provided by Oliver, exempt from red before green;
+  #       check = verified live by accept.nu;
+  #       evidence = verified by the agent's own tests or a recorded run, listed in EVIDENCE.md.
   promises: [
     {
       id: tester-scopes
       slice: 1
-      text: "The person running accept.nu is signed in to gh with the scopes in tester.gh_scopes."
-      guide: "Ask Oliver to run `gh auth refresh --hostname github.com --scopes <missing>`; you cannot grant scopes yourself. Report it as blocked."
+      kind: prerequisite
+      text: "The person running accept.nu is signed in to gh with the scopes in tester.gh_scopes and has the role tester.org_role in org."
+      guide: "Ask Oliver to run `gh auth refresh --hostname github.com --scopes <missing>`; you cannot grant scopes or roles yourself. Report it as blocked."
     }
     {
       id: app-events
       slice: 1
+      kind: prerequisite
       text: "The App subscribes to every event in app.events."
       guide: "Event subscriptions are set in the App's settings page, which has no API. Ask Oliver to tick the missing events under Subscribe to events and report it as blocked."
     }
     {
       id: app-permissions
       slice: 1
+      kind: prerequisite
       text: "The App and its installation have at least the permissions in app.permissions."
       guide: "Permissions are set in the App's settings page and must then be accepted on the installation. Ask Oliver to grant and accept the missing ones and report it as blocked."
     }
     {
+      id: app-installation
+      slice: 1
+      kind: prerequisite
+      text: "The installation app.installation is active and covers repositories app.repository_selection, so new test and ops repositories are installed automatically."
+      guide: "Ask Oliver to set Repository access to All repositories in the installation settings of org and report it as blocked."
+    }
+    {
+      id: cloudflare-token
+      slice: 1
+      kind: prerequisite
+      text: "The Cloudflare token in secrets.dir is active and the account has the workers.dev subdomain router.workers_subdomain."
+      guide: "Ask Oliver for a new token with Workers Scripts and KV Storage write; never print the token. Report it as blocked."
+    }
+    {
       id: code-repo
       slice: 1
+      kind: prerequisite
       text: "The code repository exists, is public, and has the default branch code.default_branch."
       guide: "It is created by Oliver; if it is missing or private, report it as blocked. Never put target code, seats, or golem run logs here."
     }
     {
       id: code-ci
       slice: 1
-      text: "The latest push run of every workflow on the code default branch succeeded."
-      guide: "Open the failing run with `gh run view --repo <code.repo> --log-failed`, fix the cause, and merge the fix through a pull request. Never skip or weaken a check to turn it green."
+      kind: check
+      text: "The latest completed push run of every workflow on the code default branch succeeded, and no run is still in progress."
+      guide: "Open the failing run with `gh run view --repo <code.repo> --log-failed`, fix the cause, and merge the fix through a pull request. If a run is still in progress, wait and rerun. Never skip or weaken a check to turn it green."
     }
     {
       id: ops-repo
       slice: 1
+      kind: check
       text: "The ops repository exists, is private, and has the default branch ops.default_branch."
       guide: "Create it with `gh repo create <ops.repo> --private` and push <ops.default_branch>. It must stay private because golem run logs contain target code."
     }
     {
       id: runner-workflow
       slice: 1
-      text: "The runner workflow at ops.runner_workflow is on the ops default branch and active."
-      guide: "Add the generic runner workflow at exactly <ops.runner_workflow> in <ops.repo>. It runs a released runner from <code.repo>; golem specifics arrive as dispatch inputs."
+      kind: check
+      text: "The runner workflow at ops.runner_workflow is on the ops default branch, active, and pins a release tag v<n> of code.repo."
+      guide: "Add the generic runner workflow at exactly <ops.runner_workflow> in <ops.repo>, with run-name <ops.run_name>. It runs a released runner from <code.repo>, never an unreleased one; golem specifics arrive as dispatch inputs."
     }
     {
       id: tester-seat
       slice: 1
+      kind: check
       text: "A seat secret for the tester exists in the ops repository, named by seat_secret with tester.provider."
-      guide: "Create the secret from ~/.secrets/isp-golem-xiv/seat.anthropic with `gh secret set <name> --repo <ops.repo>` reading from that file; never print it. Login and provider are uppercased with - replaced by _."
+      guide: "Create the secret from <secrets.dir>/seat.anthropic with `gh secret set <name> --repo <ops.repo>` reading from that file; never print it. Login and provider are uppercased with - replaced by _."
     }
     {
       id: router-deployed
       slice: 1
-      text: "router.url is set and GET router.url + router.health answers 200 with JSON containing app = app.slug."
-      guide: "Deploy the router through CI, then set router.url in contract.nuon to its public URL in a commit `fix(accept): set router url`. The health endpoint needs no authentication and reveals nothing but the app slug and version."
+      kind: check
+      text: "GET router.url + router.health answers 200 with JSON that has exactly the keys app = app.slug and a non-empty version."
+      guide: "Deploy the worker named <router.worker> through CI; its URL is then <router.url>. The health endpoint needs no authentication and reveals nothing but the app slug and the deployed version."
+    }
+    {
+      id: webhook-signature
+      slice: 1
+      kind: check
+      text: "POST router.url + router.webhook with an invalid signature answers 401 and starts nothing."
+      guide: "Verify X-Hub-Signature-256 against the webhook secret before reading the body. Point the App webhook at <router.url><router.webhook> with `PATCH /app/hook/config`, authenticated with a JWT signed by the App private key, and keep the secret in Cloudflare."
     }
     {
       id: router-index
       slice: 1
-      text: "GET router.url + router.golems, authorized with the tester's GitHub token, lists the test repository's golems with their validation errors within limits.indexed."
-      guide: "The endpoint answers {golems: [{name, errors}]} for a repository the caller's token can read, and 403 otherwise. It is fed from the router's golem index; a push touching .golems/ must update it."
+      kind: check
+      text: "GET router.url + router.golems, authorized with the tester's GitHub token, lists the test repository's golems within limits.indexed: valid ones with errors = [], invalid ones with non-empty errors, and a golem pushed later appears within limits.indexed."
+      guide: "The endpoint answers {golems: [{name, errors}]} for a repository the caller's token can read. It is fed from the router's golem index, updated by pushes touching .golems/ and built on first request when missing. Never log or store the caller's token."
+    }
+    {
+      id: router-index-auth
+      slice: 1
+      kind: check
+      text: "GET router.url + router.golems without a token answers 401, and with a token that cannot read the repository 403 or 404."
+      guide: "Check the caller's access with the caller's own token before answering; private repositories must not leak golem names."
     }
     {
       id: seen
       slice: 1
-      text: "A mention gets the eyes reaction within limits.seen."
-      guide: "React with eyes as soon as the router accepts a mention, before any slow work. If it is missing, check that the App webhook points at <router.url> and that the repository carries the topic <test_repos.topic>."
+      kind: check
+      text: "A mention gets the eyes reaction from app.bot within limits.seen of the comment."
+      guide: "React with eyes as soon as the router accepts a mention, before any slow work. If it is missing, check that the App webhook points at <router.url><router.webhook>, is active, and that the repository carries the topic <test_repos.topic>."
     }
     {
       id: dispatched
       slice: 1
-      text: "A mention that starts a run gets the rocket reaction."
-      guide: "React with rocket right after the runner workflow was dispatched successfully."
+      kind: check
+      text: "A mention that starts a run gets the rocket reaction from app.bot and exactly one runner workflow run named by ops.run_name."
+      guide: "React with rocket right after the runner workflow was dispatched successfully; dispatch exactly once per mention, also when GitHub redelivers the webhook (deduplicate on X-GitHub-Delivery)."
     }
     {
       id: reply
       slice: 1
-      text: "The hello golem replies within limits.reply, includes the requested text verbatim, and starts with marker.reply."
-      guide: "The reply must carry the hidden marker as its first line and contain the text after `say` exactly. If no reply appears, inspect the latest runner job with `gh run list --repo <ops.repo> --workflow runner.yml`."
+      kind: check
+      text: "The hello golem replies within limits.reply, starts with marker.reply, contains the content of a file only present in the test repository, and the requested text verbatim."
+      guide: "The reply must carry the hidden marker as its first line. If no reply appears, inspect the latest runner job with `gh run list --repo <ops.repo> --workflow runner.yml`."
     }
     {
       id: audit
       slice: 1
-      text: "Exactly one check run named by check_run.name exists per run, and its summary contains every line of check_run.summary."
-      guide: "Create the check run when the run is dispatched and fill outcome, seat, and model in its summary. The seat line names the GitHub login and provider of the paying seat."
+      kind: check
+      text: "Exactly one check run named by check_run.name exists per run on the head of the target's default branch, completes, and its summary matches every line of check_run.summary."
+      guide: "Create the check run when the run is dispatched and complete it when the run ends, with outcome, seat, harness, model, budget, and the ops run's log link in its summary. The seat line names the GitHub login and provider of the paying seat."
     }
     {
       id: no-loop
       slice: 1
-      text: "Comments by the App never start a run, even when they contain a mention, checked over limits.loop_watch."
-      guide: "Ignore every event whose sender is <app.bot> before parsing it."
+      kind: check
+      text: "Comments by the App never start a run: after limits.loop_watch a mention has caused exactly one runner run and one reply."
+      guide: "Ignore every event whose sender is <app.bot> before parsing it. Only a comment whose first line starts with the mention is a command."
     }
     {
       id: refused-unknown
       slice: 1
-      text: "A mention of an unknown golem gets a reply starting with marker.refused with reason unknown-golem within limits.refusal, and starts no run."
+      kind: check
+      text: "A mention of an unknown golem gets a reply starting with marker.refused with reason unknown-golem within limits.refusal, listing the existing golems, and starts no runner run."
       guide: "Answer from the golem index without dispatching anything; list the golems that do exist in the reply."
+    }
+    {
+      id: refused-no-seat
+      slice: 1
+      kind: evidence
+      text: "A member without a seat is refused with reason no-seat and a link to router.url + router.seats."
+      guide: "Cover it with a test that sends a signed delivery to the router, or record a run; add the link to EVIDENCE.md."
+    }
+    {
+      id: refused-not-member
+      slice: 1
+      kind: evidence
+      text: "A mention by a person outside org is refused with reason not-member, verified with a signed webhook delivery to the deployed router."
+      guide: "Sign a recorded delivery with the webhook secret, send it to <router.url><router.webhook>, and add the resulting comment's link to EVIDENCE.md."
+    }
+
+    {
+      id: change-pr
+      slice: 2
+      kind: check
+      text: "A golem with branch and verify, mentioned with an instruction, opens one pull request from its branch within limits.change whose change follows the instruction, whose body has every line of pull_request_footer, and whose check run says outcome changed."
+      guide: "Run verify before publishing; push with the App identity to the golem's branch and open the pull request as <app.bot>."
+    }
+    {
+      id: continue-branch
+      slice: 2
+      kind: check
+      text: "A second mention of the same golem continues the same branch and pull request instead of starting over."
+      guide: "Check out the golem's branch when it exists and push on top of it."
+    }
+    {
+      id: forbidden-path
+      slice: 2
+      kind: check
+      text: "A golem that changes .golems/ ends with outcome blocked, and nothing is pushed or opened."
+      guide: "Compare the agent's changes against the forbidden paths after the agent ends and before publishing anything."
+    }
+    {
+      id: event-trigger
+      slice: 2
+      kind: check
+      text: "A golem whose triggers match an event runs on the seat of the member who caused it; with nothing to do it ends as no_change with a reason in the check run and writes no comment."
+      guide: "Match triggers as <event> or <event>.<action>. A run without a person to answer reports no_change only in the check run and the dashboard."
+    }
+    {
+      id: no-loop-event
+      slice: 2
+      kind: check
+      text: "A golem triggered by issue_comment.created that replies is not triggered again by its own reply: after limits.loop_watch there is exactly one run and one reply."
+      guide: "Ignore every event whose sender is <app.bot> before matching triggers."
+    }
+    {
+      id: serial
+      slice: 2
+      kind: check
+      text: "Three simultaneous mentions, two of the same golem and one of another, on the same seat all run and reply within limits.serial, one after the other, none cancelled."
+      guide: "Runs of the same golem in the same repository and runs on the same seat never overlap, and pending runs are never dropped. GitHub concurrency groups keep only one pending run by default, so a third run would be cancelled; serialize in a way that keeps every pending run."
+    }
+    {
+      id: stop
+      slice: 2
+      kind: check
+      text: "`@isp-golem-xiv stop` in the thread of a running golem cancels its runner run within limits.stop and its check run says outcome stopped."
+      guide: "Cancel the runner workflow run started from that thread and complete its check run with outcome stopped."
+    }
+    {
+      id: schedule-owner
+      slice: 2
+      kind: evidence
+      text: "A scheduled golem runs once on its day on its owner's seat."
+      guide: "Cover the schedule decision with unit tests and record one real scheduled run; add both to EVIDENCE.md."
+    }
+    {
+      id: bot-owner
+      slice: 2
+      kind: evidence
+      text: "An event caused by a bot other than app.bot runs a triggered golem on its owner's seat."
+      guide: "Cover it with a test of the seat decision and record one real run; add both to EVIDENCE.md."
+    }
+    {
+      id: incomplete
+      slice: 2
+      kind: evidence
+      text: "A run that uses up its timeout ends as incomplete, publishes what passed verify, and the next run continues on its branch."
+      guide: "Record a run with a short timeout; add it to EVIDENCE.md."
+    }
+
+    {
+      id: app-oauth
+      slice: 3
+      kind: prerequisite
+      text: "The App's client secret in secrets.dir is valid, and the App's callback URL is router.url + router.oauth_callback."
+      guide: "Ask Oliver to generate a client secret into <secrets.dir>/<secrets.app_client_secret> and to add the callback URL <router.url><router.oauth_callback> in the App settings. Report it as blocked."
+    }
+    {
+      id: onboarding
+      slice: 3
+      kind: check
+      text: "An allowlisted repository without .golems/ gets the pull request onboarding.title from app.bot within limits.onboarding, adding exactly onboarding.files, with house rules equal to onboarding.house_rules."
+      guide: "Open it on the first push or installation event of an allowlisted repository without .golems/, once per repository."
+    }
+    {
+      id: dashboard
+      slice: 3
+      kind: check
+      text: "After the onboarding pull request is merged, an issue dashboard.title by app.bot is open and pinned within limits.dashboard, has every heading in dashboard.sections, and lists the golem hello."
+      guide: "Create and pin it when .golems/ lands on the default branch, and update it after every run and every change to .golems/."
+    }
+    {
+      id: help
+      slice: 3
+      kind: check
+      text: "A bare mention gets a reply starting with marker.help within limits.refusal that lists every golem of the repository and the tester's provider."
+      guide: "Answer from the golem index and the seat names without dispatching anything."
+    }
+    {
+      id: seat-command
+      slice: 3
+      kind: check
+      text: "`@isp-golem-xiv seat` gets a reply starting with marker.seat within limits.refusal naming the asker's providers and linking router.url + router.seats."
+      guide: "Show only the asker's own seats; never anyone else's."
+    }
+    {
+      id: seat-page
+      slice: 3
+      kind: check
+      text: "GET router.url + router.seats without a session redirects to GitHub sign-in with the App's client id."
+      guide: "Sign people in with the App's user authorization; the callback is <router.url><router.oauth_callback>."
+    }
+    {
+      id: fallback
+      slice: 3
+      kind: check
+      text: "A golem preferring a provider the tester has no seat at runs on another of the tester's seats and says so: its check run summary matches check_run.fallback."
+      guide: "Name what was asked for, what was used, and why, in the reply and the check run."
+    }
+    {
+      id: validation
+      slice: 3
+      kind: check
+      text: "A pull request adding an invalid golem gets the check validation_check failing within limits.validation; after merge the dashboard lists it under Disabled."
+      guide: "Validate .golems/ in pull requests with the same parser the router uses."
+    }
+    {
+      id: seat-registration
+      slice: 3
+      kind: evidence
+      text: "A person registers a seat on the seats page, the browser encrypts it, the router never sees it, and the next mention runs on it."
+      guide: "Drive the page in a browser session Oliver provides; add the run link to EVIDENCE.md."
+    }
+    {
+      id: seat-refresh
+      slice: 3
+      kind: evidence
+      text: "A refreshing seat whose sign-in is due for refresh is refreshed during a run, written back, and still works for the next two runs."
+      guide: "Seed a sign-in whose last refresh is older than the provider's refresh interval, then show the stored seat changed after the run; add the runs to EVIDENCE.md."
+    }
+    {
+      id: seat-replace
+      slice: 3
+      kind: evidence
+      text: "Registering again replaces the previous sign-in."
+      guide: "Add a test or recorded run to EVIDENCE.md."
+    }
+    {
+      id: seat-left-org
+      slice: 3
+      kind: evidence
+      text: "Seats of people who left org are reported on the dashboard."
+      guide: "Cover it with a test of the dashboard rendering; add it to EVIDENCE.md."
+    }
+
+    {
+      id: admin-auth
+      slice: 4
+      kind: check
+      text: "GET router.url + router.admin without a session redirects to GitHub sign-in with the App's client id."
+      guide: "Only members of <org> may see the admin dashboard."
+    }
+    {
+      id: admin-runs
+      slice: 4
+      kind: check
+      text: "GET router.url + router.admin_runs, authorized with the tester's GitHub token, lists the hello run of this acceptance run within limits.admin with repo, golem, trigger, seat, model, outcome, duration_s, and log."
+      guide: "Derive runs from GitHub only, bounded per request to stay within Workers Free limits; cache only what can be rebuilt. Never log or store the caller's token."
+    }
+    {
+      id: admin-page
+      slice: 4
+      kind: evidence
+      text: "The admin dashboard renders every section of SPEC.md, Admin dashboard, for a signed-in member."
+      guide: "Add a screenshot or recorded session to EVIDENCE.md."
     }
   ]
 }

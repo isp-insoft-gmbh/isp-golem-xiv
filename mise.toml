@@ -1,5 +1,5 @@
+# Rust is not listed: rustup reads the pinned toolchain from rust-toolchain.toml, which the first Rust code adds.
 [tools]
-rust = "stable"
 nushell = "0.116.1"
 
 [tasks.ci]
