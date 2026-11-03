@@ -1,0 +1,6 @@
+{
+  "toml": {},
+  "includes": ["**/*.toml"],
+  "excludes": ["**/target/**", "dist/**", "router/build/**"],
+  "plugins": ["https://plugins.dprint.dev/toml-0.7.0.wasm"]
+}

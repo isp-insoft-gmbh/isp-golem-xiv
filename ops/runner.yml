@@ -1,0 +1,89 @@
+name: runner
+run-name: ${{ inputs.repo }} ${{ inputs.golem }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: Target repository (owner/name)
+        required: true
+        type: string
+      golem:
+        description: Golem name
+        required: true
+        type: string
+      request:
+        description: Validated version 1 dispatch JSON
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  runner:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 325
+    steps:
+      - name: Reject workflow reruns before agent access
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_RUN_ATTEMPT:-}" = 1
+      - name: Download pinned public runner
+        env:
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v0
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output golem-runner-linux-x86_64 \
+            "$RUNNER_RELEASE_URL/golem-runner-linux-x86_64"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+            --output golem-runner-linux-x86_64.sha256 \
+            "$RUNNER_RELEASE_URL/golem-runner-linux-x86_64.sha256"
+          sha256sum --check --strict golem-runner-linux-x86_64.sha256
+          chmod 700 golem-runner-linux-x86_64
+      - name: Validate dispatch before selecting credentials
+        id: validate
+        env:
+          GOLEM_REQUEST: ${{ inputs.request }}
+          GOLEM_REPO: ${{ inputs.repo }}
+          GOLEM_NAME: ${{ inputs.golem }}
+        shell: bash
+        run: '"$RUNNER_TEMP/golem-runner-linux-x86_64" --validate'
+      - name: Install pinned mise
+        id: mise
+        continue-on-error: true
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          version: 2026.10.21
+          install: false
+          cache: false
+      - name: Prepare isolated pinned Claude subscription harness
+        id: prepare
+        if: steps.mise.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: '"$RUNNER_TEMP/golem-runner-linux-x86_64" --prepare "$(command -v mise)"'
+      - name: Run exactly one golem
+        env:
+          GOLEM_REQUEST: ${{ inputs.request }}
+          GOLEM_REPO: ${{ inputs.repo }}
+          GOLEM_NAME: ${{ inputs.golem }}
+          GOLEM_APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
+          GOLEM_PREPARATION: ${{ steps.prepare.outcome }}
+          GOLEM_SEAT_SECRET_NAME: ${{ steps.validate.outputs.seat_secret }}
+          # Native validation emits one SEAT_<LOGIN>__ANTHROPIC key; only its value becomes env.
+          GOLEM_SEAT: ${{ secrets[steps.validate.outputs.seat_secret] }} # zizmor: ignore[overprovisioned-secrets]
+        shell: bash
+        run: '"$RUNNER_TEMP/golem-runner-linux-x86_64"'
+      - name: Ensure cancellation cannot leave an agent alive
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="golem-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if docker container inspect "$name" >/dev/null 2>&1; then
+            docker rm --force "$name" >/dev/null
+          fi

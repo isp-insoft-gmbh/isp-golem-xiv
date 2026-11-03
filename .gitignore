@@ -1,3 +1,10 @@
 /target/
 /dist/
 .rumdl_cache/
+/router/build/
+/router/target/
+/runner/target/
+/x/target/
+/mutants.out/
+/mutants.out.old/
+.pi/loop/state.db
