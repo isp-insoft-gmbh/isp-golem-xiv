@@ -1,0 +1,3 @@
+# Documents are written one sentence per line, so line length is not a useful rule here.
+[global]
+disable = ["MD013"]

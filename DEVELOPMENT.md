@@ -21,22 +21,36 @@ The style is [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/d
 
 ## Linting
 
-- Rust edition 2024, toolchain pinned in `rust-toolchain.toml`.
+- Rust edition 2024, toolchain pinned to an exact version in `rust-toolchain.toml` with `clippy`, `rustfmt`, and the `wasm32-unknown-unknown` target; rustup reads it, mise does not manage Rust.
+  A toolchain bump is its own pull request, so new lints never break `trunk` unannounced.
 - `rustfmt` with defaults.
-- Clippy groups `all`, `pedantic`, `suspicious`, `complexity`, `perf`, `style`, and `cargo` as warnings; CI turns every warning into an error.
-- Rust lints that catch real bugs are denied, among them `unused_unsafe`, `let_underscore_drop`, `irrefutable_let_patterns`, and `missing_docs` for public items.
+- Clippy groups `all`, `pedantic`, `suspicious`, `complexity`, `perf`, and `style` as warnings; CI turns every warning into an error.
+- `unsafe_code` is forbidden; `let_underscore_drop` and `irrefutable_let_patterns` are denied.
+- Code that handles external input, above all the router, denies `unwrap_used`, `expect_used`, `indexing_slicing`, and `panic` outside tests.
 - A lint is only silenced at the narrowest scope, with a reason in a comment.
 - Beyond Rust, one tool per class of bug, all installed by mise, all part of `mise run ci`, all blocking:
 
 | Tool | Catches |
 |---|---|
-| `cargo-deny` | known vulnerabilities in dependencies, unwanted licenses, duplicate or banned crates |
+| `cargo-deny` | unwanted licenses, duplicate or banned crates, unknown sources; advisories block only pull requests that change `Cargo.lock`, a scheduled run reports new ones |
 | `cargo-machete` | dependencies that are not used |
 | `actionlint` | broken workflow files |
 | `zizmor` | insecure workflows: script injection, unpinned actions, broad permissions |
 | `typos` | typos in code, identifiers, and documentation |
-| `rumdl`, `dprint` | Markdown and TOML formatting |
+| `rumdl` | Markdown, configured in `.rumdl.toml` |
+| `dprint` | TOML formatting |
 | `nu-check` | Nushell scripts that do not parse |
+
+## Router on Cloudflare Workers
+
+The router runs as WebAssembly, where some of the standard library fails at runtime and a panic loses the request.
+
+- Logic lives in a crate that compiles and is tested on the host; the worker crate only translates between Workers and that logic.
+- CI runs Clippy for `wasm32-unknown-unknown` and builds the worker on every pull request.
+- Time comes from the Workers runtime at the edge and is passed in; `std::time::Instant` and `SystemTime` are never used in wasm code.
+- External input never panics; it becomes an error answer.
+- Webhook deliveries are deduplicated by `X-GitHub-Delivery`, because a redelivered event would otherwise start and charge a second run.
+- Slow work never delays the webhook answer.
 
 ## Tests
 
@@ -48,11 +62,12 @@ Tests protect behavior, not construction history.
 | snapshot | stable text a human reviews: replies, check run summaries, dashboard Markdown | every changed snapshot is reviewed and traced to code |
 | property | parsers, the seat-name mapping, fallback selection, anything with an input space | invariants instead of hand-picked examples |
 | mutation | the code being written, while it is written | stronger tests; never a gate |
-| coverage | a diagnostic, not a target | a ratchet: line and branch coverage per crate may only drop with a reason in the pull request, e.g. removed code or I/O glue covered by `accept.nu` |
+| coverage | a diagnostic, not a target | a ratchet: line and branch coverage per crate, kept in a committed baseline file updated by the pull request that changes it, may only drop with a reason in the pull request, e.g. removed code or I/O glue covered by `accept.nu` |
 | acceptance | the deployed system | `accept.nu` against `contract.nuon` |
 
 - Tools: the standard test harness, `insta` for snapshots, `proptest` for properties, `cargo-mutants` for mutation, `cargo-llvm-cov` for coverage.
 - Test names state the situation and the expectation.
+- Parsers of GitHub payloads are tested with real deliveries captured from the App, not hand-written ones.
 - A failing test is diagnosed before it is changed; tests are never weakened to get green.
 - Fast tests run on every change.
 
@@ -112,11 +127,11 @@ Mise is the single entry point for people, the agent, and CI.
 - `README.md` says what it is and how to start in under a minute.
 - `SPEC.md` says what it does, `PLAN.md` how it gets built, `DEVELOPMENT.md` how it is developed, `DECISIONS.md` why things are the way they are.
 - User documentation is written for the people who meet golems on GitHub: how to enable, write, run, and pay for golems.
-- Examples in documentation are tested, through `mdbook test` and doc tests.
+- Examples in documentation are tested: Rust examples as doc tests, golem examples by the product's own golem parser.
 
 ## GitHub Pages
 
-The code repository publishes an [mdBook](https://rust-lang.github.io/mdBook/) site from `trunk`, built with mise and checked with `mdbook test`:
+The code repository publishes an [mdBook](https://rust-lang.github.io/mdBook/) site from `trunk`, built with mise:
 
 - user documentation,
 - the latest release and its notes,
@@ -130,8 +145,10 @@ The code repository publishes an [mdBook](https://rust-lang.github.io/mdBook/) s
 - Superseded pull request runs are cancelled; publication and deployment runs are not.
 - Results are reported where people look: check runs for status, annotations for actionable problems, the job summary for a short human report.
 - Artifacts only when data must be downloaded, with a short retention.
-- Untrusted pull request code never sees secrets.
-- Nothing from a target repository ever appears in the code repository's CI.
+- Untrusted pull request code never sees secrets; `pull_request_target` is not used.
+- Deployment secrets live in the `production` environment, reachable only from `trunk` and release tags.
+- Repository Actions settings, including required SHA pinning and read-only default tokens, are part of `.github/settings.nuon`.
+- Nothing from a target repository ever appears in the code repository's CI; end-to-end scenarios run through `accept.nu` outside it.
 
 ## Admin dashboard
 
