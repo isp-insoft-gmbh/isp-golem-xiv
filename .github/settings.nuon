@@ -1,0 +1,67 @@
+# GitHub settings of the isp-golem-xiv repositories, applied idempotently by `mise run gh-settings`.
+{
+  code: {
+    repo: "isp-insoft-gmbh/isp-golem-xiv"
+    repository: {
+      visibility: public
+      has_issues: true
+      has_wiki: false
+      has_projects: false
+      has_discussions: false
+      allow_merge_commit: false
+      allow_squash_merge: true
+      allow_rebase_merge: true
+      allow_auto_merge: true
+      delete_branch_on_merge: true
+      squash_merge_commit_title: COMMIT_OR_PR_TITLE
+      squash_merge_commit_message: COMMIT_MESSAGES
+      security_and_analysis: {
+        secret_scanning: {status: enabled}
+        secret_scanning_push_protection: {status: enabled}
+      }
+    }
+    # trunk changes only through pull requests with a green `ci` check, also for admins.
+    protection: {
+      branch: trunk
+      rules: {
+        required_status_checks: {strict: true, checks: [{context: ci, app_id: 15368}]}
+        enforce_admins: true
+        required_pull_request_reviews: {required_approving_review_count: 0, dismiss_stale_reviews: false, require_code_owner_reviews: false}
+        restrictions: null
+        required_linear_history: true
+        allow_force_pushes: false
+        allow_deletions: false
+        required_conversation_resolution: true
+      }
+    }
+    rulesets: [
+      {
+        name: "Keep release tags immutable"
+        target: tag
+        enforcement: active
+        conditions: {ref_name: {include: ["refs/tags/v*"], exclude: []}}
+        rules: [{type: update} {type: deletion}]
+        bypass_actors: []
+      }
+      {
+        name: "Restrict release tag creation to administrators"
+        target: tag
+        enforcement: active
+        conditions: {ref_name: {include: ["refs/tags/v*"], exclude: []}}
+        rules: [{type: creation}]
+        bypass_actors: [{actor_id: 5, actor_type: RepositoryRole, bypass_mode: always}]
+      }
+    ]
+  }
+  # Private repositories on the free plan support neither branch protection nor rulesets.
+  ops: {
+    repo: "isp-insoft-gmbh/isp-golem-xiv-ops"
+    repository: {
+      visibility: private
+      has_issues: false
+      has_wiki: false
+      has_projects: false
+      has_discussions: false
+    }
+  }
+}

@@ -1,0 +1,19 @@
+[tools]
+rust = "stable"
+nushell = "0.116.1"
+
+[tasks.ci]
+description = "Repository gate run by CI; extend it as code arrives"
+run = "nu --no-config-file tools/ci.nu"
+
+[tasks.accept]
+description = "Black-box acceptance test against the deployed system"
+run = "nu --no-config-file accept.nu"
+
+[tasks.release]
+description = "Push the next annotated tag v<n> with a one-line message; CI validates, builds dist/, and publishes"
+run = "nu --no-config-file tools/release.nu"
+
+[tasks.gh-settings]
+description = "Apply .github/settings.nuon to the GitHub repositories"
+run = "nu --no-config-file tools/gh-settings.nu"

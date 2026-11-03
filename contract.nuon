@@ -1,0 +1,179 @@
+# Acceptance contract of isp-golem-xiv: the single source of truth for promises the implementation keeps.
+# accept.nu checks every promise below; PLAN.md explains the rules for changing this file.
+{
+  version: 1
+
+  org: "isp-insoft-gmbh"
+
+  app: {
+    slug: "isp-golem-xiv"
+    id: 4605060
+    installation: 153964219
+    bot: "isp-golem-xiv[bot]"
+    events: [issues issue_comment pull_request pull_request_review push]
+    permissions: {
+      actions: write
+      actions_variables: write
+      checks: write
+      contents: write
+      issues: write
+      members: read
+      metadata: read
+      pull_requests: write
+      secrets: write
+      statuses: read
+    }
+  }
+
+  # Public code: router, runner, tests, releases.
+  code: {
+    repo: "isp-insoft-gmbh/isp-golem-xiv"
+    default_branch: "trunk"
+    ci_check: "ci"
+  }
+
+  # Private operations: the runner workflow, seats, and every golem run's logs.
+  ops: {
+    repo: "isp-insoft-gmbh/isp-golem-xiv-ops"
+    default_branch: "trunk"
+    runner_workflow: ".github/workflows/runner.yml"
+  }
+
+  # Set by the agent once the router is deployed; null means not deployed yet.
+  router: {
+    url: null
+    health: "/health"
+    golems: "/v1/repos/{repo}/golems"
+  }
+
+  tester: {
+    gh_scopes: [repo delete_repo workflow read:org]
+    provider: "anthropic"
+  }
+
+  test_repos: {
+    prefix: "isp-golem-xiv-test-"
+    topic: "isp-golem-xiv-test"
+  }
+
+  seat_secret: "SEAT_{login}__{provider}"
+
+  marker: {
+    reply: "<!-- isp-golem-xiv kind=reply golem={golem} -->"
+    refused: "<!-- isp-golem-xiv kind=refused reason={reason} -->"
+  }
+
+  refusal_reasons: [unknown-golem no-seat not-member]
+
+  check_run: {
+    name: "golem/{golem}"
+    summary: ["outcome: {outcome}" "seat: {login}/{provider}" "model: "]
+  }
+
+  limits: {
+    seen: 1min
+    indexed: 1min
+    refusal: 2min
+    reply: 15min
+    loop_watch: 3min
+  }
+
+  promises: [
+    {
+      id: tester-scopes
+      slice: 1
+      text: "The person running accept.nu is signed in to gh with the scopes in tester.gh_scopes."
+      guide: "Ask Oliver to run `gh auth refresh --hostname github.com --scopes <missing>`; you cannot grant scopes yourself. Report it as blocked."
+    }
+    {
+      id: app-events
+      slice: 1
+      text: "The App subscribes to every event in app.events."
+      guide: "Event subscriptions are set in the App's settings page, which has no API. Ask Oliver to tick the missing events under Subscribe to events and report it as blocked."
+    }
+    {
+      id: app-permissions
+      slice: 1
+      text: "The App and its installation have at least the permissions in app.permissions."
+      guide: "Permissions are set in the App's settings page and must then be accepted on the installation. Ask Oliver to grant and accept the missing ones and report it as blocked."
+    }
+    {
+      id: code-repo
+      slice: 1
+      text: "The code repository exists, is public, and has the default branch code.default_branch."
+      guide: "It is created by Oliver; if it is missing or private, report it as blocked. Never put target code, seats, or golem run logs here."
+    }
+    {
+      id: code-ci
+      slice: 1
+      text: "The latest push run of every workflow on the code default branch succeeded."
+      guide: "Open the failing run with `gh run view --repo <code.repo> --log-failed`, fix the cause, and merge the fix through a pull request. Never skip or weaken a check to turn it green."
+    }
+    {
+      id: ops-repo
+      slice: 1
+      text: "The ops repository exists, is private, and has the default branch ops.default_branch."
+      guide: "Create it with `gh repo create <ops.repo> --private` and push <ops.default_branch>. It must stay private because golem run logs contain target code."
+    }
+    {
+      id: runner-workflow
+      slice: 1
+      text: "The runner workflow at ops.runner_workflow is on the ops default branch and active."
+      guide: "Add the generic runner workflow at exactly <ops.runner_workflow> in <ops.repo>. It runs a released runner from <code.repo>; golem specifics arrive as dispatch inputs."
+    }
+    {
+      id: tester-seat
+      slice: 1
+      text: "A seat secret for the tester exists in the ops repository, named by seat_secret with tester.provider."
+      guide: "Create the secret from ~/.secrets/isp-golem-xiv/seat.anthropic with `gh secret set <name> --repo <ops.repo>` reading from that file; never print it. Login and provider are uppercased with - replaced by _."
+    }
+    {
+      id: router-deployed
+      slice: 1
+      text: "router.url is set and GET router.url + router.health answers 200 with JSON containing app = app.slug."
+      guide: "Deploy the router through CI, then set router.url in contract.nuon to its public URL in a commit `fix(accept): set router url`. The health endpoint needs no authentication and reveals nothing but the app slug and version."
+    }
+    {
+      id: router-index
+      slice: 1
+      text: "GET router.url + router.golems, authorized with the tester's GitHub token, lists the test repository's golems with their validation errors within limits.indexed."
+      guide: "The endpoint answers {golems: [{name, errors}]} for a repository the caller's token can read, and 403 otherwise. It is fed from the router's golem index; a push touching .golems/ must update it."
+    }
+    {
+      id: seen
+      slice: 1
+      text: "A mention gets the eyes reaction within limits.seen."
+      guide: "React with eyes as soon as the router accepts a mention, before any slow work. If it is missing, check that the App webhook points at <router.url> and that the repository carries the topic <test_repos.topic>."
+    }
+    {
+      id: dispatched
+      slice: 1
+      text: "A mention that starts a run gets the rocket reaction."
+      guide: "React with rocket right after the runner workflow was dispatched successfully."
+    }
+    {
+      id: reply
+      slice: 1
+      text: "The hello golem replies within limits.reply, includes the requested text verbatim, and starts with marker.reply."
+      guide: "The reply must carry the hidden marker as its first line and contain the text after `say` exactly. If no reply appears, inspect the latest runner job with `gh run list --repo <ops.repo> --workflow runner.yml`."
+    }
+    {
+      id: audit
+      slice: 1
+      text: "Exactly one check run named by check_run.name exists per run, and its summary contains every line of check_run.summary."
+      guide: "Create the check run when the run is dispatched and fill outcome, seat, and model in its summary. The seat line names the GitHub login and provider of the paying seat."
+    }
+    {
+      id: no-loop
+      slice: 1
+      text: "Comments by the App never start a run, even when they contain a mention, checked over limits.loop_watch."
+      guide: "Ignore every event whose sender is <app.bot> before parsing it."
+    }
+    {
+      id: refused-unknown
+      slice: 1
+      text: "A mention of an unknown golem gets a reply starting with marker.refused with reason unknown-golem within limits.refusal, and starts no run."
+      guide: "Answer from the golem index without dispatching anything; list the golems that do exist in the reply."
+    }
+  ]
+}
