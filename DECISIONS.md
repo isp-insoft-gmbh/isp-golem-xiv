@@ -3,6 +3,40 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-03: First authenticated-path acceptance fails before agent startup
+
+- After successful release `v0` (`41700313107`), full `mise run accept -- --slice 1` passed all static promises plus index, eyes, dispatch, unknown-golem refusal.
+  It failed reply (`no reply containing the nonce within 15min`) and audit (`summary lacks lines matching: outcome: replied`); no-loop was skipped, not observed failing.
+- Private runner job `41702041018` failed before provider execution: `snapshot contains a link or special file`.
+  This is an archive handling defect, not evidence of invalid subscription credentials.
+- Actual codeload archive of the public code repository starts with `pax_global_header`, type `g`, containing `52 comment=<40-hex-commit>\n`.
+  `tar` exposes this global header; the old extractor rejected it.
+- Runner now inspects raw entries and permits only that first, exact-sized commit-comment record.
+  Path/link/size overrides, malformed or oversized metadata, other extensions, links and devices remain rejected.
+  Expanded-size accounting includes metadata, headers, padding and trailing bytes without retaining trailing data.
+  Permanent representative regression was red with the deployed error, then green; extraction of the actual downloaded public code archive also passed.
+  Temporary archive and probe artifacts were cleaned; no target source was placed in the public code repository.
+- Actual immutable public archive differential proof (not the synthetic regression fixture): downloaded `https://codeload.github.com/isp-insoft-gmbh/isp-golem-xiv/tar.gz/8b13b0f1a33b10d9b26738002e6d697785a228d0`, 108774 compressed bytes, SHA-256 `2db21cc3ad4459c8ff563725aeda8b963547fe1b3b5a3e17eaff306024075369`.
+  An OS-temp Rust driver included old source obtained by `git show 8b13b0f:runner/src/snapshot.rs` and current source as separate modules, linked existing locked dependency artifacts, and ran both on identical downloaded bytes.
+  Old source SHA-256 `d0e0bdba034bd61351489c66d76ee8879eba6bc54a5428c72cb069fd7decf601` returned exactly `snapshot contains a link or special file`, extracting zero entries.
+  Current source SHA-256 `6663793378db19160a3489767ee970d20ba9f817915d5b2adeabf13cad678b3c` extracted 54 files and 12 directories, 364219 payload bytes, with no metadata file.
+  Extracted README.md (310 bytes, Git blob `1c7c7483c107e9f0cc97a746b3c17074140b7bf3`) and LICENSE (1072 bytes, Git blob `55ec06c8f9e9c69ea71755e61081340d5460103a`) exactly matched independent Contents API bytes at the same immutable commit; API blob hashes were recomputed.
+  Identical assertions passed twice; temporary downloads, old/new source copies, driver, executable and extracted trees were removed.
+- This still does not prove authenticated agent execution; a new released runner and three consecutive full acceptance passes remain required.
+
+## 2026-11-03: Deployed Slice 1 preflight
+
+- PR #4 merged only after required Linux `ci` succeeded on exact intended head `b18fa24` (run `41696918035`), including actual pinned image build and timeout entrypoint tests.
+  Rebase merge preserved agent authors; trunk `8b13b0f` subsequently passed `ci` (`41697718686`) and deployed through CI (`41697718711`).
+- All Slice 1 static checks now pass, including health/version, bad signature rejection, index auth.
+  Earlier red observations for these static promises are retained above/below; live acceptance scenarios are still pending.
+- `tools/prove-refusals.mjs` captured a real App delivery and sent signed actor simulations to the deployed Worker.
+  Both no-seat and non-member refusals were independently read back; no matching runner workflows started.
+  These are simulations, not actions performed by the named account holders; links and reproducible path are in `EVIDENCE.md`.
+- Proof helper initially failed delivery-detail lookup because JSON numeric delivery IDs exceeded JS safe integer precision.
+  Preserving their exact decimal strings corrected the URL; resumed the same repository rather than generating more test repositories.
+- Release `v0` was tagged only after trunk CI passed and real distribution packaging had passed in PR CI; publishing remains CI-only.
+
 ## 2026-11-03: Container compatibility diagnosis
 
 - Linux CI `41693321024` (`69a0b0c`) and `41695226429` (`14a8728`) passed `mise run ci` but failed the separate agent-container step; neither constitutes a green required `ci` check.
