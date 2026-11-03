@@ -1,17 +1,73 @@
-# Rust is not listed: rustup reads the pinned toolchain from rust-toolchain.toml, which the first Rust code adds.
+# Rust is managed by rustup through rust-toolchain.toml, never by mise.
 [tools]
 nushell = "0.116.1"
+node = "26.13.0"
+github-cli = "2.103.3"
+cargo-deny = "0.20.2"
+"cargo:cargo-machete" = "0.9.2"
+actionlint = "1.7.12"
+zizmor = "1.31.1"
+typos = "1.51.1"
+rumdl = "0.3.2"
+dprint = "0.64.3"
+"cargo:worker-build" = "0.8.7"
+"cargo:wasm-bindgen-cli" = "0.2.130"
+"npm:esbuild" = "0.28.2"
+"npm:miniflare" = "5.20261103.0-beta"
+"github:WebAssembly/binaryen" = { version = "132", version_prefix = "version_", strip_components = 1, bin_path = "bin" }
+"cargo:cargo-mutants" = "27.1.0"
+
+# Force worker-build to use mise-managed tools instead of its internal downloader.
+[env]
+# Host-global target-cpu=native breaks wasm features and makes runner releases nonportable.
+# Clippy still receives -D warnings explicitly from the xtask.
+CARGO_ENCODED_RUSTFLAGS = ""
+WASM_BINDGEN_BIN = "wasm-bindgen"
+WASM_BINDGEN_TEST_RUNNER_BIN = "wasm-bindgen-test-runner"
+ESBUILD_BIN = "esbuild"
+WASM_OPT_BIN = "wasm-opt"
+MINIFLARE_ROOT = { value = "{{ tools['npm:miniflare'].path }}", tools = true }
 
 [tasks.ci]
-description = "Repository gate run by CI; extend it as code arrives"
-run = "nu --no-config-file tools/ci.nu"
+description = "Host tests, wasm build, Rust and repository checks"
+run = "cargo run --locked -p x -- ci"
+
+[tasks.test]
+description = "Host, snapshot, documentation and workerd tests"
+depends = ["worker"]
+run = "cargo run --locked -p x -- test"
+
+[tasks.fmt]
+description = "Format Rust and TOML"
+run = "cargo run --locked -p x -- fmt"
+
+[tasks.dist]
+description = "Build the native runner and deployable Worker modules"
+run = "cargo run --locked -p x -- dist"
+
+[tasks.worker]
+description = "Build the deployable Worker modules"
+run = "cargo run --locked -p x -- worker"
+
+[tasks.test-worker]
+description = "Router runtime and delivered Worker tests under workerd"
+depends = ["worker"]
+run = "cargo run --locked -p x -- test-worker"
+
+[tasks.test-agent]
+description = "Build and exercise the pinned agent container"
+run = "nu --no-config-file tools/agent-container-test.nu"
+
+[tasks.deploy]
+description = "CI-only trunk deployment using the Workers REST API"
+run = "nu --no-config-file tools/deploy.nu"
 
 [tasks.accept]
 description = "Black-box acceptance test against the deployed system"
 run = "nu --no-config-file accept.nu"
 
 [tasks.release]
-description = "Push the next annotated tag v<n> with a one-line message; CI validates, builds dist/, and publishes"
+description = "Push next annotated v<n> tag; CI validates and publishes"
 run = "nu --no-config-file tools/release.nu"
 
 [tasks.gh-settings]

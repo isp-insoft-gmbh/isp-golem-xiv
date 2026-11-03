@@ -1,0 +1,41 @@
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+allow = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+confidence-threshold = 0.93
+
+# Mozilla CA trust-anchor data used by reqwest/rustls; reviewed permissive data license.
+# Section 2.1 requires its text to accompany redistributed data, so dist ships it.
+[[licenses.exceptions]]
+name = "webpki-roots"
+version = "=1.0.11"
+allow = ["CDLA-Permissive-2.0"]
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+# Exact transition versions only; new duplicate versions still fail.
+skip = [
+  { name = "base64", version = "=0.22.1", reason = "jsonwebtoken 9, pem 3 and reqwest 0.12 require 0.22; hyper-util 0.1.21 requires incompatible 0.23" },
+  { name = "getrandom", version = "=0.2.17", reason = "ring 0.17 requires 0.2; tempfile 3.27 requires 0.4; consumers expose incompatible generation APIs" },
+  { name = "syn", version = "=2.0.119", reason = "worker 0.8.7 uses pin-project and strum macros on syn 2 while current serde and wasm-bindgen macros require syn 3" },
+  { name = "windows-sys", version = "=0.52.0", reason = "ring 0.17 still targets Windows bindings 0.52; tokio and tempfile use 0.61 bindings" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -4,23 +4,44 @@ on:
   pull_request:
   push:
     branches: [trunk]
+  schedule:
+    - cron: "23 7 * * 1"
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Superseded pull request runs are cancelled; runs on trunk always finish.
+  # Publication/deployment is separate and never cancelled.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # The job name is the required status check of trunk; keep it `ci`.
+  # Required status check: retain this exact job name.
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: "2026.10.21"
+      - name: Advisory policy
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          check=false
+          if [ "$EVENT" = schedule ]; then
+            check=true
+          elif [ "$EVENT" = pull_request ]; then
+            if ! git diff --quiet "$BASE_SHA" HEAD -- Cargo.lock; then
+              check=true
+            fi
+          fi
+          printf 'GOLEM_CHECK_ADVISORIES=%s\n' "$check" >> "$GITHUB_ENV"
       - run: mise run ci
+      - name: Agent container
+        run: mise run test-agent
