@@ -804,7 +804,7 @@ async fn process_mention(
     mention: &Delivery,
     delivery_id: &str,
     repository: &str,
-    head: &str,
+    info: &Value,
 ) -> Result<()> {
     github
         .reaction(repository, mention.comment.id, "eyes")
@@ -826,7 +826,8 @@ async fn process_mention(
         }
         return Ok(());
     }
-    let golems = github.index(repository, head).await?;
+    let head = github.head(repository, info).await?;
+    let golems = github.index(repository, &head).await?;
     let Some(golem) = golems
         .iter()
         .find(|golem| golem.name == command.golem && golem.errors.is_empty())
@@ -839,7 +840,7 @@ async fn process_mention(
     let prepared = prepare_request(github, golem, json!({"delivery_id":delivery_id,"repository_id":delivery.repository.id,"repository":repository,"head_sha":head,"trigger":"mention","issue_number":mention.issue.number,"comment_id":mention.comment.id,"actor_id":mention.sender.id,"actor_login":mention.sender.login,"seat_login":mention.sender.login,"instructions":command.instructions})).await?;
     let mut work = EventWork {
         version: 2,
-        head: head.into(),
+        head,
         delivery_id: delivery_id.into(),
         event: "issue_comment".into(),
         delivery: delivery.clone(),
@@ -861,8 +862,7 @@ async fn process_mention(
     .await?;
     work.prepared = None;
     work.next += 1;
-    update_event_index(github, &work.delivery_id, false).await?;
-    delete_event_work(github, &path, &sha).await?;
+    retire_event(github, &work.delivery_id, Some(&sha)).await?;
     Ok(())
 }
 
@@ -889,33 +889,26 @@ async fn process(
     if info.get("id").and_then(Value::as_u64) != Some(delivery.repository.id) {
         return Err(failure("repository identity mismatch"));
     }
+    // Contents cannot create its branch. Bootstrap before consuming the claim.
+    let (status, _) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{OPS}/git/ref/heads/golem-state"),
+            None,
+        )
+        .await?;
+    if status == 404 {
+        let response = coordinate_budgeted(&env, &github, "tick", json!({})).await?;
+        if !(200..300).contains(&response.status_code()) {
+            return Err(failure("event journal initialization failed"));
+        }
+    } else if status != 200 {
+        return Err(failure("event journal branch lookup failed"));
+    }
     if !github.claim(&delivery_id, &digest).await? {
         return Ok(());
     }
     if let Some(mention) = mention {
-        github
-            .reaction(repository, mention.comment.id, "eyes")
-            .await?;
-        if !github.member(&mention.sender.login).await? {
-            return github.refuse(&mention, "not-member", &[]).await;
-        }
-        let command =
-            parse_mention(&mention.comment.body).ok_or_else(|| failure("invalid mention"))?;
-        if command.golem == "stop" {
-            let response = coordinate_budgeted(
-                &env,
-                &github,
-                "stop",
-                json!({"repository":repository,"issue_number":mention.issue.number}),
-            )
-            .await?;
-            if !(200..300).contains(&response.status_code()) {
-                return Err(failure("stop failed"));
-            }
-            // Only coordinator can cancel and repair stopped checks; reservation stays held.
-            return Ok(());
-        }
-        let head = github.head(repository, &info).await?;
         return process_mention(
             &env,
             &github,
@@ -923,7 +916,7 @@ async fn process(
             &mention,
             &delivery_id,
             repository,
-            &head,
+            &info,
         )
         .await;
     }
@@ -966,9 +959,8 @@ async fn process(
         resume_event(&env, &github, &mut work).await?;
         sha = save_event_work(&github, &path, &work, Some(&sha)).await?;
     }
-    if work.next == work.golems.len() {
-        update_event_index(&github, &work.delivery_id, false).await?;
-        delete_event_work(&github, &path, &sha).await?;
+    if work.next == work.golems.len() && github.requests.get() <= SUBREQUESTS_MAX - 9 {
+        retire_event(&github, &work.delivery_id, Some(&sha)).await?;
     }
     Ok(())
 }
@@ -1213,6 +1205,110 @@ async fn resume_event(env: &Env, github: &Github, work: &mut EventWork) -> Resul
     Ok(())
 }
 
+// Completion retains the original annotated source, not a lossy summary.
+async fn event_reference(github: &Github, prefix: &str, id: &str) -> Result<Option<String>> {
+    let name = format!("refs/tags/{prefix}/{id}");
+    let (status, value) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{OPS}/git/ref/tags/{prefix}/{id}"),
+            None,
+        )
+        .await?;
+    if status == 404 {
+        return Ok(None);
+    }
+    if status != 200
+        || value.get("ref").and_then(Value::as_str) != Some(name.as_str())
+        || value.pointer("/object/type").and_then(Value::as_str) != Some("tag")
+    {
+        return Err(failure("invalid event receipt reference"));
+    }
+    let sha = value
+        .pointer("/object/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| valid_sha(sha))
+        .ok_or_else(|| failure("invalid event receipt SHA"))?;
+    Ok(Some(sha.into()))
+}
+
+async fn retire_event(github: &Github, id: &str, cursor_sha: Option<&str>) -> Result<()> {
+    let source = event_reference(github, "golem-event", id).await?;
+    let receipt = event_reference(github, "golem-event-done", id).await?;
+    let sha = source
+        .as_deref()
+        .or(receipt.as_deref())
+        .ok_or_else(|| failure("event retirement source missing"))?;
+    if receipt.as_deref().is_some_and(|done| done != sha) {
+        return Err(failure("event receipt source mismatch"));
+    }
+    if receipt.is_none() {
+        let (status, _) = github
+            .call(
+                Method::Post,
+                &format!("/repos/{OPS}/git/refs"),
+                Some(json!({"ref":format!("refs/tags/golem-event-done/{id}"),"sha":sha})),
+            )
+            .await?;
+        if !matches!(status, 201 | 422) {
+            return Err(failure("event receipt publication failed"));
+        }
+    }
+    if event_reference(github, "golem-event-done", id)
+        .await?
+        .as_deref()
+        != Some(sha)
+    {
+        return Err(failure("event receipt verification failed"));
+    }
+    update_event_index(github, id, false).await?;
+    if let Some(cursor_sha) = cursor_sha {
+        delete_event_work(github, &event_path(id), cursor_sha).await?;
+    }
+    if source.is_some() {
+        let (status, _) = github
+            .call(
+                Method::Delete,
+                &format!("/repos/{OPS}/git/refs/tags/golem-event/{id}"),
+                None,
+            )
+            .await?;
+        if !matches!(status, 204 | 404) {
+            return Err(failure("event source retirement failed"));
+        }
+    }
+    Ok(())
+}
+
+async fn discover_event(github: &Github, index: &EventIndex) -> Result<()> {
+    let refs = github
+        .get(&format!("/repos/{OPS}/git/matching-refs/tags/golem-event/"))
+        .await?;
+    let refs = refs
+        .as_array()
+        .filter(|refs| refs.len() <= 512)
+        .ok_or_else(|| failure("pending event source discovery limit exceeded"))?;
+    for reference in refs {
+        let id = reference
+            .get("ref")
+            .and_then(Value::as_str)
+            .and_then(|name| name.strip_prefix("refs/tags/golem-event/"))
+            .filter(|id| valid_delivery(id))
+            .ok_or_else(|| failure("invalid pending event source"))?;
+        if !index.ids.iter().any(|indexed| indexed == id) {
+            if index.ids.len() >= 128 {
+                worker::console_error!(
+                    "event admission capacity exceeded; pending source retained"
+                );
+                return Ok(());
+            }
+            update_event_index(github, id, true).await?;
+            break;
+        }
+    }
+    Ok(())
+}
+
 async fn event_tick(env: &Env, github: &Github) -> Result<()> {
     // Include fresh config, owner lookup, duplicate claim, bounded index CAS,
     // check/DO and retirement. Failure retains durable work for another cron.
@@ -1220,13 +1316,35 @@ async fn event_tick(env: &Env, github: &Github) -> Result<()> {
         return Ok(());
     }
     let (index, _) = event_index(github).await?;
+    discover_event(github, &index).await?;
+    let (index, _) = event_index(github).await?;
     let Some(id) = index.ids.first() else {
         return Ok(());
     };
+    // Move the selected head behind its peers before fallible external work.
+    // Poisoned or capacity-blocked admission cannot monopolize every tick.
+    if index.ids.len() > 1 {
+        let (mut current, sha) = event_index(github).await?;
+        if current.ids.first() == Some(id) {
+            current.ids.rotate_left(1);
+            save_event_work(github, EVENT_INDEX_PATH, &current, sha.as_deref()).await?;
+        }
+    }
     let path = event_path(id);
     let (status, file) = github
         .call(Method::Get, &format!("{path}?ref=golem-state"), None)
         .await?;
+    let done = event_reference(github, "golem-event-done", id).await?;
+    if done.is_some() {
+        let sha = if status == 200 {
+            Some(string(&file, "sha")?)
+        } else if status == 404 {
+            None
+        } else {
+            return Err(failure("event journal read failed"));
+        };
+        return retire_event(github, id, sha).await;
+    }
     if status == 404 {
         // Immutable private source precedes index admission. A failed initial PUT
         // cannot strand the head: rebuild its cursor, never guess an execution ended.
@@ -1273,18 +1391,16 @@ async fn event_tick(env: &Env, github: &Github) -> Result<()> {
         return Err(failure("invalid event journal identity"));
     }
     if work.next == work.golems.len() {
-        update_event_index(github, id, false).await?;
-        return delete_event_work(github, &path, sha).await;
+        return retire_event(github, id, Some(sha)).await;
     }
     resume_event(env, github, &mut work).await?;
     let mut sha = save_event_work(github, &path, &work, Some(sha)).await?;
-    if work.prepared.is_some() && github.requests.get() <= SUBREQUESTS_MAX - 9 {
+    if work.prepared.is_some() && github.requests.get() <= SUBREQUESTS_MAX - 17 {
         resume_event(env, github, &mut work).await?;
         sha = save_event_work(github, &path, &work, Some(&sha)).await?;
     }
-    if work.next == work.golems.len() {
-        update_event_index(github, id, false).await?;
-        delete_event_work(github, &path, &sha).await?;
+    if work.next == work.golems.len() && github.requests.get() <= SUBREQUESTS_MAX - 9 {
+        retire_event(github, id, Some(&sha)).await?;
     }
     Ok(())
 }

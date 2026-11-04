@@ -3,6 +3,26 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-04: Cold-start bootstrap and orphan recovery correction
+
+- A controlled Contents API write naming a nonexistent private-ops branch returned HTTP 404 (`Branch ... not found`), without creating a file.
+  The actual canary's prepared source predates `golem-state` initialization; the old mention path attempted continuation writes without establishing that branch.
+- V2 processing now verifies the state branch before consuming its delivery claim and invokes the coordinator's atomic bootstrap when absent.
+  Legacy routing returns before this new precondition.
+  Strict mock GitHub Contents semantics reproduced the old cold-start failure before the correction.
+- Cron discovers at most one orphan source per tick from at most 512 pending source refs, preserving its exact prepared request and check.
+  Event-index rotation prevents one failing indexed head from indefinitely starving healthy peers.
+  Completion receipts retain original annotated-source identity before removing index/cursor/pending-ref state; the immutable source remains reachable through that receipt.
+  Existing completed sources are safely re-admitted through coordinator idempotence, not dispatched again.
+- Real built edge + actual SQLite tests cover first bootstrap, orphan restart with no recreated checks, legacy completed-source dedup, five interrupted retirement boundaries and blocked-head fairness across restart.
+  Existing multi-event +36 recovery and scheduled-call bounds remain asserted.
+  Full 512/513-source and full-index-capacity matrices remain unverified.
+- Fresh full CI initially caught an overlong `process` function.
+  Removed duplicated reaction/membership/stop handling already implemented by `process_mention`, passing repository metadata so authorized normal requests look up head only after stop handling.
+  No lint suppression or gate relaxation.
+- Subsequent fresh full `mise run ci` exited 0; focused different-model review found no scoped correctness/security/regression blocker.
+  Original live orphan remains unresolved until this correction is deployed and independently observed serving it.
+
 ## 2026-11-04: Live canary identities and cold-start admission gap
 
 - Guarded Slice 2 PR #7 merged only after exact-head CI passed on `0bf104d`; trunk `0a9555f` passed CI, deployed, and published `v2`.

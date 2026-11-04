@@ -2,7 +2,7 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs.
-- **Current branch:** `docs/slice-2-proof`, local proof/helper updates pending publication.
+- **Current branch:** `fix/queue-bootstrap`, local production fix pending parent review/publication.
 - **Deployed code:** `0a9555f6c510085d251a6acf891e6740a9cabad4`, PR #7 merged after exact-head `ci` succeeded on `0bf104d` (`41752524809`).
   Trunk CI `41753576752`, deployment `41753576792`, release `v2` (`41754384511`) succeeded.
   Private ops PR #2 merged after green CI; `runner.yml` at `bf750cb` was byte-compared with reviewed `v2` pin.
@@ -16,9 +16,16 @@
   This request was not intentionally superseded.
   Source tag timestamp `2026-11-04T01:49:30Z` precedes queue-branch initialization commit `15a5b62` at `01:50:11Z`.
   V2 mention persistence lacks the coordinator bootstrap precondition used by event/schedule paths.
-- **Next step:** fix first-mention queue bootstrap before consuming its delivery claim; add bounded orphan-source discovery/retirement so the original prepared request/check can recover without redispatching completed deliveries.
-  Reproduce with a GitHub double that rejects Contents writes to an absent branch; keep this regression red before correction.
-  Publish only through a green exact-head PR and CI deployment, then re-enable canary and verify the original orphan completes.
+- **Queue-bootstrap milestone:** local implementation establishes the journal branch before consuming a v2 delivery claim, discovers at most one orphan per tick from at most 512 pending source refs, and retains original prepared check/request identity.
+  Completion refs retain the original annotated source SHA before index/cursor retirement; pending refs are deleted only after receipt verification.
+  Strict GitHub missing-branch Contents semantics reproduced the old cold-mention failure; rebuilt real edge + actual SQLite Coordinator tests passed cold bootstrap, orphan restart, legacy completed-source dedup, retirement interruption recovery, and existing regressions.
+  Event-index head rotation passed a dedicated real edge + Coordinator regression: persist failing head plus healthy peer, tick, restart, admit peer exactly once while retaining the failing source/cursor.
+  Final fresh `mise run test-worker` rebuilt the Worker and passed all runtime/Coordinator suites, including the unchanged recovery +36 and scheduled-call bounds.
+  Explicit 512/513-source and full event-index capacity stress matrices remain unverified.
+- **Local publication checks:** fresh full `mise run ci` exited 0 after removing duplicated mention reaction/member/stop handling rather than suppressing the overlong-function lint.
+  Different-model scoped review found no concrete correctness/security/regression blocker.
+- **Next step:** publish through exact-head green CI and deployment, then re-enable canary and verify the original live orphan completes.
+  Local mock-GitHub success does not close that live proof.
   Afterwards run unattended/incomplete evidence and full Slice 2 acceptance.
 - **Proof helper correction:** GitHub CheckRun has no `created_at`; default list filtering also hides older same-name checks.
   Observer now uses explicit check ID plus immutable request/comment binding, checks fresh publication causally, and rejects the queued orphan and later reply as negative controls.

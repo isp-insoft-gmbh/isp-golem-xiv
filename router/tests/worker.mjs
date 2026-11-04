@@ -49,13 +49,17 @@ async function github(request) {
       const existing = state.queue.find(request => request.delivery_id === body.request.delivery_id);
       if (existing) assert.deepEqual(body.request,existing,'admission replay must preserve exact check/request');
       else state.queue.push(body.request);
-    } else state.internal.push(body);
+    } else {
+      state.internal.push(body);
+      if (body.action === 'tick') state.refs.set('refs/heads/golem-state', head);
+    }
     return answer(200, {state:body.action === 'enqueue' ? 'pending' : 'granted', request_id:body.request?.delivery_id});
   }
   assert.equal(url.origin, 'https://api.github.com');
   const path = url.pathname;
   const method = request.method;
-  const body = ['POST','PUT','DELETE'].includes(method) ? await request.json() : null;
+  const body = (['POST','PUT'].includes(method) || (method === 'DELETE' && path.includes('/contents/'))) ? await request.json() : null;
+  if (path.startsWith(`/repos/${ops}/contents/`) && ['PUT','DELETE'].includes(method) && body?.branch === 'golem-state' && !state.refs.has('refs/heads/golem-state')) return answer(404, {message:'Branch not found'});
   if (path === `/repos/${ops}/actions/variables/GOLEM_PROTOCOL_VERSION`) return answer(protocol2 ? 200 : 404, {value:'2'});
   if (path === '/installation/repositories') {
     assert.equal(url.searchParams.get('per_page'), '1');
@@ -98,6 +102,12 @@ async function github(request) {
     return content === undefined ? answer(404, {}) : answer(200, {type:'file', encoding:'base64', content:Buffer.from(content).toString('base64')});
   }
   if (path === `/repos/${ops}/git/ref/heads/trunk`) return answer(200, {object:{sha:head, type:'commit'}});
+  if (path === `/repos/${ops}/git/ref/heads/golem-state`) return state.refs.has('refs/heads/golem-state') ? answer(200, {ref:'refs/heads/golem-state',object:{sha:head,type:'commit'}}) : answer(404, {});
+  if (path === `/repos/${ops}/git/matching-refs/tags/golem-event/`) return answer(200, [...state.refs].filter(([ref]) => ref.startsWith('refs/tags/golem-event/')).map(([ref,sha]) => ({ref,object:{sha,type:'tag'}})));
+  if (path.startsWith(`/repos/${ops}/git/refs/tags/`) && method === 'DELETE') {
+    const ref = 'refs/' + path.slice(`/repos/${ops}/git/refs/`.length);
+    return answer(state.refs.delete(ref) ? 204 : 404, null);
+  }
   if (path === `/repos/${ops}/git/tags` && method === 'POST') {
     const sha = String(state.tagId++).padStart(40, '0');
     state.tags.set(sha, {...body, sha});
@@ -369,7 +379,7 @@ try {
   await sleep(100);
   await worker.dispose(); worker = createWorker();
   await tick(start+60*60_000);
-  assert.ok(state.documents.has(failurePath),'stranded head reconstructed from immutable private source');
+  assert.ok(state.documents.has(failurePath),`stranded head reconstructed from immutable private source; index=${JSON.stringify([...state.documents].filter(([path]) => path.endsWith('events-v2.json')).map(([,value]) => JSON.parse(Buffer.from(value.content,'base64'))))}`);
   for(let i=61;i<110 && (state.documents.has(failurePath) || state.documents.has(nextPath));i++) await tick(start+i*60_000);
   assert.ok(!state.documents.has(failurePath) && !state.documents.has(nextPath),'both continuations retire');
   assert.equal(state.queue.length,beforeRecovery+36);
