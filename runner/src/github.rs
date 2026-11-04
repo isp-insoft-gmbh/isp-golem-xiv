@@ -816,32 +816,67 @@ pub async fn queue(
     attempt: &str,
     action: &str,
 ) -> Result<()> {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| "invalid clock")?
-        .as_millis();
-    let body = queue_body(request, run_id, attempt, action, timestamp)?;
-    let signature = queue_signature(key, &body)?;
     let client = Client::builder()
         .https_only(true)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(60))
         .build()
         .map_err(|_| "cannot construct queue client")?;
-    let response = client
-        .post(QUEUE)
-        .header("Content-Type", "application/json")
-        .header("X-Golem-Signature-256", signature)
-        .body(body)
-        .send()
-        .await
-        .map_err(|_| "queue request failed; execution denied")?;
-    if !response.status().is_success() {
-        return Err("queue request denied");
+    queue_with_client(&client, QUEUE, request, key, run_id, attempt, action).await
+}
+
+async fn queue_with_client(
+    client: &Client,
+    url: &str,
+    request: &DispatchV1,
+    key: &str,
+    run_id: &str,
+    attempt: &str,
+    action: &str,
+) -> Result<()> {
+    const REQUESTS_MAX: u8 = 3;
+    for retry in 0..REQUESTS_MAX {
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "invalid clock")?
+            .as_millis();
+        let body = queue_body(request, run_id, attempt, action, timestamp)?;
+        let signature = queue_signature(key, &body)?;
+        let response = client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .header("X-Golem-Signature-256", signature)
+            .body(body)
+            .send()
+            .await;
+        let error = match response {
+            Err(_) => "queue transport failed; execution denied",
+            Ok(response) if response.status().is_success() => {
+                let value: Value = serde_json::from_slice(&bounded_body(response, 4096).await?)
+                    .map_err(|_| "invalid queue response")?;
+                return validate_queue_response(action, &value);
+            }
+            Ok(response) => {
+                let status = response.status();
+                if status == StatusCode::TOO_MANY_REQUESTS {
+                    "queue rate limited"
+                } else if status.is_server_error() {
+                    "queue server error"
+                } else if status == StatusCode::UNAUTHORIZED {
+                    return Err("queue unauthorized");
+                } else if status == StatusCode::CONFLICT {
+                    return Err("queue conflict");
+                } else {
+                    return Err("queue HTTP request denied");
+                }
+            }
+        };
+        if retry + 1 == REQUESTS_MAX {
+            return Err(error);
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
     }
-    let value: Value = serde_json::from_slice(&bounded_body(response, 4096).await?)
-        .map_err(|_| "invalid queue response")?;
-    validate_queue_response(action, &value)
+    Err("queue retry budget exhausted")
 }
 
 fn validate_queue_response(action: &str, value: &Value) -> Result<()> {
@@ -880,3 +915,144 @@ async fn bounded_body(mut response: Response, maximum: usize) -> Result<Vec<u8>>
 #[cfg(test)]
 #[path = "github_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod queue_retry_tests {
+    #![allow(clippy::unwrap_used, clippy::indexing_slicing)] // Test fixture failures must be loud.
+    use super::*;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        thread,
+    };
+
+    type Observed = Vec<(String, Vec<u8>)>;
+
+    fn serve(
+        responses: Vec<Option<(u16, &'static str)>>,
+    ) -> (String, thread::JoinHandle<Observed>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = thread::spawn(move || {
+            let mut seen = Vec::new();
+            for response in responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut bytes = Vec::new();
+                let (end, length) = loop {
+                    let mut chunk = [0; 2048];
+                    let count = stream.read(&mut chunk).unwrap();
+                    assert!(count > 0 && bytes.len() + count < 65536);
+                    bytes.extend_from_slice(&chunk[..count]);
+                    if let Some(index) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+                        let end = index + 4;
+                        let headers = String::from_utf8_lossy(&bytes[..end]);
+                        let length = headers
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|value| value.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap();
+                        if bytes.len() >= end + length {
+                            break (end, length);
+                        }
+                    }
+                };
+                let headers = String::from_utf8(bytes[..end].to_vec()).unwrap();
+                seen.push((headers, bytes[end..end + length].to_vec()));
+                if let Some((status, body)) = response {
+                    write!(stream, "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+            }
+            seen
+        });
+        (url, handle)
+    }
+
+    fn request() -> DispatchV1 {
+        let mut request = crate::tests::request();
+        request.version = 2;
+        request.queue_generation = Some("23456789-1234-1234-1234-123456789abc".into());
+        request
+    }
+
+    #[tokio::test]
+    async fn retries_transient_failures_with_fresh_signed_numeric_wire_and_same_identity() {
+        let (url, seen) = serve(vec![
+            None,
+            Some((429, "secret")),
+            Some((200, r#"{"state":"granted"}"#)),
+        ]);
+        let client = Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        let request = request();
+        queue_with_client(&client, &url, &request, "key", "123", "1", "bind")
+            .await
+            .unwrap();
+        let seen = seen.join().unwrap();
+        assert_eq!(seen.len(), 3);
+        let mut timestamps = Vec::new();
+        for (headers, body) in seen {
+            let value: Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(value["request_id"], request.delivery_id);
+            assert_eq!(
+                value["generation"],
+                request.queue_generation.as_deref().unwrap()
+            );
+            assert_eq!(value["run_id"], json!(123));
+            assert_eq!(value["attempt"], json!(1));
+            assert_eq!(value["action"], "bind");
+            timestamps.push(value["timestamp_ms"].as_u64().unwrap());
+            let signature = queue_signature("key", &body).unwrap();
+            assert!(headers.lines().any(|line| {
+                line.eq_ignore_ascii_case(&format!("x-golem-signature-256: {signature}"))
+            }));
+        }
+        assert!(timestamps.windows(2).all(|pair| pair[0] < pair[1]));
+    }
+
+    #[tokio::test]
+    async fn retries_are_bounded_and_denials_never_retry_or_disclose_body() {
+        let client = Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap();
+        for (responses, expected) in [
+            (vec![None; 3], "queue transport failed; execution denied"),
+            (vec![Some((503, "private body")); 3], "queue server error"),
+            (vec![Some((429, "private body")); 3], "queue rate limited"),
+            (vec![Some((401, "private body"))], "queue unauthorized"),
+            (vec![Some((409, "private body"))], "queue conflict"),
+            (
+                vec![Some((403, "private body"))],
+                "queue HTTP request denied",
+            ),
+            (
+                vec![Some((200, r#"{"state":"denied"}"#))],
+                "queue ownership not confirmed",
+            ),
+        ] {
+            let count = responses.len();
+            let (url, seen) = serve(responses);
+            assert_eq!(
+                queue_with_client(&client, &url, &request(), "key", "123", "1", "complete").await,
+                Err(expected)
+            );
+            let seen = seen.join().unwrap();
+            assert_eq!(seen.len(), count);
+            let body: Value = serde_json::from_slice(&seen[0].1).unwrap();
+            assert_eq!(body["containers_destroyed"], true);
+            assert_eq!(body["publication_complete"], true);
+            assert_eq!(body["run_id"], json!(123));
+            assert_eq!(body["attempt"], json!(1));
+        }
+    }
+}
