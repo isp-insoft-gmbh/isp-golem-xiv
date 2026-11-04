@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 export const OPS = 'isp-insoft-gmbh/isp-golem-xiv-ops';
 export const CODE = 'isp-insoft-gmbh/isp-golem-xiv';
 export const HEALTH = 'https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/health';
-export const COORDINATOR_SHA256 = '306f4256092cb3d9dd6848452dea8e0f61e40bbb5947b52468740c59fe2da5e9';
+export const COORDINATOR_SHA256 = "c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891";
 const RELEASE_COMMIT = '0a9555f6c510085d251a6acf891e6740a9cabad4';
 const RELEASE_TAG = '1fe798c3fed7f7206985c5ea3e944c2dbfde31d4';
 const ASSET_ID = 707806211;
@@ -17,6 +17,13 @@ export const WORKFLOW_SHA256 = '59706b32306a3425f25f50e77c0317013ca467809f48c705
 // Reviewed workflow downloads v2, whose first native lifecycle marker is admitted.
 export const PHASE_PROTOCOL = 'v2:admitted-before-provider';
 export const FAILURE_MESSAGE = 'repair failed or outcome unconfirmed; association may have occurred; inspect private queue and evidence before any further action';
+const V2 = Object.freeze({version: 'v2', releaseId: 433413769, releaseCreated: '2026-11-04T01:29:14Z', releasePublished: '2026-11-04T01:37:14Z', workflowDigest: WORKFLOW_SHA256, phaseProtocol: PHASE_PROTOCOL, fatal: 'golem runner failed: queue request denied', commit: RELEASE_COMMIT, tag: RELEASE_TAG, assetId: ASSET_ID, assetDigest: ASSET_DIGEST, assetCreated: ASSET_TIME, assetUpdated: ASSET_TIME, buildId: 41754384511, buildCreated: '2026-11-04T01:29:19Z', buildUpdated: '2026-11-04T01:37:17Z'});
+const V3 = Object.freeze({version: 'v3', releaseId: 433607642, releaseCreated: '2026-11-04T06:55:31Z', releasePublished: '2026-11-04T07:06:07Z', workflowDigest: 'b6dde8ad547a36bf97ffb97e55fc6bd72a2380fbbf10ab01ef461c3e3d8a95ea', phaseProtocol: 'v3:admitted-before-provider', fatal: 'golem runner failed: queue conflict', commit: '00d62520f873ec404d66f409d51db18933f82ae8', tag: 'a4cf89f72e30cb3cc353f23fc4397d5fafa58e59', assetId: 708587759, assetDigest: 'sha256:8aa6f65d1846354792bbc5bef64af84b22f2194a209d125060c037f755c88373', assetCreated: '2026-11-04T07:06:04Z', assetUpdated: '2026-11-04T07:06:06Z', buildId: 41788750529, buildCreated: '2026-11-04T06:55:37Z', buildUpdated: '2026-11-04T07:06:10Z'});
+function runnerProfile(workflow) {
+  const profile = [V2, V3].find(profile => digest(workflow) === profile.workflowDigest);
+  need(profile && workflow.toString('utf8').includes(`/releases/download/${profile.version}\n`), 'unreviewed workflow or phase protocol');
+  return profile;
+}
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha = /^[0-9a-f]{40}$/;
 const positive = x => Number.isSafeInteger(x) && x > 0;
@@ -43,7 +50,7 @@ export function options(args) {
   out.run = Number(out.run);
   return out;
 }
-export function verifyLogs(log, req, jobs) {
+export function verifyLogs(log, req, jobs, profile = V2) {
   need(typeof log === 'string' && log.length > 0 && Buffer.byteLength(log) < 16_000_000 && !/\u001b|\ufffd|truncated|truncation|truncate|truncating|logs? (?:unavailable|expired)/i.test(log), 'missing or incomplete logs');
   need(jobs.total_count === 1 && jobs.jobs?.length === 1, 'incomplete or conflicting jobs');
   const trusted = jobs.jobs.filter(job => job.name === 'runner');
@@ -51,6 +58,9 @@ export function verifyLogs(log, req, jobs) {
   const steps = trusted[0].steps ?? [];
   const native = steps.filter(step => step.name === 'Run exactly one golem');
   need(native.length === 1 && native[0].status === 'completed' && native[0].conclusion === 'failure', 'trusted step mismatch');
+  const validatorName = 'Validate dispatch before selecting credentials';
+  const validators = steps.filter(step => step.name === validatorName);
+  need(validators.length === 1 && validators[0].status === 'completed' && validators[0].conclusion === 'success' && positive(validators[0].number) && validators[0].number < native[0].number, 'trusted validation boundary mismatch');
   need(steps.some(step => step.number > native[0].number && step.name === 'Ensure cancellation cannot leave an agent alive' && step.status === 'completed'), 'missing cleanup boundary');
   const lines = log.split('\n').filter(Boolean).map(line => {
     const match = line.replace(/\r$/, '').match(/^([^\t]+)\t([^\t]+)\t\uFEFF?(\d{4}-\d\d-\d\dT[^ ]+Z) (.*)$/);
@@ -59,15 +69,18 @@ export function verifyLogs(log, req, jobs) {
   });
   const trustedLines = lines.filter(line => line.job === 'runner' && line.step === 'Run exactly one golem');
   need(trustedLines.length > 0 && lines.some(line => line.job === 'runner' && line.step === 'Ensure cancellation cannot leave an agent alive'), 'missing full step logs');
-  const env = trustedLines.filter(line => /^\s*GOLEM_REQUEST: /.test(line.text));
-  need(env.length === 1, 'request env absent or nonunique');
+  const env = lines.filter(line => /^\s*GOLEM_REQUEST: /.test(line.text));
+  need(env.length === 2 && env.filter(line => line.job === 'runner' && line.step === validatorName).length === 1 && env.filter(line => line.job === 'runner' && line.step === 'Run exactly one golem').length === 1, 'request env absent or nonunique');
+  need(env[0].step === validatorName, 'logged validation boundary misordered');
+  for (const record of env) {
+    let parsed;
+    try { parsed = JSON.parse(record.text.trim().slice('GOLEM_REQUEST: '.length)); } catch { throw new Error('invalid logged request'); }
+    need(isDeepStrictEqual(parsed, req), 'logged immutable request mismatch');
+  }
   // Request instructions are data; every other lifecycle-like line fails closed.
   const lifecycle = /\bgolem[\s_:\-]*life[\s_:\-]*cycle\b|\blifecycle\b|\bphase\b|\badmitted\b|\bcontainers[\s_:\-]*destroyed\b|\bpublication[\s_:\-]*(?:credentials[\s_:\-]*minted|complete)\b|\breservation[\s_:\-]*released\b/i;
-  need(!trustedLines.some(line => line !== env[0] && lifecycle.test(line.text)), 'native admission or later phase present');
-  let parsed;
-  try { parsed = JSON.parse(env[0].text.trim().slice('GOLEM_REQUEST: '.length)); } catch { throw new Error('invalid logged request'); }
-  need(isDeepStrictEqual(parsed, req), 'logged immutable request mismatch');
-  need(trustedLines.filter(line => line.text === 'golem runner failed: queue request denied').length === 1, 'exact pre-admission fatal absent or nonunique');
+  need(!lines.some(line => !env.includes(line) && lifecycle.test(line.text)), 'native admission or later phase present');
+  need(trustedLines.filter(line => line.text === profile.fatal).length === 1 && lines.filter(line => line.text === profile.fatal).length === 1, 'exact pre-admission fatal absent or nonunique');
   return digest(log);
 }
 export async function verifyDeployment(io) {
@@ -77,24 +90,27 @@ export async function verifyDeployment(io) {
   need(digest(decode(file)) === COORDINATOR_SHA256, 'deployed coordinator is not reviewed repair code');
   return {version: health.version, coordinatorDigest: COORDINATOR_SHA256};
 }
-export function verifyProvenance(provenance, failedRun) {
+export function verifyProvenance(provenance, failedRun, profile = V2) {
   need(provenance && failedRun, 'missing historical runner provenance');
   const {release, build, ref, tag} = provenance;
-  // v2 is NOT an immutable release. Exact asset identity and timestamps fence replacement/rename.
-  need(release?.tag_name === 'v2' && release.draft === false && release.immutable === false && Array.isArray(release.assets) && release.assets.length < 100, 'release identity mismatch');
+  // Neither reviewed release is immutable; exact asset identity and timestamps fence replacement/rename.
+  need(release?.tag_name === profile.version && release.draft === false && release.immutable === false && Array.isArray(release.assets) && release.assets.length < 100, 'release identity mismatch');
+  // GitHub release metadata + trusted CI are the declared TCB, not binary attestation.
+  need(release.id === profile.releaseId && release.created_at === profile.releaseCreated && release.published_at === profile.releasePublished && release.updated_at === profile.releasePublished && release.author?.login === 'github-actions[bot]' && Date.parse(release.updated_at) < Date.parse(failedRun.created_at), 'release routing identity or timestamps mismatch');
   const assets = release.assets.filter(asset => asset.name === 'golem-runner-linux-x86_64');
   need(assets.length === 1, 'historical binary asset absent or nonunique');
   const asset = assets[0];
-  need(asset.id === ASSET_ID && asset.digest === ASSET_DIGEST && asset.created_at === ASSET_TIME && asset.updated_at === ASSET_TIME && asset.uploader?.login === 'github-actions[bot]', 'historical binary asset identity mismatch');
-  need(build?.id === 41754384511 && build.repository?.full_name === CODE && build.head_sha === RELEASE_COMMIT && build.event === 'push' && build.head_branch === 'v2' && build.status === 'completed' && build.conclusion === 'success' && build.created_at === '2026-11-04T01:29:19Z' && build.updated_at === '2026-11-04T01:37:17Z', 'release build provenance mismatch');
-  need(ref?.ref === 'refs/tags/v2' && ref.object?.type === 'tag' && ref.object.sha === RELEASE_TAG && tag?.sha === RELEASE_TAG && tag.tag === 'v2' && tag.object?.type === 'commit' && tag.object.sha === RELEASE_COMMIT, 'release annotated tag provenance mismatch');
-  const assetTime = Date.parse(ASSET_TIME);
-  need(Date.parse(build.created_at) <= assetTime && assetTime <= Date.parse(build.updated_at) && assetTime < Date.parse(failedRun.created_at), 'historical binary postdates failed run');
+  need(asset.id === profile.assetId && asset.digest === profile.assetDigest && asset.created_at === profile.assetCreated && asset.updated_at === profile.assetUpdated && asset.uploader?.login === 'github-actions[bot]', 'historical binary asset identity mismatch');
+  need(build?.id === profile.buildId && build.repository?.full_name === CODE && build.head_sha === profile.commit && build.event === 'push' && build.head_branch === profile.version && build.status === 'completed' && build.conclusion === 'success' && build.created_at === profile.buildCreated && build.updated_at === profile.buildUpdated, 'release build provenance mismatch');
+  need(ref?.ref === `refs/tags/${profile.version}` && ref.object?.type === 'tag' && ref.object.sha === profile.tag && tag?.sha === profile.tag && tag.tag === profile.version && tag.object?.type === 'commit' && tag.object.sha === profile.commit, 'release annotated tag provenance mismatch');
+  const assetTime = Date.parse(profile.assetUpdated);
+  need(Date.parse(build.created_at) <= Date.parse(profile.assetCreated) && Date.parse(profile.assetCreated) <= assetTime && assetTime <= Date.parse(build.updated_at) && assetTime < Date.parse(failedRun.created_at), 'historical binary postdates failed run');
 }
 export function verify(snapshot, input) {
   const {queue, file, req, tag, ref, run, repo, opsRepo, workflow, runs, jobs, log} = snapshot;
   need(opsRepo.full_name === OPS && opsRepo.private === true && opsRepo.default_branch === 'trunk', 'private ops identity mismatch');
-  verifyProvenance(snapshot.provenance, run);
+  const profile = runnerProfile(workflow);
+  verifyProvenance(snapshot.provenance, run, profile);
   need(queue.version === 2 && Array.isArray(queue.records) && queue.records.length <= 32 && sha.test(file.sha), 'invalid queue');
   const selected = queue.records.filter(r => r.id === input.delivery);
   need(selected.length === 1, 'row absent or nonunique');
@@ -103,22 +119,31 @@ export function verify(snapshot, input) {
   need(ref.ref === `refs/tags/golem-request/${row.id}` && ref.object?.type === 'tag' && ref.object.sha === row.tag && tag.sha === row.tag && tag.tag === `golem-request/${row.id}`, 'immutable request ref mismatch');
   need(req.version === 2 && req.delivery_id === row.id && req.queue_generation === row.generation && row.resource === `${req.repository.toLowerCase()}/${req.golem}` && row.seat === `${req.seat_login.toLowerCase()}/${req.provider}`, 'request generation or resource mismatch');
   need(/^isp-insoft-gmbh\/isp-golem-xiv-test-[A-Za-z0-9-]+$/.test(req.repository) && /^[A-Za-z0-9_-]{1,64}$/.test(req.golem), 'target outside sandbox');
-  need(repo.private === true && repo.id === req.repository_id && repo.full_name === req.repository && repo.topics?.includes('isp-golem-xiv-test'), 'target private identity or topic mismatch');
+  const targetUnavailable = repo === null;
+  need(!targetUnavailable || (profile === V3 && positive(req.repository_id)), 'unavailable target requires proven v3 sandbox request');
+  if (!targetUnavailable) need(repo.private === true && repo.id === req.repository_id && repo.full_name === req.repository && repo.topics?.includes('isp-golem-xiv-test'), 'target private identity or topic mismatch');
   const title = `${req.repository} ${req.golem}`;
   const matches = r => r.display_title === title && r.path === '.github/workflows/runner.yml' && r.event === 'workflow_dispatch' && r.head_branch === 'trunk';
   need(run.id === input.run && run.repository?.full_name === OPS && run.repository?.id === opsRepo.id && run.status === 'completed' && run.conclusion === 'failure' && run.run_attempt === 1 && sha.test(run.head_sha) && matches(run), 'failed run identity mismatch');
   need(!queue.records.some(r => r !== row && (r.run_id === input.run || (r.state !== 'terminal' && r.state !== 'pending' && (r.seat === row.seat || r.resource === row.resource)))), 'active queue peer conflict');
-  need(digest(workflow) === WORKFLOW_SHA256 && workflow.toString('utf8').includes('/releases/download/v2\n'), 'unreviewed workflow or phase protocol');
   need(runs.total_count === runs.workflow_runs?.length && runs.total_count > 0 && runs.total_count < 100, 'run window incomplete or overflow');
   const candidates = runs.workflow_runs.filter(matches);
   need(candidates.length === 1 && candidates[0].id === input.run && candidates[0].status === 'completed' && candidates[0].conclusion === 'failure' && candidates[0].run_attempt === 1, 'ambiguous or active run peer');
   need(runs.workflow_runs.every(r => r.status === 'completed'), 'active ops workflow peer');
   const start = Date.parse(tag.tagger?.date), created = Date.parse(run.created_at), end = Date.parse(snapshot.windowEnd);
   need(Number.isFinite(start) && Number.isFinite(end) && start <= created && created <= end && end <= Date.now() + 60_000, 'invalid request run window');
-  const logDigest = verifyLogs(log, req, jobs);
-  return {row, requestDigest: digest(canonical(req)), workflowDigest: WORKFLOW_SHA256, logDigest, preQueueBlobSHA: file.sha, phaseProtocol: PHASE_PROTOCOL};
+  const logDigest = verifyLogs(log, req, jobs, profile);
+  return {row, requestDigest: digest(canonical(req)), workflowDigest: profile.workflowDigest, logDigest, preQueueBlobSHA: file.sha, phaseProtocol: profile.phaseProtocol, targetUnavailable, historicalAssetId: profile.assetId, historicalAssetDigest: profile.assetDigest, releaseBuildRun: profile.buildId};
 }
 
+export class GitHubHttpError extends Error {
+  constructor(status) { super('GitHub HTTP operation failed'); this.status = status; }
+}
+function httpResponse(text) {
+  const match = text.match(/^HTTP\/[\d.]+ (\d{3})[^\r\n]*\r?\n(?:[^\r\n]+\r?\n)*\r?\n/);
+  need(match, 'missing GitHub HTTP status');
+  return {status: Number(match[1]), body: text.slice(match[0].length)};
+}
 // Bounded subprocess capture: stderr and API payloads never enter diagnostics.
 export async function gh(args, body, limit = 2_000_000) {
   return new Promise((resolve, reject) => {
@@ -126,13 +151,38 @@ export async function gh(args, body, limit = 2_000_000) {
     const chunks = []; let size = 0, overflow = false;
     child.stdout.on('data', chunk => { size += chunk.length; if (size >= limit) { overflow = true; child.kill(); } else chunks.push(chunk); });
     child.on('error', () => reject(new Error('GitHub CLI unavailable')));
-    child.on('close', code => code === 0 && !overflow ? resolve(Buffer.concat(chunks).toString('utf8')) : reject(new Error('bounded GitHub operation failed')));
+    child.on('close', code => {
+      const text = Buffer.concat(chunks).toString('utf8');
+      if (code === 0 && !overflow) return resolve(text);
+      if (!overflow && args[0] === 'api' && args.includes('--include')) {
+        try {
+          const {status} = httpResponse(text);
+          if (status >= 400 && status <= 599) return reject(new GitHubHttpError(status));
+        } catch { /* Missing status is never evidence of a missing repository. */ }
+      }
+      reject(new Error('bounded GitHub operation failed'));
+    });
     child.stdin.on('error', () => {});
     child.stdin.end(body === undefined ? undefined : JSON.stringify(body));
   });
 }
 export function client(execute = gh) {
   return {
+    async optionalRepo(path) {
+      need(/^repos\/isp-insoft-gmbh\/isp-golem-xiv-test-[A-Za-z0-9-]+$/.test(path), 'target outside sandbox');
+      try {
+        const response = httpResponse(await execute(['api', path, '--method', 'GET', '--include']));
+        if (response.status === 404) return null;
+        need(response.status === 200, 'target repository unavailable');
+        let repo;
+        try { repo = JSON.parse(response.body); } catch { throw new Error('invalid GitHub JSON'); }
+        need(repo !== null && typeof repo === 'object' && !Array.isArray(repo), 'invalid repository response');
+        return repo;
+      } catch (error) {
+        if (error instanceof GitHubHttpError && error.status === 404) return null;
+        throw error;
+      }
+    },
     async api(path, method = 'GET', body) {
       const text = await execute(['api', path, '--method', method, ...(body === undefined ? [] : ['--input', '-'])], body);
       try { return JSON.parse(text); } catch { throw new Error('invalid GitHub JSON'); }
@@ -169,16 +219,17 @@ export async function inspect(io, input) {
   need(typeof tag.message === 'string' && tag.message.length <= 65_536, 'invalid immutable request');
   const req = JSON.parse(tag.message);
   need(/^isp-insoft-gmbh\/isp-golem-xiv-test-[A-Za-z0-9-]+$/.test(req.repository ?? ''), 'target outside sandbox');
-  const repo = await io.api(`repos/${req.repository}`);
+  const repo = await io.optionalRepo(`repos/${req.repository}`);
   const run = await io.api(`${base}/actions/runs/${input.run}`);
   need(sha.test(run.head_sha), 'invalid workflow commit');
   const workflow = decode(await io.api(`${base}/contents/.github/workflows/runner.yml?ref=${run.head_sha}`));
+  const profile = runnerProfile(workflow);
   const publicBase = `repos/${CODE}`;
   const provenance = {
-    release: await io.api(`${publicBase}/releases/tags/v2`),
-    build: await io.api(`${publicBase}/actions/runs/41754384511`),
-    ref: await io.api(`${publicBase}/git/ref/tags/v2`),
-    tag: await io.api(`${publicBase}/git/tags/${RELEASE_TAG}`),
+    release: await io.api(`${publicBase}/releases/tags/${profile.version}`),
+    build: await io.api(`${publicBase}/actions/runs/${profile.buildId}`),
+    ref: await io.api(`${publicBase}/git/ref/tags/${profile.version}`),
+    tag: await io.api(`${publicBase}/git/tags/${profile.tag}`),
   };
   need(Number.isFinite(Date.parse(tag.tagger?.date)), 'missing request timestamp');
   const log = await io.log(input.run);
@@ -235,7 +286,7 @@ export async function repair(io, input) {
   return {result, candidateEvidenceTagSHA: evidenceTag};
 }
 function publicEvidence(proof, input) {
-  return {delivery: input.delivery, run: input.run, requestDigest: proof.requestDigest, workflowDigest: proof.workflowDigest, logDigest: proof.logDigest, preQueueBlobSHA: proof.preQueueBlobSHA, phaseProtocol: proof.phaseProtocol, historicalAssetId: ASSET_ID, historicalAssetDigest: ASSET_DIGEST, releaseBuildRun: 41754384511};
+  return {delivery: input.delivery, run: input.run, requestDigest: proof.requestDigest, workflowDigest: proof.workflowDigest, logDigest: proof.logDigest, preQueueBlobSHA: proof.preQueueBlobSHA, phaseProtocol: proof.phaseProtocol, targetUnavailable: proof.targetUnavailable, historicalAssetId: proof.historicalAssetId, historicalAssetDigest: proof.historicalAssetDigest, releaseBuildRun: proof.releaseBuildRun};
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try { console.log(JSON.stringify(await repair(client(), options(process.argv.slice(2))))); }

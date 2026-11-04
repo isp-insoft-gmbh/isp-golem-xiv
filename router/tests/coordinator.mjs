@@ -67,15 +67,38 @@ class Fixture {
       return json(response.status, response.body);
     }
     if (p === `${ops}/contents/queue.json`) {
-      if (req.method === 'GET') return this.index ? json(200, {...this.index, encoding: 'base64'}) : json(404);
+      if (req.method === 'GET') {
+        if (this.failReadback) { this.failReadback = false; return json(503); }
+        if (this.readbackMode && this.readbackReady) {
+          const mode = this.readbackMode; this.readbackMode = null;
+          if (mode === 'missing') return json(404);
+          if (mode === 'malformed') return json(200, {...this.index, encoding: 'base64', content: '!!!!'});
+          if (mode === 'oversize') return json(200, {...this.index, encoding: 'base64', content: 'A'.repeat(300000)});
+          return json(200, {...this.index, sha: 'f'.repeat(40), encoding: 'base64'});
+        }
+        return this.index ? json(200, {...this.index, encoding: 'base64'}) : json(404);
+      }
       assert.equal(body.branch, 'golem-state');
-      if (this.failWrite === 'conflict') { this.failWrite = null; return json(409, {message: 'sensitive fixture error'}); }
+      if (this.conflicts) { this.conflicts--; this.readbackReady = true; return json(409); }
+      if (this.failWrite === 'conflict') { this.failWrite = null; return json(422, {message: 'sensitive fixture error'}); }
       if (body.sha !== this.index?.sha) return json(409);
       const records = JSON.parse(Buffer.from(body.content, 'base64')).records;
+      for (const record of records) {
+        if (record.state === 'terminal' && record.auditTag) {
+          assert.equal(this.refs.get(`refs/tags/golem-audit/${record.id}`), record.auditTag, 'durable private audit ref must precede terminal journal write');
+          assert.ok(this.tags.has(record.auditTag));
+        }
+      }
+      if (this.rejectTerminal && records.some(r => r.state === 'terminal')) return json(422);
       const fail = this.failWrite && (this.failWrite.state === undefined || records.some(r => r.state === this.failWrite.state));
       this.index = {sha: this.sha(), content: body.content};
       this.puts.push(structuredClone(records));
-      if (fail) { this.failWrite = null; return json(500, {message: 'credential must not escape'}); }
+      if (this.transportAfterCommit && records.some(r => r.state === 'bound')) {
+        this.transportAfterCommit = false;
+        this.transportCommittedBytes = this.index.content;
+        throw new Error('synthetic committed PUT transport loss');
+      }
+      if (fail) { this.failReadback = !this.confirmReadback; this.failWrite = null; return json(500, {message: 'credential must not escape'}); }
       return json(200, {content: {sha: this.index.sha}});
     }
     if (p === `${ops}/git/ref/heads/trunk`) return json(200, {object: {sha: head, type: 'commit'}});
@@ -86,8 +109,10 @@ class Fixture {
     }
     if (p === `${ops}/git/commits`) return json(201, {sha: this.sha()});
     if (p === `${ops}/git/refs`) {
+      if (this.failAudit && body.ref.startsWith('refs/tags/golem-audit/')) return json(typeof this.failAudit === 'number' ? this.failAudit : 503);
       if (this.refs.has(body.ref)) return json(422);
       this.refs.set(body.ref, body.sha);
+      if (this.loseAuditRef && body.ref.startsWith('refs/tags/golem-audit/')) { this.loseAuditRef = false; return json(503); }
       if (this.failReceipt && body.ref.startsWith('refs/tags/golem-terminal/')) { this.failReceipt = false; return json(500); }
       if (body.ref === 'refs/heads/golem-state') {
         this.index = {sha: this.sha(), content: Buffer.from(this.initial).toString('base64')};
@@ -102,7 +127,7 @@ class Fixture {
     }
     if (p === `${ops}/git/tags`) {
       const sha = this.sha();
-      this.tags.set(sha, {...body, sha});
+      this.tags.set(sha, {...body, object: {type: body.type, sha: body.object}, sha});
       return json(201, {sha});
     }
     if (p.startsWith(`${ops}/git/tags/`)) return json(200, this.tags.get(p.split('/').at(-1)));
@@ -179,11 +204,160 @@ class Fixture {
   async restart() { await this.worker.dispose(); await this.start(); }
   async dispose() { await this.worker.dispose(); }
 }
-async function scenario(name, fn) {
-  const fixture = new Fixture();
-  await fixture.start();
-  try { await fn(fixture); console.log(`PASS ${name}`); }
-  finally { await fixture.dispose(); }
+const scenarios = [];
+async function scenario(name, fn) { scenarios.push({name, fn}); }
+async function runScenarios() {
+  const started = performance.now();
+  const timings = [];
+  // Independent GitHub fixtures, SQLite stores and real process restarts remain isolated.
+  // Batch startup/teardown I/O instead of serializing dozens of workerd processes.
+  const batches = Array.from({length: 4}, async () => {
+    while (scenarios.length) {
+      const {name, fn} = scenarios.shift();
+      const fixture = new Fixture();
+      const start = performance.now();
+      await fixture.start();
+      try { await fn(fixture); console.log(`PASS ${name}`); }
+      finally { await fixture.dispose(); timings.push({name, ms: Math.round(performance.now() - start)}); }
+    }
+  });
+  const results = await Promise.allSettled(batches);
+  console.log(JSON.stringify({coordinatorTiming: {totalMs: Math.round(performance.now() - started), cases: timings.length, timings, slowest: [...timings].sort((a, b) => b.ms - a.ms).slice(0, 8)}}));
+  for (const result of results) if (result.status === 'rejected') throw result.reason;
+}
+
+await scenario('unchanged blob conflict retries identical mutation and lost response confirms exact bytes before grant', async f => {
+  await f.call('tick');
+  f.conflicts = 1;
+  const req = request(); await f.enqueue(req);
+  assert.equal(f.dispatches.length, 1);
+  f.confirmReadback = true;
+  f.failWrite = {state: 'bound'};
+  assert.equal((await f.bind(req)).state, 'granted');
+  await f.restart();
+  assert.equal((await f.bind(req, 1000)).state, 'granted');
+  assert.equal(f.dispatches.length, 1);
+});
+await scenario('committed PUT transport exception requires exact readback before grant and restart duplicate bind', async f => {
+  const req = request(); await f.enqueue(req);
+  f.transportAfterCommit = true;
+  assert.equal((await f.bind(req, 7100)).state, 'granted');
+  assert.equal(f.index.content, f.transportCommittedBytes);
+  assert.equal(f.row(req.delivery_id).state, 'bound');
+  assert.equal(f.dispatches.length, 1);
+  await f.restart();
+  assert.equal((await f.bind(req, 7100)).state, 'granted');
+  assert.equal(f.dispatches.length, 1);
+});
+for (const mode of ['divergence', 'malformed', 'missing', 'oversize', 'exhausted']) {
+  await scenario(`journal ${mode} readback never grants or dispatches`, async f => {
+    await f.call('tick');
+    const before = f.index.content;
+    f.conflicts = 3;
+    if (mode !== 'exhausted') f.readbackMode = mode;
+    const result = await f.enqueue(request(), 503);
+    assert.equal(result.safeFailure, 'journal_conflict');
+    assert.equal(f.index.content, before);
+    assert.equal(f.dispatches.length, 0);
+    assert.ok(f.conflicts >= 0);
+  });
+}
+await scenario('bind missing metadata is transient not identity conflict', async f => {
+  const req = request(); await f.enqueue(req);
+  const row = f.row(req.delivery_id);
+  const result = await f.call('bind', {request_id: row.id, generation: row.generation, run_id: 999, attempt: 1}, 503);
+  assert.equal(result.safeFailure, 'run_missing');
+  assert.equal(f.row(req.delivery_id).state, 'dispatching');
+});
+for (const failure of [null, 'audit', '403', '500', 'identity', 'attempt', 'healthy-target']) {
+  await scenario(`failed completed unavailable target ${failure ?? 'audit succeeds'} retains unless privately audited`, async f => {
+    const req = request(); await f.enqueue(req); await f.bind(req, 7000);
+    const peerRepo = 'isp-insoft-gmbh/isp-golem-xiv-test-peer';
+    f.repositories.set(peerRepo, {status: 200, body: {id: 100}});
+    const peer = request('other', 'peer', {repository: peerRepo, repository_id: 100, check_run_id: 11});
+    f.runs.set(7999, {id: 7999, status: 'queued'});
+    await f.enqueue(peer);
+    assert.equal(f.row(peer.delivery_id).state, 'pending');
+    assert.equal(f.dispatches.filter(r => r.delivery_id === peer.delivery_id).length, 0);
+    f.runs.delete(7999);
+    Object.assign(f.runs.get(7000), {status: 'completed', conclusion: 'failure'});
+    if (failure === 'identity') f.runs.get(7000).display_title = 'wrong';
+    if (failure === 'attempt') f.runs.get(7000).run_attempt = 2;
+    f.checkMissing = req.check_run_id;
+    f.repositories.set(repository, {status: failure === '403' ? 403 : failure === '500' ? 500 : failure === 'healthy-target' ? 200 : 404, body: {id: 99}});
+    f.failAudit = failure === 'audit';
+    await f.restart(); await f.call('tick');
+    const row = f.row(req.delivery_id);
+    assert.equal(row.state, failure ? 'bound' : 'terminal');
+    assert.equal(f.dispatches.filter(r => r.delivery_id === peer.delivery_id).length, 1);
+    assert.equal(f.row(peer.delivery_id).state, 'dispatching', 'peer must advance during reconciliation tick');
+    if (!failure) {
+      assert.equal(f.refs.get(`refs/tags/golem-audit/${req.delivery_id}`), row.auditTag);
+      const audit = JSON.parse(f.tags.get(row.auditTag).message);
+      assert.equal(audit.run_id, 7000); assert.equal(audit.model, 'unobserved');
+      assert.equal(audit.reason, 'target unavailable to installation; execution/publication unconfirmed');
+      const auditTag = row.auditTag;
+      const requestTag = row.tag;
+      await f.enqueue(request('third', 'retirement', {check_run_id: 12}));
+      assert.equal(f.row(req.delivery_id), undefined, 'different admission retires terminal row');
+      assert.equal(f.refs.get(`refs/tags/golem-terminal/${req.delivery_id}`), requestTag);
+      await f.restart();
+      const reachable = await f.github(new Request(`https://api.github.com${ops}/git/ref/tags/golem-audit/${req.delivery_id}`, {headers: {'X-GitHub-Api-Version': '2022-11-28'}}));
+      const ref = await reachable.json();
+      assert.equal(ref.object.sha, auditTag);
+      const persistedAudit = JSON.parse(f.tags.get(ref.object.sha).message);
+      assert.deepEqual(persistedAudit, audit);
+      await f.enqueue(req);
+      assert.equal(f.row(req.delivery_id), undefined);
+      assert.equal(f.dispatches.filter(r => r.delivery_id === req.delivery_id).length, 1);
+    }
+  });
+}
+
+for (const fault of ['wrong-name', 'wrong-type', 'wrong-object', 'wrong-sha', 'lost-ref', 'audit-403', 'audit-500', 'terminal-save']) {
+  await scenario(`private audit ${fault} retains then confirmed recovery survives retirement`, async f => {
+    const req = request(); await f.enqueue(req); await f.bind(req, 7200);
+    Object.assign(f.runs.get(7200), {status: 'completed', conclusion: 'failure'});
+    f.checkMissing = req.check_run_id;
+    f.repositories.set(repository, {status: 404, body: {}});
+    if (fault.startsWith('wrong-')) {
+      // First publish the valid immutable audit while withholding terminal journal persistence.
+      f.rejectTerminal = true;
+      await f.call('tick', {}, 409);
+      f.rejectTerminal = false;
+      const tag = f.tags.get(f.refs.get(`refs/tags/golem-audit/${req.delivery_id}`));
+      const original = structuredClone(tag);
+      if (fault === 'wrong-name') tag.tag = 'golem-audit/wrong';
+      if (fault === 'wrong-type') tag.object.type = 'commit';
+      if (fault === 'wrong-object') tag.object.sha = head;
+      if (fault === 'wrong-sha') tag.sha = head;
+      await f.restart(); await f.call('tick');
+      assert.equal(f.row(req.delivery_id).state, 'bound', 'same message must not authorize wrong annotated tag identity');
+      Object.assign(tag, original);
+    } else {
+      f.loseAuditRef = fault === 'lost-ref';
+      f.failAudit = fault === 'audit-403' ? 403 : fault === 'audit-500' ? 500 : false;
+      f.rejectTerminal = fault === 'terminal-save';
+      await f.call('tick', {}, f.rejectTerminal ? 409 : 200);
+      assert.equal(f.row(req.delivery_id).state, 'bound');
+      f.failAudit = false; f.rejectTerminal = false;
+    }
+    assert.equal(f.dispatches.length, 1);
+    await f.restart(); await f.call('tick');
+    const terminal = f.row(req.delivery_id);
+    assert.equal(terminal.state, 'terminal');
+    const auditTag = terminal.auditTag;
+    await f.enqueue(request('other', 'retire', {check_run_id: 11}));
+    assert.equal(f.row(req.delivery_id), undefined);
+    assert.equal(f.refs.get(`refs/tags/golem-terminal/${req.delivery_id}`), terminal.tag);
+    await f.restart();
+    assert.equal(f.refs.get(`refs/tags/golem-audit/${req.delivery_id}`), auditTag);
+    const audit = JSON.parse(f.tags.get(auditTag).message);
+    assert.equal(audit.request_id, req.delivery_id);
+    assert.equal(audit.outcome, 'blocked');
+    assert.equal(audit.model, 'unobserved');
+    assert.equal(f.dispatches.filter(r => r.delivery_id === req.delivery_id).length, 1);
+  });
 }
 
 for (const state of ['pending', 'reserved']) {
@@ -497,7 +671,7 @@ await scenario('denied rerun attempts, oversized input, redacted errors, malform
 await scenario('GitHub redirect fails closed without forwarding credentials to another origin', async f => {
   f.redirect = true;
   const result = await f.enqueue(request(), 503);
-  assert.deepEqual(result, {error: 'queue operation failed'});
+  assert.deepEqual(result, {error: 'queue operation failed', safeFailure: 'upstream'});
   assert.equal(f.dispatches.length, 0);
   assert.equal(f.index, null);
   assert.deepEqual(f.origins, ['https://api.github.com'], 'never request redirect target');
@@ -795,4 +969,5 @@ if (process.argv.includes('--runner-contract')) {
     assert.equal(f.checks.length, 1);
   });
 }
+await runScenarios();
 console.log('Coordinator: real Miniflare SQLite class + mock GitHub journal scenarios passed.');

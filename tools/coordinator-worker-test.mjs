@@ -27,7 +27,7 @@ const json = (status, value = {}) => new Answer(status === 204 ? null : JSON.str
 const refs = new Map(), tags = new Map(), runs = new Map(), continuations = new Map();
 const dispatches = [], checks = [], reactions = [], writes = [], refEvents = [];
 let index = null, initial = null, counter = 1, calls = 0, journalReads = 0;
-let failEventIndexWrites = 0, interruption = null;
+let failEventIndexWrites = 0, interruption = null, journalConflicts = 0;
 const sha = () => (counter++).toString(16).padStart(40, "0");
 const queue = () => JSON.parse(Buffer.from(index.content, "base64"));
 const row = id => queue().records.find(record => record.id === id);
@@ -83,6 +83,7 @@ async function githubFixture(request) {
     if (method === "GET") { journalReads++; return index ? json(200, { ...index, encoding: "base64" }) : json(404); }
     assert.equal(method, "PUT");
     assert.equal(body.branch, "golem-state");
+    if (journalConflicts > 0) { journalConflicts--; return json(409); }
     if (body.sha !== index?.sha) return json(409);
     index = { sha: sha(), content: body.content };
     writes.push(structuredClone(queue().records));
@@ -236,7 +237,11 @@ try {
   await callback("bind", first, 1001, { timestamp_ms: Date.now() - 120000 }, 401);
   await callback("bind", first, 1001, { generation: randomUUID() }, 409);
   assert.equal(index.content, beforeDenied, "denied bind cannot mutate authoritative journal");
+  journalConflicts = 1;
+  const readsBeforeConflict = journalReads;
   assert.deepEqual(await callback("bind", first, 1001), { state: "granted" });
+  assert.equal(journalConflicts, 0);
+  assert.ok(journalReads >= readsBeforeConflict + 2, "unchanged blob conflict confirmed by readback before identical retry");
   assert.equal(row(firstId).state, "bound");
   assert.equal(row(firstId).run_id, 1001);
   assert.equal(row(firstId).attempt, 1);
@@ -250,7 +255,10 @@ try {
   await worker.dispose();
   worker = new Miniflare(config);
   const readsBefore = journalReads;
+  interruption = { method: "PUT", path: `${ops}/contents/queue.json` };
   assert.deepEqual(await callback("bind", first, 1001), { state: "granted" });
+  assert.equal(interruption, null, "committed lost bind response reached");
+  assert.ok(journalReads >= readsBefore + 2, "exact committed bytes read back before grant");
   assert.ok(journalReads > readsBefore, "restored class reads authoritative GitHub journal");
   assert.equal(dispatches.length, 1);
   const boundJournal = index.content;
