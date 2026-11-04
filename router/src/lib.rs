@@ -1,7 +1,7 @@
-//! Slice 1 routing policy, independent of the Workers runtime.
+//! Routing policy, independent of the Workers runtime.
 use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 #[cfg(target_arch = "wasm32")]
 mod edge;
@@ -360,29 +360,29 @@ pub fn seat_secret(login: &str, provider: &str) -> Option<String> {
     ))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct User {
     pub id: u64,
     pub login: String,
     #[serde(rename = "type")]
     pub kind: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Repository {
     pub id: u64,
     pub full_name: String,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Comment {
     pub id: u64,
     pub body: String,
     pub user: User,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Issue {
     pub number: u64,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Installation {
     pub id: u64,
 }
@@ -465,4 +465,174 @@ impl Golem {
     pub fn timeout_seconds(&self) -> Option<u32> {
         timeout_seconds(self.frontmatter.timeout.as_deref())
     }
+
+    #[must_use]
+    pub fn branch(&self) -> String {
+        self.frontmatter
+            .branch
+            .clone()
+            .unwrap_or_else(|| format!("golems/{}", self.name))
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EventDelivery {
+    #[serde(default)]
+    pub action: String,
+    pub sender: User,
+    pub repository: Repository,
+    pub installation: Installation,
+    pub issue: Option<Issue>,
+    pub pull_request: Option<Issue>,
+    pub comment: Option<Comment>,
+}
+
+impl EventDelivery {
+    #[must_use]
+    pub fn accepted(&self) -> bool {
+        self.sender.login != BOT
+            && self
+                .comment
+                .as_ref()
+                .is_none_or(|comment| comment.user.login != BOT)
+            && self.sender.id > 0
+            && ((self.sender.kind == "User" && valid_login(&self.sender.login))
+                || (self.sender.kind == "Bot"
+                    && self
+                        .sender
+                        .login
+                        .strip_suffix("[bot]")
+                        .is_some_and(valid_login)))
+            && self.repository.id > 0
+            && valid_repository(&self.repository.full_name)
+            && self.installation.id == 153_964_219
+            && self.action.len() <= 40
+            && self
+                .action
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+            && self.issue.as_ref().is_none_or(|issue| issue.number > 0)
+            && self
+                .pull_request
+                .as_ref()
+                .is_none_or(|issue| issue.number > 0)
+    }
+}
+
+#[must_use]
+pub fn trigger_matches(triggers: &[String], event: &str, action: &str) -> bool {
+    triggers.iter().take(32).any(|trigger| {
+        trigger == event
+            || trigger.strip_prefix(event).is_some_and(|suffix| {
+                !action.is_empty() && suffix.strip_prefix('.') == Some(action)
+            })
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum EventActor {
+    MemberWithSeat,
+    MemberWithoutSeat,
+    Bot,
+    Outsider,
+}
+
+/// Membership and seat availability are supplied by the edge, never inferred from a login.
+#[must_use]
+pub fn event_seat<'a>(
+    actor: &'a str,
+    identity: EventActor,
+    owner: Option<&'a str>,
+    owner_member: bool,
+    owner_seat: bool,
+) -> Option<&'a str> {
+    match identity {
+        EventActor::Outsider => None,
+        EventActor::MemberWithSeat => valid_login(actor).then_some(actor),
+        EventActor::MemberWithoutSeat | EventActor::Bot => {
+            owner.filter(|login| valid_login(login) && owner_member && owner_seat)
+        }
+    }
+}
+
+#[must_use]
+pub fn schedule_matches(schedule: &Schedule, utc_day: u64) -> bool {
+    let weekday = match (utc_day % 7 + 3) % 7 {
+        0 => "mon",
+        1 => "tue",
+        2 => "wed",
+        3 => "thu",
+        4 => "fri",
+        5 => "sat",
+        _ => "sun",
+    };
+    match schedule {
+        Schedule::Daily(value) => value == "daily",
+        Schedule::Days(days) => days.iter().take(7).any(|day| day == weekday),
+    }
+}
+
+/// No catch-up: the chosen minute must remain in today's UTC day.
+#[must_use]
+pub fn next_schedule_minute(schedule: &Schedule, timestamp_ms: u64) -> Option<u64> {
+    let minute = timestamp_ms / 60_000;
+    let next = minute.checked_add(1)?;
+    (next / 1440 == minute / 1440 && schedule_matches(schedule, minute / 1440)).then_some(next)
+}
+
+/// Stable UUID-shaped identity shared by all retries of one unattended occurrence.
+#[must_use]
+pub fn occurrence_id(namespace: &str) -> String {
+    use std::fmt::Write;
+    let hex = Sha256::digest(namespace.as_bytes()).iter().fold(
+        String::with_capacity(64),
+        |mut hex, byte| {
+            let _result = write!(&mut hex, "{byte:02x}");
+            hex
+        },
+    );
+    // Digest encoding has a fixed, known length; get() keeps this panic-free.
+    [
+        hex.get(..8),
+        hex.get(8..12),
+        hex.get(12..16),
+        hex.get(16..20),
+        hex.get(20..32),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join("-")
+}
+
+#[must_use]
+pub fn verify_queue_signature(pem: &str, signature: &str, body: &[u8], now_ms: u64) -> bool {
+    if body.len() > 16_384 {
+        return false;
+    }
+    let normalized = pem.replace("\r\n", "\n");
+    if !verify_signature(normalized.trim().as_bytes(), signature, body) {
+        return false;
+    }
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return false;
+    };
+    value
+        .get("timestamp_ms")
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|timestamp| now_ms.abs_diff(timestamp) <= 60_000)
+        && match value.get("action").and_then(serde_json::Value::as_str) {
+            Some("bind") => true,
+            Some("complete") => {
+                value
+                    .get("containers_destroyed")
+                    .and_then(serde_json::Value::as_bool)
+                    == Some(true)
+                    && value
+                        .get("publication_complete")
+                        .and_then(serde_json::Value::as_bool)
+                        == Some(true)
+            }
+            _ => false,
+        }
 }

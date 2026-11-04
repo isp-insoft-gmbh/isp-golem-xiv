@@ -156,13 +156,30 @@ fn worker() -> Result<()> {
         &["--release", "--out-dir", output, "--", "--locked"],
         Path::new("router"),
     )?;
-    validate_worker(Path::new(output))
+    // Keep worker-build's compiled Rust default and add the named DO export.
+    let directory = Path::new(output);
+    for filename in ["coordinator.js", "runtime.js"] {
+        fs::copy(
+            Path::new("router/src").join(filename),
+            directory.join(filename),
+        )?;
+    }
+    let entry = directory.join("index.js");
+    let mut javascript = fs::read_to_string(&entry)?;
+    javascript.push_str("\nexport { Coordinator } from \"./coordinator.js\";\n");
+    fs::write(entry, javascript)?;
+    validate_worker(directory)
 }
 
 fn validate_worker(directory: &Path) -> Result<()> {
-    let javascript = directory.join("index.js");
-    if fs::metadata(&javascript)?.len() == 0 {
-        return Err("worker JavaScript is empty".into());
+    for filename in ["index.js", "coordinator.js", "runtime.js"] {
+        let size = fs::metadata(directory.join(filename))?.len();
+        if size == 0 || size > 5_000_000 {
+            return Err(format!("worker module {filename} size is invalid").into());
+        }
+    }
+    if fs::metadata(directory.join("index_bg.wasm"))?.len() > 20_000_000 {
+        return Err("worker WebAssembly size is invalid".into());
     }
     let mut header = [0; 8];
     fs::File::open(directory.join("index_bg.wasm"))?.read_exact(&mut header)?;
@@ -257,7 +274,7 @@ fn distribution() -> Result<()> {
     )?;
     let worker_output = output.join("worker");
     fs::create_dir_all(&worker_output)?;
-    for filename in ["index.js", "index_bg.wasm"] {
+    for filename in ["index.js", "index_bg.wasm", "coordinator.js", "runtime.js"] {
         fs::copy(
             Path::new("router/build").join(filename),
             worker_output.join(filename),
@@ -272,12 +289,14 @@ fn distribution() -> Result<()> {
             "worker",
             "index.js",
             "index_bg.wasm",
+            "coordinator.js",
+            "runtime.js",
         ],
         &output,
     )?;
     verify_archive(
         &output.join("golem-worker.tar.gz"),
-        &["index.js", "index_bg.wasm"],
+        &["index.js", "index_bg.wasm", "coordinator.js", "runtime.js"],
     )?;
     let checksum_command = format!(
         "let raw = \"dist/{raw_binary}\"; let raw_sum = $\"(open --raw $raw | hash sha256)  ($raw | path basename)\"; $raw_sum + (char nl) | save --force \"dist/{raw_binary}.sha256\"; let files = [\"dist/{runner_archive}\" \"dist/golem-worker.tar.gz\" $raw]; ($files | each {{|file| $\"(open --raw $file | hash sha256)  ($file | path basename)\" }} | str join (char nl)) + (char nl) | save --force dist/SHA256SUMS"
@@ -363,6 +382,11 @@ mod tests {
         let result = (|| {
             assert!(validate_worker(&directory).is_err());
             fs::write(directory.join("index.js"), "export default {};")?;
+            fs::write(
+                directory.join("coordinator.js"),
+                "export class Coordinator {}",
+            )?;
+            fs::write(directory.join("runtime.js"), "export function appJwt() {}")?;
             fs::write(directory.join("index_bg.wasm"), b"not wasm")?;
             assert!(validate_worker(&directory).is_err());
             fs::write(

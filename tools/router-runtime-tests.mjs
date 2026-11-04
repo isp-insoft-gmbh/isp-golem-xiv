@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url);
 // npm global prefixes differ: Windows uses node_modules, Unix lib/node_modules.
 const miniflare = require.resolve("miniflare", { paths: [root, resolve(root, "lib")] });
 const repository = fileURLToPath(new URL("../", import.meta.url));
-for (const script of ["router/tests/runtime.mjs", "router/tests/worker.mjs"]) {
+for (const script of ["router/tests/runtime.mjs", "router/tests/worker.mjs", "tools/coordinator-worker-test.mjs", "router/tests/coordinator.mjs"]) {
   const result = spawnSync(process.execPath, [script, miniflare, "router/build"], {
     cwd: repository,
     stdio: "inherit",

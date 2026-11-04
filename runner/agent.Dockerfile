@@ -1,6 +1,10 @@
 FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git build-essential curl unzip xz-utils pkg-config \
+    && rm -rf /var/lib/apt/lists/*
 COPY mise /usr/local/bin/mise
 COPY agent.mise.toml /opt/mise-config/config.toml
+COPY container.cjs /opt/golem/container.cjs
 ENV MISE_DATA_DIR=/opt/mise MISE_CONFIG_DIR=/opt/mise-config MISE_CACHE_DIR=/opt/mise-cache MISE_YES=1 CI=1 NPM_CONFIG_YES=true
 RUN mise --version | grep '^2026.10.21 ' \
     && mise install \
@@ -22,6 +26,7 @@ RUN mise --version | grep '^2026.10.21 ' \
     && chmod -R a+rX /opt/mise /opt/mise-config \
     && chown 1000:1000 /home/agent \
     && ln -s "$(mise which claude)" /usr/local/bin/claude \
+    && ln -s "$(readlink -f /usr/local/bin/claude)" /opt/golem/claude-entry \
     && rm -rf /opt/mise-cache /root/.npm
 # --max-turns is registered but hidden from --help in the pinned CLI.
 # Prove parsing through auth, not turn-limit enforcement (requires a live run).
@@ -39,7 +44,9 @@ RUN --network=none set -eu; \
         </dev/null >stdout 2>stderr) || code=$?; \
       cat "$home/stdout" "$home/stderr"; \
       test "$code" -eq 1; \
-      test "$(cat "$home/stdout")" = "$expected_stdout"; \
+      if [ "$name" = stream ]; then \
+        /usr/local/bin/node -e 'const fs = require("node:fs"); const records = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(JSON.parse); const result = records.find(r => r.type === "result"); if (!result || result.is_error !== true || result.result !== process.argv[2] || Object.keys(result.modelUsage).length !== 0 || !records.some(r => r.type === "assistant" && r.error === "authentication_failed")) process.exit(1);' "$home/stdout" "$expected_stdout"; \
+      else test "$(cat "$home/stdout")" = "$expected_stdout"; fi; \
       test "$(cat "$home/stderr")" = "$expected_stderr"; \
     }; \
     probe unknown '' "error: unknown option '--definitely-unknown-option'" \
@@ -47,17 +54,19 @@ RUN --network=none set -eu; \
     probe invalid '' "error: option '--max-turns <turns>' argument 'not-a-number' is invalid. must be a number" \
       --max-turns not-a-number --print probe; \
     probe valid 'Not logged in · Please run /login' '' \
-      --max-turns 1 --print probe
+      --max-turns 1 --print probe; \
+    probe stream 'Not logged in · Please run /login' '' \
+      --max-turns 1 --print --output-format stream-json --verbose probe
 RUN printf '%s\n' \
       '#!/bin/sh' \
       'set -eu' \
       ': "${GOLEM_TIMEOUT_SECONDS:?}"' \
       'case "$GOLEM_TIMEOUT_SECONDS" in *[!0-9]*|0) exit 64;; esac' \
-      'exec /usr/bin/timeout --signal=KILL "${GOLEM_TIMEOUT_SECONDS}s" /usr/local/bin/claude "$@"' \
+      'exec /usr/bin/timeout --signal=KILL "${GOLEM_TIMEOUT_SECONDS}s" /usr/local/bin/node /opt/golem/container.cjs "$@"' \
       > /usr/local/bin/golem-timeout \
     && chmod 755 /usr/local/bin/golem-timeout
 ENV HOME=/home/agent CLAUDE_CONFIG_DIR=/home/agent/.claude DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 USER 1000:1000
-RUN claude --version
+RUN --network=none GOLEM_TIMEOUT_SECONDS=20 /usr/local/bin/golem-timeout --version
 WORKDIR /workspace
 ENTRYPOINT ["/usr/local/bin/golem-timeout"]

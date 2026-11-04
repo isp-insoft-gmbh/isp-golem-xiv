@@ -1,5 +1,7 @@
 #![forbid(unsafe_code)]
 
+pub mod changes;
+
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
@@ -33,10 +35,20 @@ pub struct DispatchV1 {
     pub repository: String,
     pub head_sha: String,
     pub golem: String,
-    pub issue_number: u64,
-    pub comment_id: u64,
-    pub actor_id: u64,
-    pub actor_login: String,
+    pub issue_number: Option<u64>,
+    pub comment_id: Option<u64>,
+    pub actor_id: Option<u64>,
+    pub actor_login: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verify: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue_generation: Option<String>,
     pub seat_login: String,
     pub provider: String,
     pub harness: String,
@@ -83,7 +95,17 @@ impl DispatchV1 {
                         byte.is_ascii_hexdigit()
                     }
                 });
-        if request.version != 1
+        let raw: serde_json::Value =
+            serde_json::from_str(json).map_err(|_| "invalid dispatch JSON")?;
+        if request.version == 1
+            && ["trigger", "branch", "verify", "owner", "queue_generation"]
+                .iter()
+                .any(|field| raw.get(field).is_some())
+        {
+            return Err("version 1 cannot contain version 2 fields");
+        }
+        request.validate_context()?;
+        if !matches!(request.version, 1 | 2)
             || !delivery_valid
             || owner != "isp-insoft-gmbh"
             || !identifier(owner, 39)
@@ -106,24 +128,14 @@ impl DispatchV1 {
                 .head_sha
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
-            || !identifier(&request.actor_login, 39)
             || !identifier(&request.seat_login, 39)
-            || !request
-                .actor_login
-                .eq_ignore_ascii_case(&request.seat_login)
             || request.provider != "anthropic"
             || request.harness != "claude"
             || !(1..=18_000).contains(&request.timeout_seconds)
             || request.instructions.len() > 16_384
             || request.instructions.contains('\0')
-            || [
-                request.repository_id,
-                request.issue_number,
-                request.comment_id,
-                request.actor_id,
-                request.check_run_id,
-            ]
-            .contains(&0)
+            || [request.repository_id, request.check_run_id].contains(&0)
+            || [request.issue_number, request.comment_id, request.actor_id].contains(&Some(0))
             || request.model.as_ref().is_some_and(|model| {
                 model.len() > 128
                     || model.is_empty()
@@ -136,6 +148,119 @@ impl DispatchV1 {
             return Err("unsupported or inconsistent dispatch");
         }
         Ok(request)
+    }
+
+    fn validate_context(&self) -> Result<()> {
+        let actor = self.actor_login.as_deref();
+        if self.actor_id.is_some() != actor.is_some()
+            || actor.is_some_and(|login| {
+                !(identifier(login, 39)
+                    || (self.trigger.as_deref() == Some("event")
+                        && login
+                            .strip_suffix("[bot]")
+                            .is_some_and(|name| identifier(name, 39))))
+            })
+            || (self.comment_id.is_some() && self.issue_number.is_none())
+        {
+            return Err("invalid dispatch context");
+        }
+        if self.version == 2 {
+            if !matches!(
+                self.trigger.as_deref(),
+                Some("mention" | "event" | "schedule")
+            ) || self
+                .branch
+                .as_deref()
+                .is_none_or(|branch| !valid_branch(branch))
+                || self
+                    .queue_generation
+                    .as_deref()
+                    .is_none_or(|id| !router::valid_delivery(id))
+                || self
+                    .owner
+                    .as_deref()
+                    .is_some_and(|owner| !identifier(owner, 39))
+                || self.verify.as_deref().is_some_and(|command| {
+                    command.trim().is_empty()
+                        || command.len() > 4096
+                        || command.chars().any(char::is_control)
+                })
+            {
+                return Err("invalid version 2 dispatch");
+            }
+            if self.trigger.as_deref() == Some("schedule")
+                && (self.owner.is_none() || self.actor_id.is_some() || self.comment_id.is_some())
+            {
+                return Err("invalid scheduled context");
+            }
+        }
+        if self.human() {
+            if self.issue_number.is_none()
+                || self.comment_id.is_none()
+                || self.actor_id.is_none()
+                || actor.is_none_or(|login| !login.eq_ignore_ascii_case(&self.seat_login))
+            {
+                return Err("human dispatch requires actor seat and comment");
+            }
+        } else {
+            let actor_seat = self.trigger.as_deref() == Some("event")
+                && actor.is_some_and(|login| {
+                    identifier(login, 39) && login.eq_ignore_ascii_case(&self.seat_login)
+                });
+            let owner_seat = self
+                .owner
+                .as_deref()
+                .is_some_and(|owner| owner.eq_ignore_ascii_case(&self.seat_login));
+            if self.owner.is_none() || !(actor_seat || owner_seat) {
+                return Err("unattended dispatch requires actor or owner seat");
+            }
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn human(&self) -> bool {
+        self.version == 1 || self.trigger.as_deref() == Some("mention")
+    }
+
+    #[must_use]
+    pub fn branch_name(&self) -> String {
+        self.branch
+            .clone()
+            .unwrap_or_else(|| format!("golems/{}", self.golem))
+    }
+
+    /// # Errors
+    /// Rejects invalid definitions or dispatch settings not matching the pinned definition.
+    pub fn validate_definition(&self, document: &str) -> Result<()> {
+        let definition = router::parse_golem(&self.golem, document);
+        if !definition.errors.is_empty() {
+            return Err("invalid golem definition");
+        }
+        let timeout = definition
+            .timeout_seconds()
+            .ok_or("invalid definition timeout")?;
+        let front = definition.frontmatter;
+        if u64::from(timeout) != self.timeout_seconds
+            || front.harness.as_deref().unwrap_or("claude") != self.harness
+            || front.provider.as_deref().unwrap_or("anthropic") != self.provider
+            || front.model != self.model
+        {
+            return Err("dispatch differs from definition");
+        }
+        if self.version == 2
+            && (front
+                .branch
+                .unwrap_or_else(|| format!("golems/{}", self.golem))
+                != self.branch_name()
+                || front.verify != self.verify
+                || front.owner != self.owner
+                || (self.trigger.as_deref() == Some("event") && front.triggers.is_empty())
+                || (self.trigger.as_deref() == Some("schedule") && front.schedule.is_none()))
+        {
+            return Err("version 2 dispatch differs from definition");
+        }
+        Ok(())
     }
 
     #[must_use]
@@ -170,6 +295,25 @@ impl DispatchV1 {
             self.golem
         )
     }
+}
+
+// Match Git ref rules without invoking Git on untrusted arguments.
+#[allow(clippy::case_sensitive_file_extension_comparisons)]
+fn valid_branch(branch: &str) -> bool {
+    !branch.is_empty()
+        && branch.len() <= 200
+        && branch != "@"
+        && !branch.contains("..")
+        && !branch.contains("@{")
+        && branch
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"/_-.".contains(&byte))
+        && branch.split('/').all(|part| {
+            !part.is_empty()
+                && !part.starts_with('.')
+                && !part.ends_with('.')
+                && !part.ends_with(".lock")
+        })
 }
 
 /// Fail closed on handled secrets, common encodings, and recognizable credential formats.
@@ -266,6 +410,124 @@ pub struct AgentOutput {
 /// # Errors
 /// Rejects unsuccessful, malformed, oversized, empty, or credential-bearing results.
 pub fn agent_result(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result<AgentOutput> {
+    checked_output(stdout, stderr, guard)?;
+    let mut result = None;
+    for (index, value) in serde_json::Deserializer::from_slice(stdout)
+        .into_iter::<serde_json::Value>()
+        .enumerate()
+    {
+        if index >= 4096 {
+            return Err("too many harness records");
+        }
+        let value = value.map_err(|_| "invalid harness result")?;
+        if value.get("type").and_then(serde_json::Value::as_str) == Some("result") {
+            if result.is_some() {
+                return Err("duplicate harness result");
+            }
+            result = Some(value);
+        }
+    }
+    let value = result.ok_or("missing harness result")?;
+    completed_agent_result(value.to_string().as_bytes(), stderr, guard)
+}
+
+fn checked_output(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result<()> {
+    if stdout.len() > OUTPUT_BYTES_MAX || stderr.len() > OUTPUT_BYTES_MAX {
+        return Err("harness output exceeds limit");
+    }
+    guard.check(std::str::from_utf8(stdout).map_err(|_| "invalid harness output")?)?;
+    guard.check(std::str::from_utf8(stderr).map_err(|_| "invalid harness diagnostics")?)
+}
+
+/// # Errors
+/// Rejects unsafe output; only complete observed records contribute model attribution.
+pub fn partial_agent_result(
+    stdout: &[u8],
+    stderr: &[u8],
+    guard: &OutputGuard,
+) -> Result<AgentOutput> {
+    checked_output(stdout, stderr, guard)?;
+    if let Ok(result) = agent_result(stdout, stderr, guard) {
+        return Ok(result);
+    }
+    let mut models = std::collections::BTreeSet::new();
+    let mut text = String::new();
+    for (index, value) in serde_json::Deserializer::from_slice(stdout)
+        .into_iter::<serde_json::Value>()
+        .enumerate()
+    {
+        if index >= 4096 {
+            return Err("too many harness records");
+        }
+        let value = match value {
+            Ok(value) => value,
+            Err(error) if error.is_eof() => break,
+            Err(_) => return Err("invalid partial harness output"),
+        };
+        if let Some(usage) = value
+            .get("modelUsage")
+            .and_then(serde_json::Value::as_object)
+        {
+            models.extend(usage.keys().cloned());
+        }
+        if value.get("type").and_then(serde_json::Value::as_str) == Some("assistant") {
+            if let Some(model) = value
+                .pointer("/message/model")
+                .and_then(serde_json::Value::as_str)
+            {
+                models.insert(model.to_owned());
+            }
+            if let Some(content) = value
+                .pointer("/message/content")
+                .and_then(serde_json::Value::as_array)
+            {
+                for block in content {
+                    if block.get("type").and_then(serde_json::Value::as_str) == Some("text")
+                        && let Some(part) = block.get("text").and_then(serde_json::Value::as_str)
+                    {
+                        text.push_str(part);
+                    }
+                }
+            }
+        }
+        if let Some(result) = value.get("result").and_then(serde_json::Value::as_str) {
+            result.clone_into(&mut text);
+        }
+        if text.len() > 48_000 || models.len() > 8 {
+            return Err("partial result exceeds limit");
+        }
+    }
+    if models.iter().any(|model| !valid_model(model)) {
+        return Err("invalid observed model");
+    }
+    if text.trim().is_empty() {
+        text = "Budget exhausted before a final answer was observed.".into();
+    }
+    guard.check(&text)?;
+    Ok(AgentOutput {
+        text,
+        model: if models.is_empty() {
+            "unobserved".into()
+        } else {
+            models.into_iter().collect::<Vec<_>>().join(",")
+        },
+    })
+}
+
+fn valid_model(model: &str) -> bool {
+    !model.is_empty()
+        && model != "unobserved"
+        && model.len() <= 128
+        && model
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
+}
+
+fn completed_agent_result(
+    stdout: &[u8],
+    stderr: &[u8],
+    guard: &OutputGuard,
+) -> Result<AgentOutput> {
     let stdout = std::str::from_utf8(stdout).map_err(|_| "invalid harness output")?;
     let stderr = std::str::from_utf8(stderr).map_err(|_| "invalid harness diagnostics")?;
     guard.check(stdout)?;
@@ -280,13 +542,7 @@ pub fn agent_result(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result
     }
     if result.model_usage.is_empty()
         || result.model_usage.len() > 8
-        || result.model_usage.keys().any(|model| {
-            model.is_empty()
-                || model.len() > 128
-                || !model
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
-        })
+        || result.model_usage.keys().any(|model| !valid_model(model))
     {
         return Err("missing or invalid observed model usage");
     }
@@ -297,6 +553,7 @@ pub fn agent_result(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result
         .collect::<Vec<_>>()
         .join(",");
     guard.check(&result.result)?;
+    guard.check(&model)?;
     Ok(AgentOutput {
         text: result.result,
         model,
@@ -439,6 +696,86 @@ mod tests {
             request.summary("replied", "claude-sonnet-4-6", "99"),
             "outcome: replied\nseat: test-member/anthropic\nharness: claude\nmodel: claude-sonnet-4-6\nbudget: 1800s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/99"
         );
+    }
+
+    #[test]
+    fn version_two_context_definition_and_owner_mapping_are_bound() {
+        let mut value: serde_json::Value = serde_json::from_str(&request_json()).unwrap();
+        value["version"] = serde_json::json!(2);
+        value["trigger"] = serde_json::json!("mention");
+        value["branch"] = serde_json::json!("golems/hello");
+        value["queue_generation"] = serde_json::json!("12345678-1234-1234-1234-123456789abc");
+        let request = parse(&value.to_string()).unwrap();
+        assert!(request.human());
+        assert_eq!(request.branch_name(), "golems/hello");
+        assert!(request.validate_definition("---\n---\nTask").is_ok());
+        assert!(
+            request
+                .validate_definition("---\nverify: cargo test\n---\nTask")
+                .is_err()
+        );
+        for branch in [
+            "",
+            "../bad",
+            "a//b",
+            "/main",
+            "main.lock",
+            "a/.b",
+            "a@{b",
+            "a b",
+        ] {
+            let mut bad = value.clone();
+            bad["branch"] = serde_json::json!(branch);
+            assert!(parse(&bad.to_string()).is_err(), "{branch}");
+        }
+        value["trigger"] = serde_json::json!("schedule");
+        for field in ["issue_number", "comment_id", "actor_id", "actor_login"] {
+            value[field] = serde_json::Value::Null;
+        }
+        value["owner"] = serde_json::json!("test-member");
+        let request = parse(&value.to_string()).unwrap();
+        assert!(!request.human());
+        assert!(
+            request
+                .validate_definition("---\nowner: test-member\nschedule: daily\n---\nTask")
+                .is_ok()
+        );
+        value["seat_login"] = serde_json::json!("another-member");
+        assert!(parse(&value.to_string()).is_err());
+        let mut legacy: serde_json::Value = serde_json::from_str(&request_json()).unwrap();
+        for field in ["trigger", "branch", "verify", "owner", "queue_generation"] {
+            legacy[field] = serde_json::Value::Null;
+            assert!(parse(&legacy.to_string()).is_err());
+            legacy.as_object_mut().unwrap().remove(field);
+        }
+    }
+
+    #[test]
+    fn streamed_success_and_partial_results_only_attribute_observed_models() {
+        let guard = OutputGuard::default();
+        let assistant = r#"{"type":"assistant","message":{"model":"claude-observed","content":[{"type":"text","text":"partial work"}]}}"#;
+        let success = r#"{"type":"result","subtype":"success","is_error":false,"result":"done","modelUsage":{"claude-observed":{}}}"#;
+        let stream = format!("{assistant}\n{success}\n");
+        assert_eq!(
+            agent_result(stream.as_bytes(), b"", &guard).unwrap().text,
+            "done"
+        );
+        assert_eq!(
+            partial_agent_result(stream.as_bytes(), b"", &guard).unwrap(),
+            agent_result(success.as_bytes(), b"", &guard).unwrap()
+        );
+        let partial = format!("{assistant}\n{{\"type\":");
+        let output = partial_agent_result(partial.as_bytes(), b"", &guard).unwrap();
+        assert_eq!(output.text, "partial work");
+        assert_eq!(output.model, "claude-observed");
+        assert_eq!(
+            partial_agent_result(b"", b"", &guard).unwrap().model,
+            "unobserved"
+        );
+        assert!(agent_result(b"", b"", &guard).is_err());
+        assert!(partial_agent_result(b"not json", b"", &guard).is_err());
+        assert!(partial_agent_result(b"", b"ghp_secret", &guard).is_err());
+        assert!(agent_result(&vec![b' '; OUTPUT_BYTES_MAX + 1], b"", &guard).is_err());
     }
 
     #[test]
