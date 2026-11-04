@@ -3,6 +3,37 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-04: Local PAX paths and failed startup recovery
+
+- Original orphan recovery was independently observed after deployment: original check `126334264637`, run `41772599688`, exact original prepared identity, receipts, bound-before-terminal history, retirement and ordered native phases.
+  Its outcome is replied, not fresh publication; see `EVIDENCE.md`.
+- Real outcomes proof process stopped with no accepted outcome evidence.
+  Partial run `41774486415` blocked before provider execution because the actual codeload archive contains a local PAX `path` record.
+  Scheduled run `41774622060` failed before admission with the old generic queue denial; its HTTP cause remains unidentified and its reservation is preserved.
+  Bot fixture used scalar triggers although frontmatter requires a sequence; deployed index confirmed it disabled, so correct fixture syntax rather than bot filtering.
+- The immutable private archive at commit `6707a8bbef9526cbdc467a287c1089454e164f7a`, compressed SHA-256 `2d4de7a25756c7703182a7c14f44b557a8043e9c525aeb0c41f9d0f46ba17461`, reproduced the old exact extraction error.
+  Local PAX support permits one bounded UTF-8 path record for the next real entry, no other overrides; existing path, link, root, size and collision guards remain.
+  Review found inherited Win32 alias/device hazards; raw component checks now reject them before normalization or writes for ordinary and effective PAX paths.
+  Parent executed the ignored private integration test explicitly: tracked digest and embedded commit checked before extraction, independent tar comparison passed, scratch archive removed.
+- Native control requests now use bounded same-run retries for transport, 429 and 5xx only, with fresh signed timestamps; authorization, ownership and malformed grants remain fail-closed.
+  This retries control communication, never agent execution, and does not retroactively identify the old denial's cause.
+- Undispatched pending/reserved requests now preflight target identity; 404 records terminal blocked reason `target unavailable at dispatch preflight` privately.
+  Do not claim deletion: GitHub also hides authorization failures as 404.
+  Dispatched/bound work, 403, 5xx and identity mismatch retain their claims.
+- A narrow operator helper can associate one proven completed failed workflow with its exact existing unbound reservation, never reset, redispatch or manually mark it completed.
+  It requires exact immutable request, generation, workflow bytes, full trusted-step request/log evidence, unique run, known historical runner asset identity, candidate evidence and queue CAS; normal coordinator reconciliation then owns blocked auditing and release.
+  Apply additionally requires the reviewed Coordinator source at the exact live Worker health version, before evidence writes and again immediately before CAS.
+  Version drift, source drift and health failure on the second check all prove zero queue PUTs, retained dispatching state and no applied evidence.
+  Actual read-only inspection passed; no remote apply has occurred.
+- Release `v2` is not an immutable release container.
+  Historical binary identity is pinned by asset `707806211`, its exact GitHub digest, unchanged creation/update times preceding the failed run, uploader, annotated source tag and successful release-build metadata.
+  This uses trusted GitHub metadata and CI, not an independent cryptographic build attestation.
+- Security review completed within four calls and the 60-minute bound, closing path aliases, deployment gating, historical asset identity, default branch, tracked archive identifiers and lifecycle detection findings.
+  Fresh final Node repair suite and full `mise run ci` exited 0.
+  Earlier local simulator resets and a regex-stem typo were not hidden with gate changes, ignores or raised limits.
+- These corrections remain local until protected PR CI, deployment and a new released runner succeed.
+  Schedule-owner, bot-owner, incomplete/continuation and full Slice 2 acceptance are still unverified.
+
 ## 2026-11-04: Cold-start bootstrap and orphan recovery correction
 
 - A controlled Contents API write naming a nonexistent private-ops branch returned HTTP 404 (`Branch ... not found`), without creating a file.
