@@ -21,6 +21,10 @@ Each entry: date, decision, reason, and evidence where it exists.
   Removed duplicated reaction/membership/stop handling already implemented by `process_mention`, passing repository metadata so authorized normal requests look up head only after stop handling.
   No lint suppression or gate relaxation.
 - Subsequent fresh full `mise run ci` exited 0; focused different-model review found no scoped correctness/security/regression blocker.
+  A second scoped review covered both operational proof helpers and the already-applied ops `v2` pin without finding a publication blocker.
+  Outcomes polling tolerates a missing immutable request tag only while its check is non-completed; completed checks remain strict.
+  Current-day schedule freshness uses the actual Actions run's `created_at`, never a nonexistent CheckRun field.
+  The pilot observer additionally checks golem/harness, workflow path and exact journal tag/resource/seat; the real changed observation passed again.
   Original live orphan remains unresolved until this correction is deployed and independently observed serving it.
 
 ## 2026-11-04: Live canary identities and cold-start admission gap
