@@ -276,6 +276,7 @@ impl RunContext<'_> {
             "bind",
         )
         .await?;
+        println!("golem lifecycle: admitted");
         let name = format!("golem-{}-{}", self.run_id, self.attempt);
         let started = self
             .github
@@ -302,14 +303,18 @@ impl RunContext<'_> {
         // Release the immutable guard borrow before minting adds new credentials.
         let result = execution.await;
         after_destruction(std::future::ready(result), async |result| {
+            println!("golem lifecycle: containers_destroyed");
             let token = self
                 .github
                 .token(self.private_key, self.request, true, guard)
                 .await?;
+            println!("golem lifecycle: publication_credentials_minted");
             let outcome = self.publish_writable(&token, result, guard).await;
             // Feedback/check failures retain the queue claim for coordinator repair.
             let terminal = outcome?;
+            println!("golem lifecycle: publication_complete");
             self.complete(true, true).await?;
+            println!("golem lifecycle: reservation_released");
             terminal
         })
         .await
