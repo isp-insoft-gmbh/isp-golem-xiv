@@ -46,21 +46,28 @@ jobs:
 };
 function need(ok, message) { if (!ok) throw new Error(message); }
 function number(value) { need(Number.isSafeInteger(value) && value > 0, 'unsafe numeric identity'); return value; }
-async function gh(args, body) {
+async function gh(args, body, missing = false) {
   need(Date.now() < deadline, 'deadline exceeded');
   return new Promise((resolve, reject) => {
     const child = spawn('gh', args, {windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'], timeout: Math.min(30_000, deadline - Date.now())});
     const chunks = []; let size = 0, overflow = false;
     child.stdout.on('data', chunk => { size += chunk.length; if (size > 2_000_000) { overflow = true; child.kill(); } else chunks.push(chunk); });
     child.on('error', () => reject(new Error('GitHub CLI unavailable')));
-    child.on('close', code => code === 0 && !overflow ? resolve(Buffer.concat(chunks).toString('utf8')) : reject(new Error('GitHub request failed or exceeded bounds')));
+    child.on('close', code => {
+      const text = Buffer.concat(chunks).toString('utf8');
+      if (missing && code !== 0 && !overflow) {
+        try { if (String(JSON.parse(text).status) === '404') { resolve(null); return; } } catch {}
+      }
+      if (code === 0 && !overflow) resolve(text);
+      else reject(new Error('GitHub request failed or exceeded bounds'));
+    });
     child.stdin.on('error', () => {});
     child.stdin.end(body === undefined ? undefined : JSON.stringify(body));
   });
 }
-async function api(path, method = 'GET', body) {
-  const result = await gh(['api', path, '--method', method, ...(body === undefined ? [] : ['--input', '-'])], body);
-  if (!result.trim()) return null;
+async function api(path, method = 'GET', body, missing = false) {
+  const result = await gh(['api', path, '--method', method, ...(body === undefined ? [] : ['--input', '-'])], body, missing);
+  if (result === null || !result.trim()) return null;
   try { return JSON.parse(result); } catch { throw new Error('invalid GitHub JSON'); }
 }
 function decoded(file) {
@@ -86,13 +93,14 @@ async function definitions(repo, branch) {
   need(JSON.stringify(sensitive) === JSON.stringify(Object.keys(files).filter(x => x.startsWith('.')).sort()), 'unexpected definitions or workflows');
   return tree.sha;
 }
-async function request(repo, check) {
+async function request(repo, check, pending = false) {
   need(check.app?.id === 4605060 && /^[a-f0-9-]{36}$/.test(check.external_id ?? ''), 'check identity invalid');
-  const ref = await api(`repos/${ops}/git/ref/tags/golem-request/${check.external_id}`);
+  const ref = await api(`repos/${ops}/git/ref/tags/golem-request/${check.external_id}`, 'GET', undefined, pending);
+  if (!ref) return null;
   need(ref.object?.type === 'tag' && /^[a-f0-9]{40}$/.test(ref.object.sha), 'immutable request tag missing');
   const tag = await api(`repos/${ops}/git/tags/${ref.object.sha}`);
   const req = JSON.parse(tag.message);
-  need(req.version === 2 && req.delivery_id === check.external_id && req.repository === repo && req.check_run_id === number(check.id) && req.head_sha === check.head_sha && req.seat_login === 'bugabinga' && req.provider === 'anthropic' && req.owner === 'bugabinga', 'request context or owner seat invalid');
+  need(req.version === 2 && req.delivery_id === check.external_id && req.repository === repo && check.name === `golem/${req.golem}` && req.harness === 'claude' && req.check_run_id === number(check.id) && req.head_sha === check.head_sha && req.seat_login === 'bugabinga' && req.provider === 'anthropic' && req.owner === 'bugabinga', 'request context or owner seat invalid');
   need(/^[a-f0-9-]{36}$/.test(req.queue_generation ?? ''), 'request generation invalid');
   return {req, tag: ref.object.sha};
 }
@@ -111,21 +119,22 @@ async function audit(repo, check, outcome) {
   if (outcome === 'no_change') need(summary.some(x => /^reason: \S/.test(x)), 'no_change lacks reason');
   const runId = number(Number(match[1]));
   const run = await poll(async () => { const r = await api(`repos/${ops}/actions/runs/${runId}`); return r.status === 'completed' ? r : null; });
-  need(run.id === runId && run.conclusion === 'success' && run.run_attempt === 1 && run.display_title === `${repo} ${req.golem}` && run.event === 'workflow_dispatch' && run.path === '.github/workflows/runner.yml', 'native workflow identity or outcome invalid');
+  need(run.id === runId && run.conclusion === 'success' && run.run_attempt === 1 && run.display_title === `${repo} ${req.golem}` && run.event === 'workflow_dispatch' && run.head_branch === 'trunk' && run.path === '.github/workflows/runner.yml', 'native workflow identity or outcome invalid');
   const queue = JSON.parse(decoded(await api(`repos/${ops}/contents/queue.json?ref=golem-state`)));
   need(queue.version === 2 && Array.isArray(queue.records) && queue.records.length <= 32, 'queue format invalid');
   const row = queue.records.find(r => r.id === req.delivery_id);
   if (row) need(row.tag === tag && row.generation === req.queue_generation && row.state === 'terminal' && row.run_id === runId && row.attempt === 1 && row.resource === `${repo}/${req.golem}` && row.seat === 'bugabinga/anthropic', 'terminal queue binding invalid');
   else need((await api(`repos/${ops}/git/ref/tags/golem-terminal/${req.delivery_id}`)).object?.sha === tag, 'terminal receipt missing');
   console.log(`${req.golem}: ${outcome}; https://github.com/${ops}/actions/runs/${runId}; https://github.com/${repo}/runs/${check.id}`);
-  return {req, model, runId};
+  need(typeof run.created_at === 'string' && Number.isFinite(Date.parse(run.created_at)), 'native workflow time unavailable');
+  return {req, model, runId, createdAt: run.created_at};
 }
 async function completed(repo, head, golem, predicate) {
   return poll(async () => {
     const matches = [];
     for (const check of await checks(repo, head, golem)) {
-      const context = await request(repo, check);
-      if (predicate(context.req)) matches.push(check);
+      const context = await request(repo, check, check.status !== 'completed');
+      if (context && predicate(context.req)) matches.push(check);
     }
     need(matches.length <= 1, 'duplicate matching runs');
     return matches[0]?.status === 'completed' ? matches[0] : null;
@@ -186,8 +195,8 @@ async function prove(repo, data) {
   stage = 'genuine Cloudflare scheduled run';
   const today = new Date().toISOString().slice(0, 10);
   const scheduled = await completed(repo, head, 'scheduled', r => r.trigger === 'schedule' && r.actor_id === null && r.actor_login === null && r.issue_number === null && r.comment_id === null);
-  need(scheduled.created_at?.startsWith(today), 'scheduled run is not from current UTC day');
-  await audit(repo, scheduled, 'no_change');
+  const scheduledAudit = await audit(repo, scheduled, 'no_change');
+  need(scheduledAudit.createdAt.startsWith(today), 'scheduled run is not from current UTC day');
   // Schedule has no issue/thread. Verify no unsolicited response on any sandbox issue.
   const allIssues = await api(`repos/${repo}/issues?state=all&per_page=100`);
   need(Array.isArray(allIssues) && allIssues.length < 100, 'issue page exceeds bounds');

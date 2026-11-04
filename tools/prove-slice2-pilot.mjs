@@ -103,7 +103,7 @@ async function main() {
       if (!stored) { if (explicitCheck) throw new Error('unresolved admission: immutable request tag missing'); continue; }
       const r = stored.request;
       if (r.comment_id !== commentId) { if (explicitCheck) throw new Error('check belongs to another comment'); continue; }
-      requireThat(r.version === 2 && r.trigger === 'mention' && r.repository === repo && r.repository_id === details.id && r.delivery_id === check.external_id && r.check_run_id === check.id && r.head_sha === check.head_sha && r.issue_number === Number(issueMatch[1]) && r.actor_id === me.id && r.actor_login === me.login && r.seat_login === me.login && r.provider === 'anthropic' && r.branch === 'golems/pilot' && r.verify === 'test -s pilot.txt' && r.owner === me.login, 'immutable request identity mismatch');
+      requireThat(r.version === 2 && r.trigger === 'mention' && r.golem === 'pilot' && r.harness === 'claude' && r.repository === repo && r.repository_id === details.id && r.delivery_id === check.external_id && r.check_run_id === check.id && r.head_sha === check.head_sha && r.issue_number === Number(issueMatch[1]) && r.actor_id === me.id && r.actor_login === me.login && r.seat_login === me.login && r.provider === 'anthropic' && r.branch === 'golems/pilot' && r.verify === 'test -s pilot.txt' && r.owner === me.login, 'immutable request identity mismatch');
       return check.status === 'completed' ? {check, ...stored} : null;
     }
     return null;
@@ -117,7 +117,7 @@ async function main() {
   requireThat(Number.isSafeInteger(runId), 'unsafe run identity');
   stage = 'verify actual workflow and fresh publication';
   const run = await waitFor(async () => { const value = await api(`repos/${ops}/actions/runs/${runId}`); return value.status === 'completed' ? value : null; }, 'completed native workflow');
-  requireThat(run.conclusion === 'success' && run.run_attempt === 1 && run.event === 'workflow_dispatch' && run.head_branch === 'trunk' && run.display_title === `${repo} pilot`, 'workflow identity invalid');
+  requireThat(run.conclusion === 'success' && run.run_attempt === 1 && run.event === 'workflow_dispatch' && run.head_branch === 'trunk' && run.path === '.github/workflows/runner.yml' && run.display_title === `${repo} pilot`, 'workflow identity invalid');
   const start = Date.parse(run.created_at) - 10_000, end = Date.parse(run.updated_at) + 10_000;
   requireThat(Number.isFinite(start) && Number.isFinite(end) && end >= start, 'workflow time window invalid');
   const pulls = await api(`repos/${repo}/pulls?state=open&head=${encodeURIComponent(`${org}:golems/pilot`)}&per_page=100`);
@@ -132,14 +132,14 @@ async function main() {
   stage = 'verify authoritative terminal and bound history';
   const current = JSON.parse(decoded(await api(`repos/${ops}/contents/queue.json?ref=golem-state`)));
   const currentRow = current.records?.find(row => row.id === request.delivery_id);
-  if (currentRow) requireThat(currentRow.state === 'terminal' && currentRow.run_id === runId && currentRow.generation === request.queue_generation && currentRow.attempt === 1, 'current reservation is not matching terminal owner');
+  if (currentRow) requireThat(currentRow.state === 'terminal' && currentRow.tag === tagSha && currentRow.resource === `${repo}/pilot` && currentRow.seat === 'bugabinga/anthropic' && currentRow.run_id === runId && currentRow.generation === request.queue_generation && currentRow.attempt === 1, 'current reservation is not matching terminal owner');
   else { const receipt = await api(`repos/${ops}/git/ref/tags/golem-terminal/${request.delivery_id}`); requireThat(receipt.object?.sha === tagSha, 'retired terminal receipt does not match immutable request'); }
   const history = await api(`repos/${ops}/commits?sha=golem-state&path=queue.json&since=${encodeURIComponent(new Date(start).toISOString())}&until=${encodeURIComponent(new Date(end).toISOString())}&per_page=100`);
   requireThat(Array.isArray(history) && history.length > 0 && history.length < 100, 'bounded lifecycle history unavailable');
   let terminal = false, historicalBind = false;
   for (const commit of history) {
     const snapshot = JSON.parse(decoded(await api(`repos/${ops}/contents/queue.json?ref=${commit.sha}`)));
-    const entry = snapshot.records?.find(row => row.id === request.delivery_id && row.generation === request.queue_generation && row.run_id === runId && row.attempt === 1);
+    const entry = snapshot.records?.find(row => row.id === request.delivery_id && row.tag === tagSha && row.resource === `${repo}/pilot` && row.seat === 'bugabinga/anthropic' && row.generation === request.queue_generation && row.run_id === runId && row.attempt === 1);
     if (entry?.state === 'terminal') terminal = true;
     if (terminal && entry?.state === 'bound') { historicalBind = true; break; }
   }
