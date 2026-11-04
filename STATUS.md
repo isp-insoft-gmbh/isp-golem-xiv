@@ -2,7 +2,7 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** preparing `fix/journal-cas-fencing`, preserving verified outcomes and failed full-acceptance evidence.
+- **Current branch:** `fix/journal-cas-fencing`, public PR #11 pending required CI; preserving verified outcomes and failed full-acceptance evidence.
 - **Deployed Worker:** PR #10 commit `22e8a24a85205cd742fcafad7bdb83073ec7f753`; exact-head CI `41792925145` on `c8106bc`, trunk CI `41793629432` and deployment `41793629564` succeeded.
   Live cursor observation confirms scanning resumed (`done=false`, page 2) without resetting 38 completed IDs.
 - **Released native source:** PR #9 commit `00d62520f873ec404d66f409d51db18933f82ae8`.
@@ -54,6 +54,7 @@
   Known v3 operator profile preserves exact provenance, dual legitimate request-environment records and deployment/CAS guards; actual read-only inspection passed for retained failed run with targetUnavailable=true.
   No apply or live recovery of this failure has occurred.
   Parent fresh full CI exited 0; independent security review closed findings.
+  Maintenance guard matrix also joins the normal test/CI command, rather than depending only on explicit local execution.
   All 68 Coordinator scenarios remain under unchanged 60s wrapper through isolated fixture batching, not skipped tests or raised limits.
 - **Next step:** protected PR CI/deployment for this correction, guarded v3 association, observe normal private blocked audit and retirement.
   Then reproduce forbidden behavior in a retained isolated repository; do not assume its deleted check's outcome or remove safety guards.

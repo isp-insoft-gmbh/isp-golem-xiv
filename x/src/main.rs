@@ -77,6 +77,7 @@ fn run_at(program: &str, arguments: &[&str], directory: &Path) -> Result<()> {
 fn tests() -> Result<()> {
     // Worker glue is wasm-only; the router's deterministic logic is tested on host.
     run("cargo", &["test", "--locked", "--workspace"])?;
+    run("node", &["tools/repair-unbound-test.mjs"])?;
     run("nu", &["--no-config-file", "tools/deploy-test.nu"])?;
     run("node", &["tools/deploy-http-test.mjs"])
 }
