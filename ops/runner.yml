@@ -31,7 +31,7 @@ jobs:
           test "${GITHUB_RUN_ATTEMPT:-}" = 1
       - name: Download pinned public runner
         env:
-          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v1
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v2
         shell: bash
         run: |
           set -euo pipefail
