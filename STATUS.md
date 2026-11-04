@@ -1,8 +1,8 @@
 # Status
 
-- **Current slice:** 2, implemented locally, not deployed or proven live; Slice 1 passed three consecutive full deployed acceptance runs.
-- **Branch:** `feat/slice-2`, rebased onto trunk `a73f987`; code commit `abc10da` is tree-equivalent to pre-rebase `386cac0`; fresh post-rebase local `mise run ci` exited 0.
-- **Next step:** publish guarded Slice 2 PR → green exact-head `ci` → merge/deploy with rollout variable absent → publish compatible runner → ops pin → actual v2 pilot through real coordinator/native runner → deployed v1 regression → full Slice 2 acceptance/evidence.
+- **Current slice:** 2, merged behind disabled rollout flag; deployment/release and live proof pending; Slice 1 passed three consecutive full deployed acceptance runs.
+- **Branch:** `docs/slice-2-proof` tracks upcoming real proofs; PR #7 merged as trunk `0a9555f` only after required Linux `ci` green on exact head `0bf104d` (`41752524809`).
+- **Next step:** wait for trunk `ci` (`41753576752`) and deploy (`41753576792`) on `0a9555f`; tag/publish `v2`; merge reviewed ops pin after its green CI; activate protocol 2; run real native pilot; disable rollout for deployed v1 regression; re-enable protocol 2 for full Slice 2 acceptance/evidence.
   Do not enable `GOLEM_PROTOCOL_VERSION=2` before ops pins the compatible released runner.
   Slice 2 preflight remains red for missing schedule-owner, bot-owner and incomplete evidence.
 - **Slice 2 local verification:** rebuilt final `mise run test-worker` passed after fixing newly introduced test-case state contamination and teaching the actual-edge/actual-Coordinator GitHub double the new continuation endpoints.
