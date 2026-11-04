@@ -239,7 +239,7 @@ fn verified_changes(
 
 struct WritableResult {
     base_sha: String,
-    changes: Vec<golem_runner::changes::Change>,
+    changes: Result<Vec<golem_runner::changes::Change>>,
     output: AgentOutput,
     timed_out: bool,
 }
@@ -383,7 +383,7 @@ impl RunContext<'_> {
             {
                 return Ok(Err(error));
             }
-            let execution = sandbox::run_writable(
+            let execution = match sandbox::run_writable(
                 &workspace,
                 name,
                 seat,
@@ -391,40 +391,41 @@ impl RunContext<'_> {
                 &prompt,
                 self.request.timeout_seconds,
             )
-            .await?;
-            let execution = match execution {
+            .await?
+            {
                 Ok(execution) => execution,
                 Err(error) => return Ok(Err(error)),
             };
-            let result = async {
-                let output = if execution.timed_out {
-                    golem_runner::partial_agent_result(&execution.stdout, &execution.stderr, guard)
-                } else {
-                    agent_result(&execution.stdout, &execution.stderr, guard)
-                }?;
-                let after_agent = golem_runner::changes::scan(&workspace)?;
-                golem_runner::changes::diff(&before, &after_agent, guard)?;
-                Ok::<_, &'static str>((output, after_agent))
-            }
-            .await;
-            let (output, after_agent) = match result {
-                Ok(result) => result,
+            let output = match if execution.timed_out {
+                golem_runner::partial_agent_result(&execution.stdout, &execution.stderr, guard)
+            } else {
+                golem_runner::writable_agent_result(&execution.stdout, &execution.stderr, guard)
+            } {
+                Ok(output) => output,
                 Err(error) => return Ok(Err(error)),
             };
-            let verified = sandbox::verify(
-                &workspace,
-                &format!("{name}-verify"),
-                self.request.verify.as_deref(),
-            )
-            .await?;
-            let changes = verified_changes(&workspace, &before, &after_agent, guard);
-            let result = verified.and(changes).map(|changes| WritableResult {
+            let after_agent = golem_runner::changes::scan(&workspace).and_then(|after_agent| {
+                golem_runner::changes::diff(&before, &after_agent, guard).map(|_| after_agent)
+            });
+            let changes = match after_agent {
+                Err(error) => Err(error),
+                Ok(after_agent) => {
+                    let verified = sandbox::verify(
+                        &workspace,
+                        &format!("{name}-verify"),
+                        self.request.verify.as_deref(),
+                    )
+                    .await?;
+                    let changes = verified_changes(&workspace, &before, &after_agent, guard);
+                    verified.and(changes)
+                }
+            };
+            Ok(Ok(WritableResult {
                 base_sha,
                 changes,
                 output,
                 timed_out: execution.timed_out,
-            });
-            Ok(result)
+            }))
         }
         .await;
         // A failed destruction must not remove a possibly still-mounted workspace.
@@ -456,6 +457,30 @@ impl RunContext<'_> {
         });
         let (outcome, model, text, terminal) = match result {
             Ok(mut result) => {
+                let changes = match result.changes {
+                    Ok(changes) => changes,
+                    Err(error) => {
+                        return self
+                            .report_blocked(token, error, &result.output.model, guard)
+                            .await;
+                    }
+                };
+                let blocked = if result.output.disposition
+                    == Some(golem_runner::AgentDisposition::Blocked)
+                {
+                    Some("agent reported task blocked")
+                } else if !result.timed_out
+                    && result.output.disposition != Some(golem_runner::AgentDisposition::Completed)
+                {
+                    Some("missing writable disposition")
+                } else {
+                    None
+                };
+                if let Some(reason) = blocked {
+                    return self
+                        .report_blocked(token, reason, &result.output.model, guard)
+                        .await;
+                }
                 if result.timed_out {
                     result
                         .output
@@ -465,21 +490,21 @@ impl RunContext<'_> {
                 let mut text = result.output.text.clone();
                 let outcome = if result.timed_out {
                     "incomplete"
-                } else if !result.changes.is_empty() {
+                } else if !changes.is_empty() {
                     "changed"
                 } else if self.request.human() {
                     "replied"
                 } else {
                     "no_change"
                 };
-                if !result.changes.is_empty() {
+                if !changes.is_empty() {
                     match self
                         .github
                         .publish_changes(
                             self.request,
                             token,
                             &result.base_sha,
-                            &result.changes,
+                            &changes,
                             &result.output,
                             guard,
                         )

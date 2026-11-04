@@ -370,6 +370,7 @@ async fn publishing_uses_git_objects_nonforce_ref_and_reuses_owned_pull() {
     let output = AgentOutput {
         text: "implemented".into(),
         model: "observed-model".into(),
+        disposition: Some(golem_runner::AgentDisposition::Completed),
     };
     github
         .publish_changes(
@@ -403,6 +404,7 @@ async fn first_publication_creates_ref_and_pull_but_default_branch_is_never_writ
     let output = AgentOutput {
         text: "implemented".into(),
         model: "observed".into(),
+        disposition: Some(golem_runner::AgentDisposition::Completed),
     };
     let changes = [golem_runner::changes::Change {
         path: "file".into(),
@@ -465,6 +467,7 @@ async fn forbidden_edits_and_handled_secrets_never_reach_network() {
     let output = AgentOutput {
         text: "safe".into(),
         model: "observed".into(),
+        disposition: Some(golem_runner::AgentDisposition::Completed),
     };
     for (path, bytes) in [
         (".golems/task.md", b"safe".to_vec()),

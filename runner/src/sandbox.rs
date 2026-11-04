@@ -385,7 +385,11 @@ fn configure_agent(create: &mut Command, seat: &str, model: Option<&str>, writab
             if writable { "stream-json" } else { "json" },
         ]);
     if writable {
-        create.arg("--verbose");
+        create.args([
+            "--verbose",
+            "--json-schema",
+            golem_runner::WRITABLE_RESULT_SCHEMA,
+        ]);
     }
     create.args([
         "--no-session-persistence",
@@ -562,6 +566,11 @@ mod tests {
                     .any(|pair| pair[0] == "--output-format" && pair[1] == format)
             );
             assert_eq!(args.iter().any(|arg| *arg == "--verbose"), writable);
+            assert_eq!(args.iter().any(|arg| *arg == "--json-schema"), writable);
+            if writable {
+                assert!(args.windows(2).any(|pair| pair[0] == "--json-schema"
+                    && pair[1] == golem_runner::WRITABLE_RESULT_SCHEMA));
+            }
         }
     }
 
