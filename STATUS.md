@@ -2,8 +2,10 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/discover-late-repositories`, with same-day repository discovery correction awaiting protected publication.
-- **Deployed code:** PR #9 commit `00d62520f873ec404d66f409d51db18933f82ae8`.
+- **Current branch:** `docs/slice-2-remaining-proof`, recording verified outcome evidence.
+- **Deployed Worker:** PR #10 commit `22e8a24a85205cd742fcafad7bdb83073ec7f753`; exact-head CI `41792925145` on `c8106bc`, trunk CI `41793629432` and deployment `41793629564` succeeded.
+  Live cursor observation confirms scanning resumed (`done=false`, page 2) without resetting 38 completed IDs.
+- **Released native source:** PR #9 commit `00d62520f873ec404d66f409d51db18933f82ae8`.
   Exact-head CI on `644c930` (`41787665840`), trunk CI `41788243519` and deployment `41788243140` succeeded.
   Release `v3` succeeded (`41788750529`) from this commit.
 - **Private ops:** PR #3 merged as `8aca09966fff94e36bb757c4566d08aaeae5530d` after exact-head CI on `87e5bff` (`41791328946`).
@@ -25,15 +27,18 @@
 ## Outcome proofs and next action
 
 - **Fresh proof process:** `activity-ac784509-3`, running `tools/prove-slice2-outcomes.mjs --prove --repo isp-insoft-gmbh/isp-golem-xiv-test-outcomes-mw1sksn2-4472a81e` using released runner `v3`.
-  Last observation: running, empty output; an actual event runner workflow was in progress.
-  No bot-owner, incomplete/continuation or schedule-owner promise has passed yet.
+  Last observation: running, bot-owner and timeout/continuation assertions passed; waiting for genuine cron.
+  Bot-owner: check `126448312133`, immutable delivery `8f3ad966-5b73-5975-cfe3-86c919c853d0`, run `41792488962`, actor `github-actions[bot]`, owner/paying seat `bugabinga/anthropic`, observed model `claude-sonnet-5-5`, no_change with reason and no response comment.
+  Timeout run `41792613276` / check `126448315273` published incomplete commit `94b851f`; continuation `41793038096` / check `126450510319` published child `b4f48c7` on same PR #3, preserving exact first line and appending the second.
+  Scheduled execution, overall process result and full Slice 2 acceptance remain unverified.
 - **New scheduler gap:** live daily cursor had `done=true`, 38 completed repositories, no selected work.
   Existing early return prevents repositories added after convergence from being discovered until next UTC day.
-  Local correction clears only the done barrier, preserving completed IDs, prepared requests, daily claims and bounds; completed-repository definition changes remain day-bound.
+  Deployed correction clears only the done barrier, preserving completed IDs, prepared requests, daily claims and bounds; completed-repository definition and allowlist changes remain day-bound.
   New built-Worker regression was red on old code, green after correction, including restart and same-day late repository admission.
   Raw enqueue-attempt tracking proves rescans do not retry completed occurrences and late occurrence has exactly one attempt/check.
   Independent different-model review found no scoped blocker; latest fresh full CI passed after one earlier failed attempt.
-- **Next step:** publish this discovery correction through exact-head green PR CI and deployment, while observing the fresh outcome process.
+- **Next step:** observe genuine cron and the proof process's terminal result.
+  Fresh native bot-owner and incomplete/continuation proofs passed; only schedule-owner evidence remains before full Slice 2 acceptance.
   Collect its terminal result plus actual bot-owner, timeout publication/continuation and genuine cron evidence, then run full `mise run accept -- --slice 2`.
   Do not promote running processes, local tests or failed-startup cleanup into outcome proof.
 
