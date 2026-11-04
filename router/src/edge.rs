@@ -15,9 +15,10 @@ use worker::{
 };
 
 use crate::{
-    APP, BOT, COMMENT_BYTES_MAX, Delivery, DispatchV1, FILE_BYTES_MAX, GOLEMS_MAX, Golem, OPS,
-    ORGANIZATION, TEST_TOPIC, parse_golem, parse_mention, refusal, seat_secret, valid_delivery,
-    valid_repository, verify_signature,
+    APP, COMMENT_BYTES_MAX, Delivery, DispatchV1, EventDelivery, FILE_BYTES_MAX, GOLEMS_MAX, Golem,
+    OPS, ORGANIZATION, TEST_TOPIC, event_seat, next_schedule_minute, occurrence_id, parse_golem,
+    parse_mention, refusal, seat_secret, trigger_matches, valid_delivery, valid_repository,
+    verify_queue_signature, verify_signature,
 };
 
 #[wasm_bindgen(module = "/src/runtime.js")]
@@ -270,39 +271,99 @@ impl Github {
                 golems.push(golem);
                 continue;
             }
-            let file = self
-                .get(&format!(
-                    "/repos/{repository}/contents/.golems/{filename}?ref={sha}"
-                ))
-                .await?;
-            if file.get("type").and_then(Value::as_str) != Some("file")
-                || file.get("encoding").and_then(Value::as_str) != Some("base64")
-            {
-                return Err(failure("unsupported golem content encoding"));
-            }
-            let encoded = string(&file, "content")?;
-            if encoded.len() > FILE_BYTES_MAX * 2 {
-                return Err(failure("golem content limit exceeded"));
-            }
-            let compact: String = encoded
-                .chars()
-                .filter(|character| !character.is_ascii_whitespace())
-                .collect();
-            let document = STANDARD
-                .decode(compact)
-                .ok()
-                .and_then(|bytes| String::from_utf8(bytes).ok());
-            let golem = if let Some(document) = document {
-                parse_golem(name, &document)
-            } else {
-                let mut golem = parse_golem(name, "");
-                golem.errors.push("invalid UTF-8 or base64".into());
-                golem
-            };
-            golems.push(golem);
+            golems.push(
+                self.golem(repository, sha, name)
+                    .await?
+                    .ok_or_else(|| failure("golem disappeared from pinned snapshot"))?,
+            );
         }
         golems.sort_by(|left, right| left.name.cmp(&right.name));
         Ok(golems)
+    }
+
+    async fn golem(&self, repository: &str, sha: &str, name: &str) -> Result<Option<Golem>> {
+        let (status, file) = self
+            .call(
+                Method::Get,
+                &format!("/repos/{repository}/contents/.golems/{name}.md?ref={sha}"),
+                None,
+            )
+            .await?;
+        if status == 404 {
+            return Ok(None);
+        }
+        if status != 200
+            || file.get("type").and_then(Value::as_str) != Some("file")
+            || file.get("encoding").and_then(Value::as_str) != Some("base64")
+        {
+            return Err(failure("unsupported golem content encoding"));
+        }
+        let encoded = string(&file, "content")?;
+        if encoded.len() > FILE_BYTES_MAX * 2 {
+            return Err(failure("golem content limit exceeded"));
+        }
+        let compact: String = encoded
+            .chars()
+            .filter(|c| !c.is_ascii_whitespace())
+            .collect();
+        let document = STANDARD
+            .decode(compact)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok());
+        let golem = if let Some(document) = document {
+            parse_golem(name, &document)
+        } else {
+            let mut golem = parse_golem(name, "");
+            golem.errors.push("invalid UTF-8 or base64".into());
+            golem
+        };
+        Ok(Some(golem))
+    }
+
+    async fn next_golem(
+        &self,
+        repository: &str,
+        sha: &str,
+        after: Option<&str>,
+    ) -> Result<Option<Golem>> {
+        let (status, entries) = self
+            .call(
+                Method::Get,
+                &format!("/repos/{repository}/contents/.golems?ref={sha}"),
+                None,
+            )
+            .await?;
+        if status == 404 {
+            return Ok(None);
+        }
+        if status != 200 {
+            return Err(failure("golem directory read failed"));
+        }
+        let entries = entries
+            .as_array()
+            .filter(|entries| entries.len() <= 100)
+            .ok_or_else(|| failure("golem directory limit exceeded"))?;
+        let mut names: Vec<_> = entries
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .and_then(|name| name.strip_suffix(".md"))
+            })
+            .filter(|name| *name != "_golems")
+            .collect();
+        if names.len() > GOLEMS_MAX {
+            return Err(failure("golem count limit exceeded"));
+        }
+        names.sort_unstable();
+        let Some(name) = names
+            .into_iter()
+            .find(|name| crate::valid_golem_name(name) && after.is_none_or(|after| *name > after))
+        else {
+            return Ok(None);
+        };
+        self.golem(repository, sha, name).await
     }
 
     async fn head(&self, repository: &str, info: &Value) -> Result<String> {
@@ -441,8 +502,12 @@ fn valid_sha(sha: &str) -> bool {
     sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-async fn process(env: Env, delivery: Delivery, delivery_id: String, digest: String) -> Result<()> {
-    let github = Github::installation(&env).await?;
+async fn process_legacy(
+    github: &Github,
+    delivery: Delivery,
+    delivery_id: String,
+    digest: String,
+) -> Result<()> {
     let repository = &delivery.repository.full_name;
     let Some(info) = github.repository(repository).await? else {
         return Ok(());
@@ -541,6 +606,1083 @@ async fn process(env: Env, delivery: Delivery, delivery_id: String, digest: Stri
     Ok(())
 }
 
+async fn protocol_v2(github: &Github) -> Result<bool> {
+    let (status, variable) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{OPS}/actions/variables/GOLEM_PROTOCOL_VERSION"),
+            None,
+        )
+        .await?;
+    match status {
+        404 => Ok(false),
+        200 => Ok(variable.get("value").and_then(Value::as_str) == Some("2")),
+        _ => Err(failure("protocol metadata unavailable")),
+    }
+}
+
+async fn coordinator(env: &Env, action: &str, mut body: Value) -> Result<Response> {
+    body.as_object_mut()
+        .ok_or_else(|| failure("invalid coordinator body"))?
+        .insert("action".into(), json!(action));
+    let namespace = env.durable_object("COORDINATOR")?;
+    let stub = namespace.id_from_name(ORGANIZATION)?.get_stub()?;
+    let mut init = RequestInit::new();
+    init.with_method(Method::Post)
+        .with_body(Some(JsValue::from_str(&body.to_string())));
+    stub.fetch_with_request(Request::new_with_init(
+        "https://coordinator.internal/",
+        &init,
+    )?)
+    .await
+}
+
+async fn coordinate_budgeted(
+    env: &Env,
+    github: &Github,
+    action: &str,
+    body: Value,
+) -> Result<Response> {
+    if github.requests.get() >= SUBREQUESTS_MAX {
+        return Err(failure("subrequest budget exceeded"));
+    }
+    github.requests.set(github.requests.get() + 1);
+    coordinator(env, action, body).await
+}
+
+async fn internal_queue(request: &mut Request, env: &Env) -> Result<Response> {
+    let signature = request
+        .headers()
+        .get("X-Golem-Signature-256")?
+        .unwrap_or_default();
+    if signature.len() != 71 {
+        return Response::error("Invalid signature", 401);
+    }
+    let Ok(bytes) = bounded(read_stream(request.stream()?, 16_384), 5000).await else {
+        return Response::error("Queue body too large", 413);
+    };
+    let pem = env.secret("APP_PRIVATE_KEY")?.to_string();
+    let now = runtime_timestamp(worker::js_sys::Date::now())?;
+    if !verify_queue_signature(&pem, &signature, &bytes, now) {
+        return Response::error("Invalid queue authorization", 401);
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| failure("invalid queue body"))?;
+    let action = string(&value, "action")?.to_owned();
+    coordinator(env, &action, value).await
+}
+
+// JS epoch milliseconds are integral and safely representable throughout the supported range.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn runtime_timestamp(milliseconds: f64) -> Result<u64> {
+    if !milliseconds.is_finite() || !(0.0..=8_640_000_000_000_000.0).contains(&milliseconds) {
+        return Err(failure("invalid runtime timestamp"));
+    }
+    Ok(milliseconds as u64)
+}
+
+async fn has_seat(github: &Github, login: &str) -> Result<bool> {
+    let secret = seat_secret(login, "anthropic").ok_or_else(|| failure("invalid seat login"))?;
+    let (status, _) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{OPS}/actions/secrets/{secret}"),
+            None,
+        )
+        .await?;
+    match status {
+        200 => Ok(true),
+        404 => Ok(false),
+        _ => Err(failure("seat metadata unavailable")),
+    }
+}
+
+async fn unattended_seat(
+    github: &Github,
+    golem: &Golem,
+    actor: Option<&crate::User>,
+) -> Result<Option<String>> {
+    let human = actor.is_some_and(|actor| actor.kind == "User");
+    let member = if human {
+        github
+            .member(actor.map_or("", |actor| actor.login.as_str()))
+            .await?
+    } else {
+        false
+    };
+    if human && !member {
+        return Ok(None);
+    }
+    let actor_seat = if member {
+        has_seat(github, actor.map_or("", |actor| actor.login.as_str())).await?
+    } else {
+        false
+    };
+    if actor_seat {
+        return Ok(actor.map(|actor| actor.login.clone()));
+    }
+    let Some(owner) = golem.frontmatter.owner.as_deref() else {
+        return Ok(None);
+    };
+    let owner_member = github.member(owner).await?;
+    let owner_seat = if owner_member {
+        has_seat(github, owner).await?
+    } else {
+        false
+    };
+    Ok(event_seat(
+        actor.map_or("", |actor| actor.login.as_str()),
+        if human {
+            crate::EventActor::MemberWithoutSeat
+        } else {
+            crate::EventActor::Bot
+        },
+        Some(owner),
+        owner_member,
+        owner_seat,
+    )
+    .map(str::to_owned))
+}
+
+fn supported(golem: &Golem) -> bool {
+    golem.errors.is_empty()
+        && golem.frontmatter.provider.as_deref().unwrap_or("anthropic") == "anthropic"
+        && golem.frontmatter.harness.as_deref().unwrap_or("claude") == "claude"
+}
+
+async fn prepare_request(github: &Github, golem: &Golem, mut request: Value) -> Result<Value> {
+    let repository = string(&request, "repository")?;
+    let timeout = golem
+        .timeout_seconds()
+        .ok_or_else(|| failure("invalid timeout"))?;
+    let summary = format!(
+        "outcome: queued\nseat: {}/anthropic\nharness: claude\nmodel: {}\nbudget: {timeout}s\nlog: https://github.com/{OPS}/actions\nStop: @isp-golem-xiv stop",
+        string(&request, "seat_login")?,
+        golem.frontmatter.model.as_deref().unwrap_or("default")
+    );
+    let check = github.post(&format!("/repos/{repository}/check-runs"), json!({"name":format!("golem/{}",golem.name),"head_sha":request.get("head_sha"),"status":"queued","external_id":request.get("delivery_id"),"output":{"title":"Golem queued","summary":summary}})).await?;
+    let fields = request
+        .as_object_mut()
+        .ok_or_else(|| failure("invalid queue request"))?;
+    fields.insert(
+        "check_run_id".into(),
+        check
+            .get("id")
+            .filter(|id| id.as_u64().is_some_and(|id| id > 0))
+            .cloned()
+            .ok_or_else(|| failure("missing check ID"))?,
+    );
+    for (key, value) in [
+        ("version", json!(2)),
+        ("golem", json!(golem.name)),
+        ("branch", json!(golem.branch())),
+        ("verify", json!(golem.frontmatter.verify)),
+        ("owner", json!(golem.frontmatter.owner)),
+        ("provider", json!("anthropic")),
+        ("harness", json!("claude")),
+        ("model", json!(golem.frontmatter.model)),
+        ("timeout_seconds", json!(timeout)),
+    ] {
+        fields.insert(key.into(), value);
+    }
+    Ok(request)
+}
+
+async fn admit_request(env: &Env, github: &Github, request: &Value) -> Result<()> {
+    // Coordinator adds generation, durably reserves both resources, dispatches and reacts.
+    // Retrying identical admission is safe; coordinator alone decides dispatch replay.
+    let response = coordinate_budgeted(env, github, "enqueue", json!({"request":request})).await?;
+    if !(200..300).contains(&response.status_code()) {
+        return Err(failure("queue admission failed; claim retained"));
+    }
+    Ok(())
+}
+
+async fn process_mention(
+    env: &Env,
+    github: &Github,
+    delivery: &EventDelivery,
+    mention: &Delivery,
+    delivery_id: &str,
+    repository: &str,
+    head: &str,
+) -> Result<()> {
+    github
+        .reaction(repository, mention.comment.id, "eyes")
+        .await?;
+    if !github.member(&mention.sender.login).await? {
+        return github.refuse(mention, "not-member", &[]).await;
+    }
+    let command = parse_mention(&mention.comment.body).ok_or_else(|| failure("invalid mention"))?;
+    if command.golem == "stop" {
+        let response = coordinate_budgeted(
+            env,
+            github,
+            "stop",
+            json!({"repository":repository,"issue_number":mention.issue.number}),
+        )
+        .await?;
+        if !(200..300).contains(&response.status_code()) {
+            return Err(failure("stop failed"));
+        }
+        return Ok(());
+    }
+    let golems = github.index(repository, head).await?;
+    let Some(golem) = golems
+        .iter()
+        .find(|golem| golem.name == command.golem && golem.errors.is_empty())
+    else {
+        return github.refuse(mention, "unknown-golem", &golems).await;
+    };
+    if !supported(golem) || !has_seat(github, &mention.sender.login).await? {
+        return github.refuse(mention, "no-seat", &golems).await;
+    }
+    let prepared = prepare_request(github, golem, json!({"delivery_id":delivery_id,"repository_id":delivery.repository.id,"repository":repository,"head_sha":head,"trigger":"mention","issue_number":mention.issue.number,"comment_id":mention.comment.id,"actor_id":mention.sender.id,"actor_login":mention.sender.login,"seat_login":mention.sender.login,"instructions":command.instructions})).await?;
+    let mut work = EventWork {
+        version: 2,
+        head: head.into(),
+        delivery_id: delivery_id.into(),
+        event: "issue_comment".into(),
+        delivery: delivery.clone(),
+        golems: vec![golem.name.clone()],
+        next: 0,
+        prepared: Some(prepared),
+    };
+    let path = event_path(&work.delivery_id);
+    persist_event_source(github, &work).await?;
+    update_event_index(github, &work.delivery_id, true).await?;
+    let sha = save_event_work(github, &path, &work, None).await?;
+    admit_request(
+        env,
+        github,
+        work.prepared
+            .as_ref()
+            .ok_or_else(|| failure("prepared mention missing"))?,
+    )
+    .await?;
+    work.prepared = None;
+    work.next += 1;
+    update_event_index(github, &work.delivery_id, false).await?;
+    delete_event_work(github, &path, &sha).await?;
+    Ok(())
+}
+
+async fn process(
+    env: Env,
+    event: String,
+    delivery: EventDelivery,
+    mention: Option<Delivery>,
+    delivery_id: String,
+    digest: String,
+) -> Result<()> {
+    let github = Github::installation(&env).await?;
+    if !protocol_v2(&github).await? {
+        return if let Some(mention) = mention {
+            process_legacy(&github, mention, delivery_id, digest).await
+        } else {
+            Ok(())
+        };
+    }
+    let repository = &delivery.repository.full_name;
+    let Some(info) = github.repository(repository).await? else {
+        return Ok(());
+    };
+    if info.get("id").and_then(Value::as_u64) != Some(delivery.repository.id) {
+        return Err(failure("repository identity mismatch"));
+    }
+    if !github.claim(&delivery_id, &digest).await? {
+        return Ok(());
+    }
+    if let Some(mention) = mention {
+        github
+            .reaction(repository, mention.comment.id, "eyes")
+            .await?;
+        if !github.member(&mention.sender.login).await? {
+            return github.refuse(&mention, "not-member", &[]).await;
+        }
+        let command =
+            parse_mention(&mention.comment.body).ok_or_else(|| failure("invalid mention"))?;
+        if command.golem == "stop" {
+            let response = coordinate_budgeted(
+                &env,
+                &github,
+                "stop",
+                json!({"repository":repository,"issue_number":mention.issue.number}),
+            )
+            .await?;
+            if !(200..300).contains(&response.status_code()) {
+                return Err(failure("stop failed"));
+            }
+            // Only coordinator can cancel and repair stopped checks; reservation stays held.
+            return Ok(());
+        }
+        let head = github.head(repository, &info).await?;
+        return process_mention(
+            &env,
+            &github,
+            &delivery,
+            &mention,
+            &delivery_id,
+            repository,
+            &head,
+        )
+        .await;
+    }
+    let head = github.head(repository, &info).await?;
+    let golems = github.index(repository, &head).await?;
+    let selected: Vec<_> = golems
+        .into_iter()
+        .filter(|golem| {
+            supported(golem)
+                && trigger_matches(&golem.frontmatter.triggers, &event, &delivery.action)
+        })
+        .map(|golem| golem.name)
+        .collect();
+    if selected.is_empty() {
+        return Ok(());
+    }
+    // A persistent continuation precedes bounded candidate processing. No matching golem
+    // is discarded merely because this delivery exhausted its HTTP budget.
+    let tick = coordinate_budgeted(&env, &github, "tick", json!({})).await?;
+    if !(200..300).contains(&tick.status_code()) {
+        return Err(failure("event journal initialization failed"));
+    }
+    let mut work = EventWork {
+        version: 2,
+        head,
+        delivery_id,
+        event,
+        delivery,
+        golems: selected,
+        next: 0,
+        prepared: None,
+    };
+    let path = event_path(&work.delivery_id);
+    persist_event_source(&github, &work).await?;
+    update_event_index(&github, &work.delivery_id, true).await?;
+    let mut sha = save_event_work(&github, &path, &work, None).await?;
+    while work.next < work.golems.len()
+        && github.requests.get() <= SUBREQUESTS_MAX - if work.prepared.is_some() { 10 } else { 22 }
+    {
+        resume_event(&env, &github, &mut work).await?;
+        sha = save_event_work(&github, &path, &work, Some(&sha)).await?;
+    }
+    if work.next == work.golems.len() {
+        update_event_index(&github, &work.delivery_id, false).await?;
+        delete_event_work(&github, &path, &sha).await?;
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EventWork {
+    version: u8,
+    head: String,
+    delivery_id: String,
+    event: String,
+    delivery: EventDelivery,
+    golems: Vec<String>,
+    next: usize,
+    prepared: Option<Value>,
+}
+
+const EVENTS_PATH: &str = "/repos/isp-insoft-gmbh/isp-golem-xiv-ops/contents/events-v2";
+const EVENT_INDEX_PATH: &str = "/repos/isp-insoft-gmbh/isp-golem-xiv-ops/contents/events-v2.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EventIndex {
+    version: u8,
+    ids: Vec<String>,
+}
+
+async fn event_index(github: &Github) -> Result<(EventIndex, Option<String>)> {
+    let (status, file) = github
+        .call(
+            Method::Get,
+            &format!("{EVENT_INDEX_PATH}?ref=golem-state"),
+            None,
+        )
+        .await?;
+    if status == 404 {
+        return Ok((
+            EventIndex {
+                version: 2,
+                ids: Vec::new(),
+            },
+            None,
+        ));
+    }
+    if status != 200 || file.get("encoding").and_then(Value::as_str) != Some("base64") {
+        return Err(failure("invalid event index"));
+    }
+    let sha = string(&file, "sha")?;
+    let content = string(&file, "content")?;
+    if !valid_sha(sha) || content.len() > 8192 {
+        return Err(failure("event index bounds exceeded"));
+    }
+    let bytes = STANDARD
+        .decode(
+            content
+                .chars()
+                .filter(|c| !c.is_ascii_whitespace())
+                .collect::<String>(),
+        )
+        .map_err(|_| failure("invalid event index encoding"))?;
+    let index: EventIndex =
+        serde_json::from_slice(&bytes).map_err(|_| failure("invalid event index"))?;
+    if index.version != 2
+        || index.ids.len() > 128
+        || index.ids.iter().enumerate().any(|(position, id)| {
+            !valid_delivery(id) || index.ids.iter().take(position).any(|prior| prior == id)
+        })
+    {
+        return Err(failure("invalid event index entries"));
+    }
+    Ok((index, Some(sha.into())))
+}
+
+async fn update_event_index(github: &Github, id: &str, add: bool) -> Result<()> {
+    // CAS conflict or ambiguous write: bounded reload, never overwrite another delivery.
+    for _ in 0..3 {
+        let (mut index, sha) = event_index(github).await?;
+        if index.ids.iter().any(|prior| prior == id) == add {
+            return Ok(());
+        }
+        if add {
+            if index.ids.len() >= 128 {
+                return Err(failure("event admission capacity exceeded"));
+            }
+            index.ids.push(id.into());
+        } else {
+            index.ids.retain(|prior| prior != id);
+        }
+        if save_event_work(github, EVENT_INDEX_PATH, &index, sha.as_deref())
+            .await
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+    Err(failure("event index CAS exhausted; claim retained"))
+}
+fn event_path(id: &str) -> String {
+    format!("{EVENTS_PATH}/{id}.json")
+}
+
+async fn persist_event_source(github: &Github, work: &EventWork) -> Result<()> {
+    let message =
+        serde_json::to_string(work).map_err(|_| failure("event source serialization failed"))?;
+    if message.len() > 131_072 {
+        return Err(failure("event source limit exceeded"));
+    }
+    let head = github
+        .get(&format!("/repos/{OPS}/git/ref/heads/trunk"))
+        .await?;
+    let sha = head
+        .pointer("/object/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| valid_sha(sha))
+        .ok_or_else(|| failure("invalid event source base"))?;
+    let tag = format!("golem-event/{}", work.delivery_id);
+    let object = github
+        .post(
+            &format!("/repos/{OPS}/git/tags"),
+            json!({"tag":tag,"message":message,"object":sha,"type":"commit"}),
+        )
+        .await?;
+    let sha = string(&object, "sha")?;
+    if !valid_sha(sha) {
+        return Err(failure("invalid event source SHA"));
+    }
+    let (status, _) = github
+        .call(
+            Method::Post,
+            &format!("/repos/{OPS}/git/refs"),
+            Some(json!({"ref":format!("refs/tags/{tag}"),"sha":sha})),
+        )
+        .await?;
+    if status != 201 {
+        return Err(failure("event source publication failed; claim retained"));
+    }
+    Ok(())
+}
+
+async fn recover_event_work(github: &Github, id: &str) -> Result<EventWork> {
+    let name = format!("golem-event/{id}");
+    let reference = github
+        .get(&format!("/repos/{OPS}/git/ref/tags/{name}"))
+        .await?;
+    let sha = reference
+        .pointer("/object/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| valid_sha(sha))
+        .ok_or_else(|| failure("invalid event source reference"))?;
+    if reference.get("ref").and_then(Value::as_str) != Some(format!("refs/tags/{name}").as_str())
+        || reference.pointer("/object/type").and_then(Value::as_str) != Some("tag")
+    {
+        return Err(failure("invalid event source type"));
+    }
+    let tag = github.get(&format!("/repos/{OPS}/git/tags/{sha}")).await?;
+    let message = string(&tag, "message")?;
+    if tag.get("tag").and_then(Value::as_str) != Some(name.as_str()) || message.len() > 131_072 {
+        return Err(failure("invalid event source identity"));
+    }
+    serde_json::from_str(message).map_err(|_| failure("invalid event source JSON"))
+}
+
+async fn save_event_work(
+    github: &Github,
+    path: &str,
+    work: &impl serde::Serialize,
+    sha: Option<&str>,
+) -> Result<String> {
+    let bytes = serde_json::to_vec(work).map_err(|_| failure("event serialization failed"))?;
+    if bytes.len() > 131_072 {
+        return Err(failure("event journal limit exceeded"));
+    }
+    let mut body = json!({"branch":"golem-state","message":"Retain event continuation","content":STANDARD.encode(bytes)});
+    if let Some(sha) = sha {
+        body.as_object_mut()
+            .ok_or_else(|| failure("invalid event body"))?
+            .insert("sha".into(), json!(sha));
+    }
+    let (status, file) = github.call(Method::Put, path, Some(body)).await?;
+    if !matches!(status, 200 | 201) {
+        return Err(failure("event journal CAS failed"));
+    }
+    let sha = file
+        .pointer("/content/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| valid_sha(sha))
+        .ok_or_else(|| failure("invalid event journal SHA"))?;
+    Ok(sha.into())
+}
+
+async fn delete_event_work(github: &Github, path: &str, sha: &str) -> Result<()> {
+    let (status, _) = github
+        .call(
+            Method::Delete,
+            path,
+            Some(json!({"branch":"golem-state","message":"Retire event continuation","sha":sha})),
+        )
+        .await?;
+    if status != 200 {
+        return Err(failure("event journal retirement failed"));
+    }
+    Ok(())
+}
+
+async fn resume_event(env: &Env, github: &Github, work: &mut EventWork) -> Result<()> {
+    if let Some(request) = &work.prepared {
+        admit_request(env, github, request).await?;
+        work.prepared = None;
+        work.next += 1;
+        return Ok(());
+    }
+    let name = work
+        .golems
+        .get(work.next)
+        .filter(|name| crate::valid_golem_name(name))
+        .ok_or_else(|| failure("invalid event position"))?;
+    let delivery = &work.delivery;
+    let repository = &delivery.repository.full_name;
+    let Some(info) = github.repository(repository).await? else {
+        work.next += 1;
+        return Ok(());
+    };
+    if info.get("id").and_then(Value::as_u64) != Some(delivery.repository.id) {
+        return Err(failure("event repository identity changed"));
+    }
+    let head = github.head(repository, &info).await?;
+    let Some(golem) = github.golem(repository, &head, name).await? else {
+        work.next += 1;
+        return Ok(());
+    };
+    if supported(&golem)
+        && trigger_matches(&golem.frontmatter.triggers, &work.event, &delivery.action)
+        && let Some(seat) = unattended_seat(github, &golem, Some(&delivery.sender)).await?
+    {
+        let id = occurrence_id(&format!("event-v2/{}/{}", work.delivery_id, golem.name));
+        work.prepared = Some(prepare_request(github, &golem, json!({"delivery_id":id,"repository_id":delivery.repository.id,"repository":delivery.repository.full_name,"head_sha":head,"trigger":"event","issue_number":delivery.issue.as_ref().or(delivery.pull_request.as_ref()).map(|issue| issue.number),"comment_id":delivery.comment.as_ref().map(|comment| comment.id),"actor_id":delivery.sender.id,"actor_login":delivery.sender.login,"seat_login":seat,"instructions":format!("GitHub event: {}.{}",work.event,delivery.action)})).await?);
+        // CAS this exact check/request before any admission. A rejected or uncertain
+        // admission leaves it intact; next tick resubmits identical bytes, never a new run.
+        return Ok(());
+    }
+    work.next += 1;
+    Ok(())
+}
+
+async fn event_tick(env: &Env, github: &Github) -> Result<()> {
+    // Include fresh config, owner lookup, duplicate claim, bounded index CAS,
+    // check/DO and retirement. Failure retains durable work for another cron.
+    if github.requests.get() > SUBREQUESTS_MAX - 22 {
+        return Ok(());
+    }
+    let (index, _) = event_index(github).await?;
+    let Some(id) = index.ids.first() else {
+        return Ok(());
+    };
+    let path = event_path(id);
+    let (status, file) = github
+        .call(Method::Get, &format!("{path}?ref=golem-state"), None)
+        .await?;
+    if status == 404 {
+        // Immutable private source precedes index admission. A failed initial PUT
+        // cannot strand the head: rebuild its cursor, never guess an execution ended.
+        let work = recover_event_work(github, id).await?;
+        if work.delivery_id != *id
+            || work.next != 0
+            || work.version != 2
+            || work.golems.len() > GOLEMS_MAX
+            || !work.delivery.accepted()
+        {
+            return Err(failure("invalid recovered event source"));
+        }
+        save_event_work(github, &path, &work, None).await?;
+        return Ok(());
+    }
+    if status != 200 {
+        return Err(failure("event journal read failed"));
+    }
+    let sha = string(&file, "sha")?;
+    if !valid_sha(sha) {
+        return Err(failure("invalid event journal SHA"));
+    }
+    let content = string(&file, "content")?;
+    if content.len() > 262_144 || file.get("encoding").and_then(Value::as_str) != Some("base64") {
+        return Err(failure("invalid event journal encoding"));
+    }
+    let bytes = STANDARD
+        .decode(
+            content
+                .chars()
+                .filter(|c| !c.is_ascii_whitespace())
+                .collect::<String>(),
+        )
+        .map_err(|_| failure("invalid event journal encoding"))?;
+    let mut work: EventWork =
+        serde_json::from_slice(&bytes).map_err(|_| failure("invalid event journal"))?;
+    if work.version != 2
+        || work.delivery_id != *id
+        || !valid_sha(&work.head)
+        || !work.delivery.accepted()
+        || work.golems.len() > GOLEMS_MAX
+        || work.next > work.golems.len()
+    {
+        return Err(failure("invalid event journal identity"));
+    }
+    if work.next == work.golems.len() {
+        update_event_index(github, id, false).await?;
+        return delete_event_work(github, &path, sha).await;
+    }
+    resume_event(env, github, &mut work).await?;
+    let mut sha = save_event_work(github, &path, &work, Some(sha)).await?;
+    if work.prepared.is_some() && github.requests.get() <= SUBREQUESTS_MAX - 9 {
+        resume_event(env, github, &mut work).await?;
+        sha = save_event_work(github, &path, &work, Some(&sha)).await?;
+    }
+    if work.next == work.golems.len() {
+        update_event_index(github, id, false).await?;
+        delete_event_work(github, &path, &sha).await?;
+    }
+    Ok(())
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScheduleCursor {
+    version: u8,
+    day: u64,
+    page: u32,
+    repository: Option<ScanRepository>,
+    completed: Vec<u64>,
+    sweep_new: bool,
+    after: Option<String>,
+    selected: Option<ScheduleSelection>,
+    done: bool,
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScanRepository {
+    name: String,
+    id: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScheduleSelection {
+    repository: String,
+    repository_id: u64,
+    golem: String,
+    definition_sha: String,
+    minute: u64,
+    #[serde(default)]
+    prepared: Option<Value>,
+}
+
+impl ScheduleCursor {
+    fn new(day: u64) -> Self {
+        Self {
+            version: 2,
+            day,
+            page: 1,
+            repository: None,
+            completed: Vec::new(),
+            sweep_new: false,
+            after: None,
+            selected: None,
+            done: false,
+        }
+    }
+}
+
+const SCHEDULE_PATH: &str = "/repos/isp-insoft-gmbh/isp-golem-xiv-ops/contents/scheduler-v2.json";
+
+async fn schedule_cursor(github: &Github, day: u64) -> Result<(ScheduleCursor, Option<String>)> {
+    let (status, value) = github
+        .call(
+            Method::Get,
+            &format!("{SCHEDULE_PATH}?ref=golem-state"),
+            None,
+        )
+        .await?;
+    if status == 404 {
+        if scheduler_marker(github).await? {
+            return Err(failure("established scheduler journal missing"));
+        }
+        // Establish the recoverable empty journal before marking it initialized.
+        // An unsuccessful first PUT remains safely retryable after restart.
+        let cursor = ScheduleCursor::new(day);
+        let sha = save_schedule_cursor(github, &cursor, None).await?;
+        let id = occurrence_id("scheduler-v2-journal-initialized");
+        github.claim(&id, &id).await?;
+        return Ok((cursor, Some(sha)));
+    }
+    if status != 200 || value.get("encoding").and_then(Value::as_str) != Some("base64") {
+        return Err(failure("invalid scheduler journal"));
+    }
+    let sha = string(&value, "sha")?.to_owned();
+    if !valid_sha(&sha) {
+        return Err(failure("invalid scheduler journal SHA"));
+    }
+    let content = string(&value, "content")?;
+    if content.len() > 262_144 {
+        return Err(failure("scheduler journal too large"));
+    }
+    let bytes = STANDARD
+        .decode(
+            content
+                .chars()
+                .filter(|c| !c.is_ascii_whitespace())
+                .collect::<String>(),
+        )
+        .map_err(|_| failure("invalid scheduler encoding"))?;
+    let cursor: ScheduleCursor =
+        serde_json::from_slice(&bytes).map_err(|_| failure("invalid scheduler cursor"))?;
+    if cursor.version != 2
+        || cursor.page == 0
+        || cursor.page > 10_000
+        || cursor.completed.len() > 10_000
+        || cursor
+            .repository
+            .as_ref()
+            .is_some_and(|repo| repo.id == 0 || !valid_repository(&repo.name))
+        || cursor
+            .after
+            .as_deref()
+            .is_some_and(|name| !crate::valid_golem_name(name))
+        || cursor.selected.as_ref().is_some_and(|selected| {
+            selected.minute / 1440 != cursor.day
+                || !valid_repository(&selected.repository)
+                || selected.repository_id == 0
+                || !crate::valid_golem_name(&selected.golem)
+                || !valid_sha(&selected.definition_sha)
+        })
+    {
+        return Err(failure("invalid scheduler cursor bounds"));
+    }
+    if cursor.day > day {
+        return Err(failure("scheduler clock moved backwards"));
+    }
+    if !scheduler_marker(github).await? {
+        let id = occurrence_id("scheduler-v2-journal-initialized");
+        github.claim(&id, &id).await?;
+    }
+    Ok((
+        if cursor.day == day
+            || cursor
+                .selected
+                .as_ref()
+                .is_some_and(|selected| selected.prepared.is_some())
+        {
+            cursor
+        } else {
+            ScheduleCursor::new(day)
+        },
+        Some(sha),
+    ))
+}
+
+async fn scheduler_marker(github: &Github) -> Result<bool> {
+    let id = occurrence_id("scheduler-v2-journal-initialized");
+    let (status, _) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{OPS}/git/ref/tags/golem-delivery/{id}"),
+            None,
+        )
+        .await?;
+    match status {
+        200 => Ok(true),
+        404 => Ok(false),
+        _ => Err(failure("scheduler marker read failed")),
+    }
+}
+
+async fn save_schedule_cursor(
+    github: &Github,
+    cursor: &ScheduleCursor,
+    sha: Option<&str>,
+) -> Result<String> {
+    let content = STANDARD
+        .encode(serde_json::to_vec(cursor).map_err(|_| failure("scheduler serialization failed"))?);
+    if content.len() > 262_144 {
+        return Err(failure("scheduler journal capacity exceeded"));
+    }
+    let mut body =
+        json!({"branch":"golem-state","message":"Advance daily scheduler","content":content});
+    if let Some(sha) = sha {
+        body.as_object_mut()
+            .ok_or_else(|| failure("invalid scheduler body"))?
+            .insert("sha".into(), json!(sha));
+    }
+    let (status, value) = github.call(Method::Put, SCHEDULE_PATH, Some(body)).await?;
+    if !matches!(status, 200 | 201) {
+        return Err(failure("scheduler CAS failed; resume next cron"));
+    }
+    value
+        .pointer("/content/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| valid_sha(sha))
+        .map(str::to_owned)
+        .ok_or_else(|| failure("invalid saved scheduler SHA"))
+}
+
+async fn schedule_tick(env: &Env, now_ms: u64) -> Result<()> {
+    let github = Github::installation(env).await?;
+    if !protocol_v2(&github).await? {
+        return Ok(());
+    }
+    let tick = coordinate_budgeted(env, &github, "tick", json!({})).await?;
+    if !(200..300).contains(&tick.status_code()) {
+        return Err(failure("coordinator tick failed"));
+    }
+    let schedule_result = schedule_batch(env, &github, now_ms).await;
+    // A broken scheduler journal must not prevent independent event continuation.
+    let event_result = event_tick(env, &github).await;
+    schedule_result.and(event_result)
+}
+
+async fn schedule_batch(env: &Env, github: &Github, now_ms: u64) -> Result<()> {
+    let minute = now_ms / 60_000;
+    let (mut cursor, mut sha) = schedule_cursor(github, minute / 1440).await?;
+    if cursor.done
+        || cursor
+            .selected
+            .as_ref()
+            .is_some_and(|selected| minute < selected.minute)
+    {
+        return Ok(());
+    }
+    if let Some(mut selected) = cursor.selected.take() {
+        if selected.prepared.is_none() && selected.minute == minute {
+            selected.prepared = prepare_schedule(github, &selected, cursor.day).await?;
+            if selected.prepared.is_some() {
+                cursor.selected = Some(selected);
+                // Persist exact request/check before claiming or attempting admission.
+                // Only the CAS winner may proceed; retries reuse this payload unchanged.
+                sha = Some(save_schedule_cursor(github, &cursor, sha.as_deref()).await?);
+                selected = cursor
+                    .selected
+                    .take()
+                    .ok_or_else(|| failure("prepared schedule missing"))?;
+            }
+        }
+        if let Some(request) = &selected.prepared {
+            let id = string(request, "delivery_id")?;
+            // An existing matching daily claim is not proof of queue admission.
+            // Coordinator alone decides idempotent admission/dispatch for this payload.
+            github.claim(id, id).await?;
+            admit_request(env, github, request).await?;
+        }
+        // Persisted identity, not an unstable directory offset, advances the scan.
+        cursor.repository = Some(ScanRepository {
+            name: selected.repository,
+            id: selected.repository_id,
+        });
+        cursor.after = Some(selected.golem);
+        save_schedule_cursor(github, &cursor, sha.as_deref()).await?;
+        return Ok(());
+    }
+    discover_schedule(github, &mut cursor, now_ms).await?;
+    save_schedule_cursor(github, &cursor, sha.as_deref()).await?;
+    Ok(())
+}
+
+async fn discover_schedule(
+    github: &Github,
+    cursor: &mut ScheduleCursor,
+    now_ms: u64,
+) -> Result<()> {
+    // One installation repository per cron, one occurrence per batch: durable continuation,
+    // never reading contents of non-allowlisted installation repositories.
+    let info = if let Some(repository) = &cursor.repository {
+        json!({"full_name":repository.name,"id":repository.id,"topics":[TEST_TOPIC]})
+    } else {
+        let page = github
+            .get(&format!(
+                "/installation/repositories?per_page=1&page={}",
+                cursor.page
+            ))
+            .await?;
+        let repositories = page
+            .get("repositories")
+            .and_then(Value::as_array)
+            .filter(|repos| repos.len() <= 1)
+            .ok_or_else(|| failure("invalid installation repository batch"))?;
+        let Some(info) = repositories.first() else {
+            // A second sweep discovers repos moved across earlier page boundaries.
+            // Completed IDs prevent another execution or transferring a name cursor.
+            cursor.done = !cursor.sweep_new;
+            cursor.page = 1;
+            cursor.sweep_new = false;
+            return Ok(());
+        };
+        info.clone()
+    };
+    let repository = string(&info, "full_name")?;
+    let scan_id = info
+        .get("id")
+        .and_then(Value::as_u64)
+        .filter(|id| *id > 0)
+        .ok_or_else(|| failure("invalid installation repository ID"))?;
+    let allowlisted = !cursor.completed.contains(&scan_id)
+        && valid_repository(repository)
+        && info
+            .get("topics")
+            .and_then(Value::as_array)
+            .is_some_and(|topics| {
+                topics
+                    .iter()
+                    .any(|topic| topic.as_str() == Some(TEST_TOPIC))
+            });
+    if allowlisted {
+        // Re-read metadata at execution time: revoked topics cannot authorize a run.
+        if let Some(current) = github.repository(repository).await? {
+            let repository_id = current
+                .get("id")
+                .and_then(Value::as_u64)
+                .filter(|id| *id > 0)
+                .ok_or_else(|| failure("invalid scheduled repository ID"))?;
+            if repository_id != scan_id {
+                return Err(failure("scheduled repository identity changed"));
+            }
+            cursor.repository = Some(ScanRepository {
+                name: repository.into(),
+                id: repository_id,
+            });
+            let head = github.head(repository, &current).await?;
+            if let Some(golem) = github
+                .next_golem(repository, &head, cursor.after.as_deref())
+                .await?
+            {
+                if supported(&golem)
+                    && let Some(due) = golem
+                        .frontmatter
+                        .schedule
+                        .as_ref()
+                        .and_then(|schedule| next_schedule_minute(schedule, now_ms))
+                {
+                    cursor.selected = Some(ScheduleSelection {
+                        repository: repository.into(),
+                        repository_id,
+                        golem: golem.name.clone(),
+                        definition_sha: head,
+                        minute: due,
+                        prepared: None,
+                    });
+                } else {
+                    cursor.after = Some(golem.name.clone());
+                }
+                return Ok(());
+            }
+        }
+    }
+    cursor.page = cursor
+        .page
+        .checked_add(1)
+        .filter(|page| *page <= 10_000)
+        .ok_or_else(|| failure("installation scan capacity exceeded"))?;
+    if !cursor.completed.contains(&scan_id) {
+        if cursor.completed.len() >= 10_000 {
+            return Err(failure("daily repository capacity exceeded"));
+        }
+        cursor.completed.push(scan_id);
+        cursor.sweep_new = true;
+    }
+    cursor.repository = None;
+    cursor.after = None;
+    cursor.selected = None;
+    Ok(())
+}
+
+async fn prepare_schedule(
+    github: &Github,
+    selected: &ScheduleSelection,
+    day: u64,
+) -> Result<Option<Value>> {
+    let repository = &selected.repository;
+    let Some(info) = github.repository(repository).await? else {
+        return Ok(None);
+    };
+    if info.get("id").and_then(Value::as_u64) != Some(selected.repository_id) {
+        return Ok(None);
+    }
+    let head = github.head(repository, &info).await?;
+    let Some(golem) = github.golem(repository, &head, &selected.golem).await? else {
+        return Ok(None);
+    };
+    if supported(&golem)
+        && golem
+            .frontmatter
+            .schedule
+            .as_ref()
+            .is_some_and(|schedule| crate::schedule_matches(schedule, day))
+        && let Some(seat) = unattended_seat(github, &golem, None).await?
+    {
+        let id = occurrence_id(&format!(
+            "schedule-v2/{}/{}/{day}",
+            selected.repository_id, golem.name
+        ));
+        return prepare_request(github, &golem, json!({"delivery_id":id,"repository_id":selected.repository_id,"repository":repository,"head_sha":head,"trigger":"schedule","issue_number":null,"comment_id":null,"actor_id":null,"actor_login":null,"seat_login":seat,"instructions":"Scheduled daily run."})).await.map(Some);
+    }
+    Ok(None)
+}
+
+#[worker::event(scheduled)]
+async fn scheduled(event: worker::ScheduledEvent, env: Env, _ctx: worker::ScheduleContext) {
+    let result = async {
+        let now_ms = runtime_timestamp(event.schedule())?;
+        bounded(schedule_tick(&env, now_ms), 27_000).await
+    }
+    .await;
+    if result.is_err() {
+        worker::console_error!("scheduled batch failed; durable cursor/claims retained");
+    }
+}
+
 async fn index_request(request: &Request, repository: &str) -> Result<Response> {
     let Some(authorization) = request.headers().get("Authorization")? else {
         return Response::error("GitHub token required", 401);
@@ -605,9 +1747,19 @@ async fn fetch(mut request: Request, env: Env, ctx: Context) -> Result<Response>
             Response::error("Index temporarily unavailable", 502)
         };
     }
+    if request.method() == Method::Post && path == "/internal/queue" {
+        return match bounded(internal_queue(&mut request, &env), 25_000).await {
+            Ok(response) => Ok(response),
+            Err(_) => Response::error("Queue unavailable", 502),
+        };
+    }
     if request.method() != Method::Post || path != "/webhook" {
         return Response::error("Not found", 404);
     }
+    webhook(request, env, ctx).await
+}
+
+async fn webhook(mut request: Request, env: Env, ctx: Context) -> Result<Response> {
     let signature = request
         .headers()
         .get("X-Hub-Signature-256")?
@@ -635,20 +1787,34 @@ async fn fetch(mut request: Request, env: Env, ctx: Context) -> Result<Response>
         return Response::error("Invalid signature", 401);
     }
     let event = request.headers().get("X-GitHub-Event")?.unwrap_or_default();
-    if event != "issue_comment" {
+    if !matches!(
+        event.as_str(),
+        "issues" | "issue_comment" | "pull_request" | "pull_request_review" | "push"
+    ) {
         return Response::ok("ignored");
     }
-    let delivery: Delivery = match serde_json::from_slice(&bytes) {
+    let delivery: EventDelivery = match serde_json::from_slice(&bytes) {
         Ok(delivery) => delivery,
         Err(_) => return Response::error("Invalid webhook payload", 400),
     };
-    // App-origin events never cause API calls, claims, or replies.
-    if delivery.sender.login == BOT || !delivery.accepted() {
+    // App-origin events never cause API calls, claims, or replies, including other App surfaces.
+    if !delivery.accepted() {
         return Response::ok("ignored");
     }
-    if delivery.comment.body.len() > COMMENT_BYTES_MAX {
+    if delivery
+        .comment
+        .as_ref()
+        .is_some_and(|comment| comment.body.len() > COMMENT_BYTES_MAX)
+    {
         return Response::error("Comment too large", 413);
     }
+    let mention: Option<Delivery> = if event == "issue_comment" {
+        serde_json::from_slice::<Delivery>(&bytes)
+            .ok()
+            .filter(Delivery::accepted)
+    } else {
+        None
+    };
     let delivery_id = request
         .headers()
         .get("X-GitHub-Delivery")?
@@ -660,11 +1826,16 @@ async fn fetch(mut request: Request, env: Env, ctx: Context) -> Result<Response>
     for byte in Sha256::digest(&bytes) {
         write!(&mut digest, "{byte:02x}").map_err(|_| failure("digest encoding failed"))?;
     }
+    let mention_request = mention.is_some();
     ctx.wait_until(async move {
         // waitUntil has a 30-second post-response lifetime; cap our work below it.
-        if bounded(process(env, delivery, delivery_id.clone(), digest), 27_000).await.is_err() {
+        if bounded(process(env, event, delivery, mention, delivery_id.clone(), digest), 27_000).await.is_err() {
             worker::console_error!("webhook processing failed; delivery={}; claim may be retained; investigate before replay", delivery_id);
         }
     });
-    Ok(Response::ok("accepted")?.with_status(202))
+    if mention_request {
+        Ok(Response::ok("accepted")?.with_status(202))
+    } else {
+        Response::ok("ignored")
+    }
 }

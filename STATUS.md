@@ -1,9 +1,17 @@
 # Status
 
-- **Current slice:** 2, not started; Slice 1 passed three consecutive full deployed acceptance runs.
-- **Branch:** `docs/slice-1-run-proof` tracks milestones and forthcoming authenticated run proofs.
-- **Next step:** implement Slice 2 change/verify/publication, retained FIFO serialization, event/schedule owner selection, stop and incomplete outcomes.
-  Slice 2 preflight remains red only for missing schedule-owner, bot-owner and incomplete evidence.
+- **Current slice:** 2, implemented locally, not deployed or proven live; Slice 1 passed three consecutive full deployed acceptance runs.
+- **Branch:** `feat/slice-2`; parent PR #6 merged as `a73f987` while local implementation was in progress; rebase onto latest trunk before publication.
+- **Next step:** commit/rebase/publish guarded Slice 2 PR → green exact-head `ci` → merge/deploy with rollout variable absent → publish compatible runner → ops pin → actual v2 pilot through real coordinator/native runner → deployed v1 regression → full Slice 2 acceptance/evidence.
+  Do not enable `GOLEM_PROTOCOL_VERSION=2` before ops pins the compatible released runner.
+  Slice 2 preflight remains red for missing schedule-owner, bot-owner and incomplete evidence.
+- **Slice 2 local verification:** rebuilt final `mise run test-worker` passed after fixing newly introduced test-case state contamination and teaching the actual-edge/actual-Coordinator GitHub double the new continuation endpoints.
+  That suite proves durable admission, dispatch, signed numeric bind/completion, restoration and released reservations through actual Rust Wasm + actual SQLite class, but uses mocked GitHub and simulated native callbacks.
+  Subsequent fresh full `mise run ci` exited 0 on the corrected shared tree; this is local evidence only, not exact-head remote PR approval.
+  Latest native Linux WSL tests/Clippy include label handling and numeric queue wire fix; authenticated writable execution/publication is NOT yet proven.
+- **Review fixes:** scheduled admission retries exact prepared request/check after 429/restart; stop selects one latest active mention (or latest pending mention), not unrelated unattended runs; terminal workflow recovery repairs missing audits before releasing resources.
+- **Open gaps:** source claims can precede successful event-index admission, leaving unindexed sources without automatic discovery; ambiguous unbound dispatch retains resources indefinitely; large/changing installations can outlast daily scan capacity; non-Linux runner labels unsupported; coverage branch ratchet unavailable on exact stable compiler; scoped Slice 2 mutation run not done.
+  These are not completed behaviors or hidden by green component tests.
 - **Slice 1 proven:** three consecutive full passes using released `v1`; private ops successful runs `41733197463`, `41733919165`, `41734601072` show authenticated reply/audit/no-loop behavior.
 - **Ops release:** PR #1 merged after green `ci` and published `v1`; remote workflow byte-compared to reviewed local source at `6180155`.
 - **Codeload fix merged:** PR #5 required `ci` green on exact head `4fea340` (`41706413676`); merged trunk `88c9e52` subsequently passed `ci` (`41707082205`), `v1` tagged from clean trunk.

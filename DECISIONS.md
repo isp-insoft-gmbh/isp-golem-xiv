@@ -3,6 +3,38 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-04: Guarded Slice 2 implementation, live proof pending
+
+- Version 2 routing is opt-in via private ops variable `GOLEM_PROTOCOL_VERSION=2`.
+  Absence preserves the released mention path; enable only after publishing and pinning the backward-compatible runner.
+- One SQLite Durable Object arbitrates seat and repository/golem resources together; queued requests do not consume Actions runners.
+  Private ops `golem-state:queue.json` and immutable request tags are authoritative; SQLite is a rebuildable projection.
+  Accepted pending records are never evicted; capacity is explicitly 32 current records.
+  Dispatch ambiguity retains its reservation instead of risking a second charge.
+- Signed native callbacks use exact-body HMAC-SHA256 with normalized App PEM, freshness checking, generation and numeric safe-integer run/attempt identity.
+  Parent integration found string/number mismatch between native producer and JS consumer; wire producer corrected and regression added.
+  Only trusted supervisor may attest all containers destroyed and publication complete before completion releases resources.
+- Writable execution, target mise preparation and verification remain in isolated containers without App/GitHub credentials.
+  Native publisher checks bounded filesystem changes and forbidden paths, continues the owned branch/PR, publishes through scoped Git Data APIs, and keeps attribution observable.
+  Host runner reuses the pure router parser through an explicitly versioned path dependency; no second frontmatter parser.
+- Independent different-model review found three concrete defects: scheduled claims could strand rejected admissions, stop cancelled multiple/unattended runs, and terminal-run reconciliation could release resources without final audit.
+  Corrections retain exact prepared schedule/check across restart, stop only the latest active mention (otherwise latest pending mention), and repair missing terminal audit before release.
+  Native audit producer payloads were exercised against actual SQLite reconciliation with mocked GitHub; valid audit outcomes are preserved.
+- V2 mention admissions now reuse durable prepared continuations after rejection, with person seat and mention trigger unchanged.
+  Unindexed sources before successful index admission remain a separate open recovery gap, not a completed behavior.
+- Consolidated rebuilt Worker tests initially passed, then exposed a new fixture-state error after adding mention recovery: its extra captured admission contaminated a later hard-coded queue count.
+  Isolated the new case after existing scenarios, kept original assertions, waited for the actual rejected admission rather than merely a preparatory write, and asserted no premature rocket.
+  The actual-edge/actual-Coordinator mock GitHub adapter then rejected newly required continuation endpoints; added bounded Contents CAS semantics, not bypassed production persistence.
+- Final rebuilt Worker suite passes: released-v1 path, v2 owner/event/schedule continuation, actual Rust edge → actual SQLite admission/dispatch/signed bind/completion/rebuild/resource release, plus 25 coordinator scenarios.
+  Subsequent fresh full `mise run ci` exited 0 on the corrected shared tree.
+  These use mocked GitHub and simulated native callbacks; authenticated writable execution/publication and deployed v1 regression remain unproven.
+- Latest native WSL Linux tests/strict Clippy include label handling and numeric queue-wire correction; image probes establish executable/parser behavior only.
+  Scoped Slice 2 mutation testing remains unrun.
+  Branch coverage ratchet is not fabricated: exact stable 1.99.1 rejects the required experimental branch-coverage option; toolchain/coverage decision remains open.
+- Other open gaps: event-index admission capacity/CAS can leave undiscovered source tags, unbound ambiguous dispatch can remain reserved indefinitely, large/changing installations can exceed daily scan throughput, non-Linux hosted labels are not implemented.
+  No claim of universal credential-exfiltration prevention: scanning blocks handled/recognized representations, not arbitrary covert encodings.
+- Judge and configured acceptance commands remain unchanged.
+
 ## 2026-11-03: First authenticated-path acceptance fails before agent startup
 
 - After successful release `v0` (`41700313107`), full `mise run accept -- --slice 1` passed all static promises plus index, eyes, dispatch, unknown-golem refusal.

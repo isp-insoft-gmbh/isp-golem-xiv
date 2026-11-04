@@ -89,6 +89,17 @@ async fn run() -> Result<()> {
         .token(&private_key, &request, false, &mut guard)
         .await?;
     github.validate_target(&request, &token).await?;
+    if request.version == 2 {
+        return RunContext {
+            github: &github,
+            request: &request,
+            private_key: &private_key,
+            run_id: &run_id,
+            attempt: &attempt,
+        }
+        .run_writable(token, seat, &mut guard)
+        .await;
+    }
     let model = request.model.as_deref().unwrap_or("default");
     let started = github
         .check(&request, &token, "running", model, &run_id, &guard)
@@ -205,6 +216,340 @@ async fn execute_agent(
         Ok((stdout, stderr)) => agent_result(&stdout, &stderr, guard),
         Err(error) => Err(error),
     })
+}
+
+fn verified_changes(
+    workspace: &Path,
+    before: &golem_runner::changes::Files,
+    after_agent: &golem_runner::changes::Files,
+    guard: &OutputGuard,
+) -> Result<Vec<golem_runner::changes::Change>> {
+    let after_verify = golem_runner::changes::scan(workspace)?;
+    if after_agent
+        .iter()
+        .any(|(path, file)| after_verify.get(path) != Some(file))
+    {
+        return Err("verification mutated workspace; publication blocked");
+    }
+    // Generated regular outputs are disposable, never part of the frozen publication.
+    // Still scan every output and reject forbidden paths, links, floods and credentials.
+    golem_runner::changes::diff(after_agent, &after_verify, guard)?;
+    golem_runner::changes::diff(before, after_agent, guard)
+}
+
+struct WritableResult {
+    base_sha: String,
+    changes: Vec<golem_runner::changes::Change>,
+    output: AgentOutput,
+    timed_out: bool,
+}
+
+// The sole transition into privileged publication consumes confirmed destruction.
+async fn after_destruction<T>(
+    execution: impl std::future::Future<Output = Result<T>>,
+    publish: impl AsyncFnOnce(T) -> Result<()>,
+) -> Result<()> {
+    let result = execution.await?;
+    publish(result).await
+}
+
+struct RunContext<'a> {
+    github: &'a github::Github,
+    request: &'a DispatchV1,
+    private_key: &'a str,
+    run_id: &'a str,
+    attempt: &'a str,
+}
+
+impl RunContext<'_> {
+    async fn run_writable(
+        &self,
+        token: String,
+        seat: Result<String>,
+        guard: &mut OutputGuard,
+    ) -> Result<()> {
+        github::queue(
+            self.request,
+            self.private_key,
+            self.run_id,
+            self.attempt,
+            "bind",
+        )
+        .await?;
+        let name = format!("golem-{}-{}", self.run_id, self.attempt);
+        let started = self
+            .github
+            .check(
+                self.request,
+                &token,
+                "running",
+                self.request.model.as_deref().unwrap_or("default"),
+                self.run_id,
+                guard,
+            )
+            .await;
+        let execution = async {
+            let result = match started.and(seat) {
+                Err(error) => Ok(Err(error)),
+                Ok(seat) if env::var("GOLEM_PREPARATION").as_deref() == Ok("success") => {
+                    self.execute_writable(&token, &seat, &name, guard).await
+                }
+                Ok(_) => Ok(Err("trusted harness preparation failed")),
+            };
+            drop(token);
+            result
+        };
+        // Release the immutable guard borrow before minting adds new credentials.
+        let result = execution.await;
+        after_destruction(std::future::ready(result), async |result| {
+            let token = self
+                .github
+                .token(self.private_key, self.request, true, guard)
+                .await?;
+            let outcome = self.publish_writable(&token, result, guard).await;
+            // Feedback/check failures retain the queue claim for coordinator repair.
+            let terminal = outcome?;
+            self.complete(true, true).await?;
+            terminal
+        })
+        .await
+    }
+
+    async fn complete(&self, containers_destroyed: bool, publication_complete: bool) -> Result<()> {
+        if !containers_destroyed || !publication_complete {
+            return Err("queue completion requires destruction and publication proofs");
+        }
+        github::queue(
+            self.request,
+            self.private_key,
+            self.run_id,
+            self.attempt,
+            "complete",
+        )
+        .await
+    }
+
+    async fn execute_writable(
+        &self,
+        token: &str,
+        seat: &str,
+        name: &str,
+        guard: &OutputGuard,
+    ) -> Result<Result<WritableResult>> {
+        let preparation = async {
+            let base_sha = self.github.branch_snapshot(self.request, token).await?;
+            let temporary =
+                tempfile::tempdir().map_err(|_| "cannot create private runner workspace")?;
+            let workspace = temporary.path().join("workspace");
+            std::fs::create_dir(&workspace).map_err(|_| "cannot create snapshot workspace")?;
+            snapshot::extract(
+                &self
+                    .github
+                    .snapshot_at(self.request, token, &base_sha)
+                    .await?,
+                &workspace,
+            )?;
+            let configuration = temporary.path().join("configuration");
+            let configuration = if base_sha == self.request.head_sha {
+                workspace.clone()
+            } else {
+                std::fs::create_dir(&configuration)
+                    .map_err(|_| "cannot create configuration workspace")?;
+                snapshot::extract(
+                    &self.github.snapshot(self.request, token).await?,
+                    &configuration,
+                )?;
+                configuration
+            };
+            let prompt =
+                snapshot::writable_prompt(&workspace, &configuration, self.request, &base_sha)?;
+            guard.check(&prompt)?;
+            let before = golem_runner::changes::scan(&workspace)?;
+            Ok::<_, &'static str>((temporary, workspace, base_sha, prompt, before))
+        }
+        .await;
+        let (temporary, workspace, base_sha, prompt, before) = match preparation {
+            Ok(prepared) => prepared,
+            Err(error) => return Ok(Err(error)),
+        };
+        let operation = async {
+            if let Err(error) =
+                sandbox::prepare_target(&workspace, &format!("{name}-prepare")).await?
+            {
+                return Ok(Err(error));
+            }
+            let execution = sandbox::run_writable(
+                &workspace,
+                name,
+                seat,
+                self.request.model.as_deref(),
+                &prompt,
+                self.request.timeout_seconds,
+            )
+            .await?;
+            let execution = match execution {
+                Ok(execution) => execution,
+                Err(error) => return Ok(Err(error)),
+            };
+            let result = async {
+                let output = if execution.timed_out {
+                    golem_runner::partial_agent_result(&execution.stdout, &execution.stderr, guard)
+                } else {
+                    agent_result(&execution.stdout, &execution.stderr, guard)
+                }?;
+                let after_agent = golem_runner::changes::scan(&workspace)?;
+                golem_runner::changes::diff(&before, &after_agent, guard)?;
+                Ok::<_, &'static str>((output, after_agent))
+            }
+            .await;
+            let (output, after_agent) = match result {
+                Ok(result) => result,
+                Err(error) => return Ok(Err(error)),
+            };
+            let verified = sandbox::verify(
+                &workspace,
+                &format!("{name}-verify"),
+                self.request.verify.as_deref(),
+            )
+            .await?;
+            let changes = verified_changes(&workspace, &before, &after_agent, guard);
+            let result = verified.and(changes).map(|changes| WritableResult {
+                base_sha,
+                changes,
+                output,
+                timed_out: execution.timed_out,
+            });
+            Ok(result)
+        }
+        .await;
+        // A failed destruction must not remove a possibly still-mounted workspace.
+        let result = match operation {
+            Ok(result) => result,
+            Err(error) => {
+                let _retained = temporary.keep();
+                return Err(error);
+            }
+        };
+        temporary
+            .close()
+            .map_err(|_| "cannot remove private runner workspace; publication blocked")?;
+        Ok(result)
+    }
+
+    // Outer error: feedback/check incomplete. Inner error: safely reported blocked execution.
+    async fn publish_writable(
+        &self,
+        token: &str,
+        result: Result<WritableResult>,
+        guard: &OutputGuard,
+    ) -> Result<Result<()>> {
+        let result = result.and_then(|result| {
+            guard.check(&result.output.text)?;
+            guard.check(&result.output.model)?;
+            // publish_changes rescans the complete batch against the newly minted token.
+            Ok(result)
+        });
+        let (outcome, model, text, terminal) = match result {
+            Ok(mut result) => {
+                if result.timed_out {
+                    result
+                        .output
+                        .text
+                        .push_str("\n\nRun incomplete: agent wall-clock budget exhausted.");
+                }
+                let mut text = result.output.text.clone();
+                let outcome = if result.timed_out {
+                    "incomplete"
+                } else if !result.changes.is_empty() {
+                    "changed"
+                } else if self.request.human() {
+                    "replied"
+                } else {
+                    "no_change"
+                };
+                if !result.changes.is_empty() {
+                    match self
+                        .github
+                        .publish_changes(
+                            self.request,
+                            token,
+                            &result.base_sha,
+                            &result.changes,
+                            &result.output,
+                            guard,
+                        )
+                        .await
+                    {
+                        Ok(url) => {
+                            text.push_str("\n\nPull request: ");
+                            text.push_str(&url);
+                        }
+                        Err(error) => {
+                            let _reported = self
+                                .report_blocked(token, error, &result.output.model, guard)
+                                .await?;
+                            // Publication may have partially succeeded; retain ownership for repair.
+                            return Err(error);
+                        }
+                    }
+                }
+                (outcome, result.output.model, text, Ok(()))
+            }
+            Err(error) => {
+                return self.report_blocked(token, error, "unobserved", guard).await;
+            }
+        };
+        let reply = if self.request.human() {
+            self.github.reply(self.request, token, &text, guard).await
+        } else {
+            Ok(())
+        };
+        let check = self
+            .github
+            .check_reason(
+                self.request,
+                token,
+                outcome,
+                &model,
+                self.run_id,
+                (outcome == "no_change").then_some(text.as_str()),
+                guard,
+            )
+            .await;
+        reply?;
+        check?;
+        Ok(terminal)
+    }
+
+    async fn report_blocked(
+        &self,
+        token: &str,
+        error: &'static str,
+        model: &str,
+        guard: &OutputGuard,
+    ) -> Result<Result<()>> {
+        let label = self.github.mark_blocked(self.request, token).await;
+        let reply = if self.request.human() {
+            self.github
+                .reply(
+                    self.request,
+                    token,
+                    &format!("Run blocked: {error}. Inspect the private Actions run for status."),
+                    guard,
+                )
+                .await
+        } else {
+            Ok(())
+        };
+        let check = self
+            .github
+            .check(self.request, token, "blocked", model, self.run_id, guard)
+            .await;
+        label?;
+        reply?;
+        check?;
+        Ok(Err(error))
+    }
 }
 
 #[tokio::main]
