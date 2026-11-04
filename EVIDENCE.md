@@ -58,3 +58,13 @@ A strict read-only observer exited 0 after checking:
 The first watch timed out waiting for terminal compaction: completed terminal rows compact on subsequent admission, not idle ticks.
 Starting the planned bot-owner proof triggered that normal compaction; the unchanged second watch succeeded.
 This proves the original orphan was recovered and retired; it does not turn its reply into fresh publication or complete Slice 2 acceptance.
+
+## Failed-startup reservation reconciliation
+
+After PR #9 deployed `00d62520f873ec404d66f409d51db18933f82ae8`, guarded operator association linked scheduled delivery `f37f6672-d908-4ffa-6488-c011eb2f94c7` to its proven completed failed [run 41774622060](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/41774622060).
+Candidate evidence tag `31a8daa0569f0ccc8c6e67587c03d384a41a6916` records the immutable request/log/workflow checks and deployment guard.
+The helper did not reset, redispatch or mark completion; normal Coordinator reconciliation completed original check `126391910880` as blocked.
+
+Read-only observer exited 0, checking exact request tag `760eaa30439f66a4313d3c69228216ebbe19d026`, generation and run identity in [bound snapshot](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/blob/9b8b149ef2508ad8279b070cd385f7f87089757e/queue.json) before [terminal snapshot](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/blob/018f1c612059260ae324f6798c4073b0ce448c6c/queue.json), matching terminal receipt and current queue-row absence.
+This proves failed-startup cleanup and resource retirement, not provider execution or successful scheduled owner-seat behavior.
+Fresh `v3` outcome proofs remain pending in `isp-golem-xiv-test-outcomes-mw1sksn2-4472a81e`.

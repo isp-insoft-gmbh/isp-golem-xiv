@@ -3,6 +3,25 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-04: Released runtime repair and continued repository discovery
+
+- PR #9 passed exact-head CI on `644c930` (`41787665840`), merged as `00d62520`, passed trunk CI `41788243519` and deployment `41788243140`, and published `v3` (`41788750529`).
+  Private ops PR #3 passed CI on exact head `87e5bff` (`41791328946`), merged as `8aca099`, then runtime workflow byte-matched the reviewed `v3` pin.
+- Guarded operator association executed only after corrected deployment, producing candidate evidence tag `31a8daa0569f0ccc8c6e67587c03d384a41a6916`.
+  Normal reconciliation produced blocked audit and terminal retirement for failed scheduled request `f37f6672-d908-4ffa-6488-c011eb2f94c7`, check `126391910880`, run `41774622060`.
+  Read-only observer exited 0 against matching bound/terminal snapshots, immutable request and receipt, with current row absent.
+  Provider execution is unproven; never count this cleanup as schedule-owner evidence.
+- Fresh valid outcome sandbox `isp-golem-xiv-test-outcomes-mw1sksn2-4472a81e` is running real bot, timeout, continuation and cron proofs with released `v3`; no terminal proof result yet.
+- Live scheduler cursor had completed 38 repositories and set done for the UTC day.
+  Its early return prevented newly added repositories from discovery until tomorrow, so resume bounded metadata sweeps while preserving completed IDs and daily claims.
+  Do not rescan definitions of completed repositories or reset prepared work; that separate limitation remains explicit.
+- New built-Worker regression was red before the correction and green afterward, with persisted restart, same-day late repository admission and preserved request bounds.
+  Raw enqueue attempts are recorded before rejection/deduplication; old occurrence counts must not increase during rescans, while the late occurrence requires exactly one attempt and one check.
+  This preserves legitimate initial 429 retries rather than pretending every occurrence always admitted on its first attempt.
+- A substituted different-model reviewer found no scoped blocker after the raw-attempt assertion fix.
+  Historical maintenance fixture reconstructs exact v2 workflow bytes from the current v3 URL and still checks the full pinned v2 digest; production historical validation is unchanged.
+  Latest fresh full CI passed; no judge selection, limit, promise or gate was changed.
+
 ## 2026-11-04: Local PAX paths and failed startup recovery
 
 - Original orphan recovery was independently observed after deployment: original check `126334264637`, run `41772599688`, exact original prepared identity, receipts, bound-before-terminal history, retirement and ordered native phases.

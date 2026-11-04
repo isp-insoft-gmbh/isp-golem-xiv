@@ -1604,11 +1604,13 @@ async fn schedule_tick(env: &Env, now_ms: u64) -> Result<()> {
 async fn schedule_batch(env: &Env, github: &Github, now_ms: u64) -> Result<()> {
     let minute = now_ms / 60_000;
     let (mut cursor, mut sha) = schedule_cursor(github, minute / 1440).await?;
-    if cursor.done
-        || cursor
-            .selected
-            .as_ref()
-            .is_some_and(|selected| minute < selected.minute)
+    // A converged sweep starts another bounded metadata scan on the next tick.
+    // Completed IDs remain authoritative for the day; definition changes wait.
+    cursor.done = false;
+    if cursor
+        .selected
+        .as_ref()
+        .is_some_and(|selected| minute < selected.minute)
     {
         return Ok(());
     }

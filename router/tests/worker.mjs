@@ -30,12 +30,13 @@ const files = new Map([
   ['broken.md', '---\nschedule: someday\n---\nInvalid schedule.'],
   ['stop.md', '---\n---\nReserved name.'],
 ]);
-const state = {calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], internal: [], documents: new Map()};
+const state = {calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
 let protocol2 = false;
 let installation = [{id:99, full_name:repository, default_branch:'trunk', topics:['isp-golem-xiv-test']}];
 const repository2 = 'isp-insoft-gmbh/isp-golem-xiv-test-second';
+const repository3 = 'isp-insoft-gmbh/isp-golem-xiv-test-late';
 const repositoryFiles = new Map([[repository, files]]);
-const metadata = name => ({id:name === repository ? 99 : 100, full_name:name, default_branch:'trunk', topics:allowed ? ['isp-golem-xiv-test'] : []});
+const metadata = name => ({id:name === repository ? 99 : name === repository2 ? 100 : 101, full_name:name, default_branch:'trunk', topics:allowed ? ['isp-golem-xiv-test'] : []});
 let allowed = true;
 let dispatchStatus = 204;
 const answer = (status, body) => new ResponseType(body === null ? null : JSON.stringify(body), {status, headers: {'Content-Type':'application/json'}});
@@ -45,6 +46,7 @@ async function github(request) {
   if (url.origin === 'https://fixture-coordinator.invalid') {
     const body = await request.json();
     if (body.action === 'enqueue') {
+      state.enqueueAttempts.push(structuredClone(body.request));
       if (state.rejectNextEnqueue > 0) {state.rejectNextEnqueue--; state.rejectedAdmission = body.request; return answer(429,{});}
       const existing = state.queue.find(request => request.delivery_id === body.request.delivery_id);
       if (existing) assert.deepEqual(body.request,existing,'admission replay must preserve exact check/request');
@@ -78,7 +80,7 @@ async function github(request) {
     return answer(previous ? 200 : 201, {content:{sha}});
   }
   if (path === `/repos/${ops}/contents/events-v2`) return answer(200, [...state.documents.keys()].filter(key => key.includes('/events-v2/')).sort().map(key => ({name:key.split('/').at(-1)})));
-  const target = [repository,repository2].find(name => path.startsWith(`/repos/${name}/`) || path === `/repos/${name}`);
+  const target = [repository,repository2,repository3].find(name => path.startsWith(`/repos/${name}/`) || path === `/repos/${name}`);
   if (target) {
     if (path === `/repos/${target}`) return answer(200, metadata(target));
     if (path === `/repos/${target}/commits/trunk`) return answer(200, {sha:head});
@@ -422,6 +424,26 @@ try {
   assert.ok(scheduled.every(req => req.seat_login === 'member' && req.actor_login === null && req.comment_id === null && req.head_sha === head));
   assert.equal(new Set(scheduled.map(req => req.delivery_id)).size,3,'one persistent claim per repository/golem/day');
   assert.equal(state.dispatches.length,directDispatches,'all v2 dispatch ownership remains outside Rust');
+  const oldScheduleIds = scheduled.map(req => req.delivery_id);
+  const attemptsBeforeSweep = new Map(oldScheduleIds.map(id => [id,state.enqueueAttempts.filter(req => req.delivery_id === id).length]));
+  for(let i=23;i<40 && !cursor().done;i++) await tick(day+i*60_000);
+  assert.equal(cursor().done,true,'daily scan converges before repository is added');
+  const checksBeforeLate = state.checks.length;
+  repositoryFiles.set(repository3,new Map([['late.md','---\nschedule: daily\nowner: member\n---\nLate repository task.']]));
+  installation.push(metadata(repository3));
+  await worker.dispose(); worker = createWorker();
+  for(let i=40;i<100 && !state.queue.some(req => req.repository === repository3 && req.trigger === 'schedule');i++) await tick(day+i*60_000);
+  const late = state.queue.filter(req => req.repository === repository3 && req.trigger === 'schedule');
+  assert.equal(late.length,1,'repository added after completed scan is admitted on same UTC day');
+  assert.equal(late[0].golem,'late');
+  assert.equal(late[0].seat_login,'member');
+  assert.equal(state.checks.length,checksBeforeLate+1,'late occurrence is prepared once');
+  for(let i=100;i<110;i++) await tick(day+i*60_000);
+  assert.equal(state.queue.filter(req => req.repository === repository3 && req.trigger === 'schedule').length,1,'late occurrence admitted once');
+  assert.equal(state.enqueueAttempts.filter(req => req.delivery_id === late[0].delivery_id).length,1,'late occurrence has exactly one raw admission attempt');
+  assert.ok(oldScheduleIds.every(id => state.enqueueAttempts.filter(req => req.delivery_id === id).length === attemptsBeforeSweep.get(id)),'rescan never retries completed daily occurrences, including previously retried admissions');
+  assert.ok(oldScheduleIds.every(id => state.queue.filter(req => req.delivery_id === id).length === 1),'completed occurrences are not readmitted');
+  assert.equal(state.checks.length,checksBeforeLate+1,'completed occurrences are not prepared again');
   // v2 mention admission rejection must not strand valid mention; restart retries exact check/request.
   state.rejectNextEnqueue = 1;
   const mentionDeliveryId = deliveryId('v2-mention-reject');
