@@ -6,7 +6,11 @@ const delivery = 'f37f6672-d908-4ffa-6488-c011eb2f94c7';
 const generation = '3bdb4eb1-d440-4262-80ef-387193452211';
 const input = {delivery, run: 41774622060, apply: false};
 const tagSHA = '7'.repeat(40), fileSHA = '8'.repeat(40), head = '9'.repeat(40);
-const workflow = await readFile(new URL('../ops/runner.yml', import.meta.url));
+// Historical repair stays pinned to v2 even when the current runner pin advances.
+const workflow = Buffer.from((await readFile(new URL('../ops/runner.yml', import.meta.url))).toString('utf8').replace(
+  'RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v3\n',
+  'RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v2\n',
+));
 assert.equal(digest(workflow), WORKFLOW_SHA256);
 const coordinator = await readFile(new URL('../router/src/coordinator.js', import.meta.url));
 assert.equal(digest(coordinator), COORDINATOR_SHA256);
