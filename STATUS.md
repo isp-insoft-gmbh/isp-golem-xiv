@@ -2,9 +2,10 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/journal-cas-fencing`, public PR #11 pending required CI; preserving verified outcomes and failed full-acceptance evidence.
-- **Deployed Worker:** PR #10 commit `22e8a24a85205cd742fcafad7bdb83073ec7f753`; exact-head CI `41792925145` on `c8106bc`, trunk CI `41793629432` and deployment `41793629564` succeeded.
-  Live cursor observation confirms scanning resumed (`done=false`, page 2) without resetting 38 completed IDs.
+- **Current branch:** `fix/typed-policy-refusal`; PR #11 remains deployed, full Slice 2 acceptance still failed.
+- **Deployed Worker:** PR #11 commit `65aff0e4a4de1ac64329e0115a31df0d9cffee79`; exact-head CI `41821200011` on `e89adeb`, trunk CI `41822188764` and deployment `41822188562` succeeded.
+  Live health and reviewed Coordinator digest `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891` verified before maintenance association.
+  Prior PR #10 discovery correction remains included.
 - **Released native source:** PR #9 commit `00d62520f873ec404d66f409d51db18933f82ae8`.
   Exact-head CI on `644c930` (`41787665840`), trunk CI `41788243519` and deployment `41788243140` succeeded.
   Release `v3` succeeded (`41788750529`) from this commit.
@@ -42,7 +43,13 @@
   Static/evidence, all Slice 1 scenarios, change-pr and continue-branch passed.
   Forbidden-path audit lacked blocked outcome; serial timed out at 45 minutes; stop never dispatched.
   Event sandbox creation returned GitHub HTTP 500, so event-trigger and no-loop-event had no executed checks.
-- **Retained failure:** run `41802954891` ended before admission with static `queue conflict`; delivery `eec9cfc0-d82c-11f1-97dc-9f61ec87b7e3` remains unbound dispatching, with second hello and slow pending.
+- **Retained failure, terminal blocked and journal retirement verified:** run `41802954891` ended before admission with static `queue conflict`; delivery `eec9cfc0-d82c-11f1-97dc-9f61ec87b7e3` was administratively bound, then reconciled normally to terminal blocked.
+  Read-only observation verified bound snapshot `e3357477f34edb2016df0dd8744d49118053a860`, terminal queue blob `b28ce9ca0060c1906e7a4e8546bd96769ea57d52`, check `126482208907`, and exact private blocked/unconfirmed audit `281795133f8b1067d174205ae402f55640706c5e`.
+  Initial observation was terminal only; the corrected observer later exited 0 after a normal reproduction enqueue.
+  Current queue blob `78bf8f4407e8585c9f52300040f9db3a860c2d79` has no row; terminal ref points exactly to original request tag `71d4676c50641a33b01fbef512a7d6724b4355ff`.
+  Separately verified original bound snapshot and exact private blocked audit remain intact; provider execution remains unproven.
+  Retirement happened through enqueue, not polling or manual request deletion.
+  Second hello and slow state has not been reverified.
   Do not drop/reset these requests or fabricate successful audits.
   Investigate shared-branch GitHub Contents CAS conflicts versus transient run metadata; exact old denial cause remains unknown.
   Successful logs can be labeled UNKNOWN STEP by gh, so absence of the named-step regex is not absence of lifecycle markers.
@@ -52,12 +59,20 @@
   Correlated completed failures can persist a private blocked/unconfirmed audit when check and repository are both unavailable, then retire normally; existing-repository missing checks still retain ownership.
   Audit tag reuse validates full immutable identity.
   Known v3 operator profile preserves exact provenance, dual legitimate request-environment records and deployment/CAS guards; actual read-only inspection passed for retained failed run with targetUnavailable=true.
-  No apply or live recovery of this failure has occurred.
+  PR #11 exact-head CI `41821200011` passed on `e89adebf014ab945cffe90c6182a83e25112e458`; protected squash merge `65aff0e4a4de1ac64329e0115a31df0d9cffee79` deployed successfully through `41822188562`, trunk CI `41822188764` passed.
+  Live health/source digest were verified before guarded association of run `41802954891`; helper returned applied-association with candidate evidence `81674e2077ebe8ba39dcd66e1c3a4c90c227e25e`.
+  Subsequent observation proved normal terminal blocked reconciliation and exact private audit, not retirement or successful provider execution.
   Parent fresh full CI exited 0; independent security review closed findings.
   Maintenance guard matrix also joins the normal test/CI command, rather than depending only on explicit local execution.
   All 68 Coordinator scenarios remain under unchanged 60s wrapper through isolated fixture batching, not skipped tests or raised limits.
-- **Next step:** protected PR CI/deployment for this correction, guarded v3 association, observe normal private blocked audit and retirement.
-  Then reproduce forbidden behavior in a retained isolated repository; do not assume its deleted check's outcome or remove safety guards.
+- **Forbidden-path cause reproduced:** retained sandbox `isp-insoft-gmbh/isp-golem-xiv-test-forbidden-mw28ms64-8bae596d`, source comment `6633850119`, check `126651646306`, run `41852382351`, response comment `6633880139`.
+  Released v3 correctly refused the protected edit and left the file unchanged, with no branch or PR; native outcome was nevertheless replied/success.
+  This is a reporting defect, not evidence of a protected-write bypass.
+  Local candidate adds explicit validated writable disposition; unit tests and CLI feature inspection are not provider compatibility proof.
+  Opt-in test exercises actual Linux container/provider with protected request and allowed-change control, then mock publication assertions; it has not run yet.
+  Docker is unavailable locally; execute candidate in a dedicated private GitHub Actions sandbox before production rollout.
+- **Next step:** actual Linux/provider compatibility controls, then released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
+  No production-fix claim until these pass; keep private response content out of public evidence.
   Rerun full Slice 2 acceptance with `--keep` for diagnosis; all three real outcome-evidence promises remain valid but do not replace acceptance.
   Do not promote running processes, local tests or failed-startup cleanup into outcome proof.
 
