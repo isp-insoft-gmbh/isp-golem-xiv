@@ -12,7 +12,7 @@ const deadline = Date.now() + 90 * 60_000;
 let stage = 'arguments';
 const files = {
   '.golems/scheduled.md': '---\nschedule: daily\nowner: bugabinga\n---\nChange nothing. There is nothing to do. Do not write a response comment or modify any file.\n',
-  '.golems/event.md': '---\ntriggers: issues.opened\nowner: bugabinga\n---\nChange nothing. There is nothing to do. Do not write a response comment or modify any file.\n',
+  '.golems/event.md': '---\ntriggers: [issues.opened]\nowner: bugabinga\n---\nChange nothing. There is nothing to do. Do not write a response comment or modify any file.\n',
   '.golems/partial.md': '---\nowner: bugabinga\nbranch: golems/partial\nverify: test -s partial.txt\ntimeout: 2m\n---\nFollow the phase and nonce in the human mention. FIRST: immediately write exactly FIRST:<nonce> followed by a newline to partial.txt, close the file, then run sleep 300 in the foreground and wait for it. Write the file FIRST, before sleeping. Do not shorten, background, or interrupt the sleep; the trusted wall timeout must end this phase. SECOND: first read the existing partial.txt on this branch and preserve its entire FIRST line verbatim. Append exactly SECOND:<nonce> followed by a newline, then return immediately without sleeping. Do not commit, push, open a pull request, or change any other file. The trusted runner verifies and publishes.\n',
   'mise.toml': '[tools]\ngithub-cli = "2.103.3"\n',
   '.github/workflows/bot.yml': `name: Bot owner evidence

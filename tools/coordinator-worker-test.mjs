@@ -50,7 +50,7 @@ async function githubFixture(request) {
   if (path.startsWith(`${ops}/contents/`) && ["PUT", "DELETE"].includes(method) && body?.branch === "golem-state" && !refs.has("refs/heads/golem-state")) return json(404, { message: "Branch not found" });
   if (path === "/app/installations/153964219/access_tokens") return json(201, { token: "synthetic-installation-token" });
   if (path === `${ops}/actions/variables/GOLEM_PROTOCOL_VERSION`) return json(200, { value: "2" });
-  if (path === target) return json(200, { id: 99, full_name: repository, default_branch: "trunk", topics: ["isp-golem-xiv-test"] });
+  if (path === target && method === "GET") return json(200, { id: 99, full_name: repository, default_branch: "trunk", topics: ["isp-golem-xiv-test"] });
   if (path === `${target}/commits/trunk`) return json(200, { sha: head });
   if (path === `${target}/contents/.golems`) return json(200, [...files].map(([name, content]) => ({ name, type: "file", size: Buffer.byteLength(content) })));
   if (path.startsWith(`${target}/contents/.golems/`)) {
@@ -131,6 +131,7 @@ async function githubFixture(request) {
     const sent = JSON.parse(body.inputs.request), durable = row(sent.delivery_id);
     assert.equal(body.ref, "trunk");
     assert.equal(body.inputs.repo, sent.repository);
+    assert.equal(sent.repository_id, 99, "dispatch targets the fixture repository's immutable ID");
     assert.equal(body.inputs.golem, sent.golem);
     assert.equal(durable.state, "dispatching", "dispatch intent durable before dispatch");
     assert.equal(durable.dispatched, true);

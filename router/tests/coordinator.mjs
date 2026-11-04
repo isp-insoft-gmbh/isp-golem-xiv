@@ -29,6 +29,9 @@ class Fixture {
     this.tags = new Map();
     this.runs = new Map();
     this.dispatches = [];
+    this.repositories = new Map([[repository, {status: 200, body: {id: 99, full_name: repository}}]]);
+    this.repositoryGets = [];
+    this.checkGets = [];
     this.reactions = [];
     this.checks = [];
     this.checkState = new Map();
@@ -55,6 +58,13 @@ class Fixture {
     if (p === '/app/installations/153964219/access_tokens') {
       assert.deepEqual(body, {}, 'installation token must not narrow repositories or permissions');
       return json(201, {token: 'synthetic-installation-token'});
+    }
+    if (req.method === 'GET' && /^\/repos\/[^/]+\/[^/]+$/.test(p)) {
+      const name = p.slice('/repos/'.length);
+      this.repositoryGets.push(name);
+      assert.ok(this.repositories.has(name), `Missing repository GET fixture: ${name}`);
+      const response = this.repositories.get(name);
+      return json(response.status, response.body);
     }
     if (p === `${ops}/contents/queue.json`) {
       if (req.method === 'GET') return this.index ? json(200, {...this.index, encoding: 'base64'}) : json(404);
@@ -120,7 +130,10 @@ class Fixture {
     if (p.endsWith('/reactions')) { this.reactions.push(body); return json(201); }
     if (p.includes('/check-runs/')) {
       const id = Number(p.split('/').at(-1));
-      if (req.method === 'GET') return this.checkMissing === id || !this.checkState.has(id) ? json(404) : json(200, this.checkState.get(id));
+      if (req.method === 'GET') {
+        this.checkGets.push({repository: p.split('/').slice(2, 4).join('/'), id});
+        return this.checkMissing === id || !this.checkState.has(id) ? json(404) : json(200, this.checkState.get(id));
+      }
       if (this.checkFailure === id) return json(404);
       this.onCheckPatch?.(id, body);
       this.checks.push(body);
@@ -172,6 +185,135 @@ async function scenario(name, fn) {
   try { await fn(fixture); console.log(`PASS ${name}`); }
   finally { await fixture.dispose(); }
 }
+
+for (const state of ['pending', 'reserved']) {
+  await scenario(`${state} target GET 404 blocks privately and releases resources for healthy peer`, async f => {
+    f.runs.set(1, {id: 1, status: 'queued'});
+    const missing = request();
+    const peerRepository = 'isp-insoft-gmbh/isp-golem-xiv-test-peer';
+    const peer = request('member', 'hello', {repository: peerRepository, repository_id: 100, check_run_id: 11});
+    f.repositories.set(peerRepository, {status: 200, body: {id: 100, full_name: peerRepository}});
+    await f.enqueue(missing); await f.enqueue(peer);
+    const queue = f.queue();
+    queue.records[0].state = state;
+    f.index.content = Buffer.from(JSON.stringify(queue)).toString('base64');
+    const before = structuredClone(f.row(missing.delivery_id));
+    f.repositories.set(repository, {status: 404, body: {message: 'Not Found'}});
+    f.runs.clear();
+    await f.restart(); await f.call('tick');
+    assert.deepEqual(f.row(missing.delivery_id), {...before, state: 'terminal', outcome: 'blocked', reason: 'target unavailable at dispatch preflight'});
+    assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id]);
+    assert.ok(f.repositoryGets.includes(repository), '404 must come from target repository GET');
+    assert.ok(f.repositoryGets.includes(peerRepository), 'healthy target identity must be fetched');
+    assert.deepEqual(f.checkGets, [], 'unavailable target must not require a public check');
+    assert.deepEqual(f.checks, []);
+    assert.equal(f.reactions.length, 1, 'only healthy dispatched peer receives rocket');
+    await f.restart(); await f.call('tick');
+    assert.deepEqual(f.row(missing.delivery_id), {...before, state: 'terminal', outcome: 'blocked', reason: 'target unavailable at dispatch preflight'});
+    assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id]);
+    await f.enqueue(missing);
+    assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id], 'terminal replay must not dispatch');
+  });
+}
+
+for (const [failure, response] of [
+  ['403', {status: 403, body: {message: 'Forbidden'}}],
+  ['500', {status: 500, body: {message: 'Internal Server Error'}}],
+  ['503', {status: 503, body: {message: 'Service Unavailable'}}],
+  ['204', {status: 204, body: null}],
+  ['201', {status: 201, body: {id: 99, full_name: repository}}],
+  ['repository id mismatch', {status: 200, body: {id: 100, full_name: repository}}],
+]) {
+  for (const state of ['pending', 'reserved']) {
+    await scenario(`${state} target ${failure} retains ownership without starving healthy peer`, async f => {
+      f.runs.set(1, {id: 1, status: 'queued'});
+      const retained = request();
+      const waiting = request('member', 'waiting', {check_run_id: 11});
+      const peerRepository = 'isp-insoft-gmbh/isp-golem-xiv-test-peer';
+      const peer = request('other', 'peer', {repository: peerRepository, repository_id: 100, check_run_id: 12});
+      f.repositories.set(peerRepository, {status: 200, body: {id: 100, full_name: peerRepository}});
+      for (const req of [retained, waiting, peer]) await f.enqueue(req);
+      const queue = f.queue();
+      queue.records[0].state = state;
+      f.index.content = Buffer.from(JSON.stringify(queue)).toString('base64');
+      const before = structuredClone(f.row(retained.delivery_id));
+      f.repositories.set(repository, response);
+      f.runs.clear();
+      await f.restart(); await f.call('tick');
+      assert.deepEqual(f.row(retained.delivery_id), before);
+      assert.equal(f.row(waiting.delivery_id).state, 'pending', 'retained seat still fences successor');
+      assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id]);
+      assert.ok(f.repositoryGets.includes(repository));
+      assert.deepEqual(f.checkGets, []);
+      assert.deepEqual(f.checks, []);
+      await f.restart(); await f.call('tick');
+      assert.deepEqual(f.row(retained.delivery_id), before);
+      assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id]);
+      f.repositories.set(repository, {status: 200, body: {id: 99, full_name: repository}});
+      await f.call('tick');
+      assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id, retained.delivery_id]);
+      assert.equal(f.row(waiting.delivery_id).state, 'pending');
+    });
+  }
+}
+
+await scenario('repository failures beyond API budget do not starve a healthy peer across ticks', async f => {
+  f.runs.set(1, {id: 1, status: 'queued'});
+  const retained = [];
+  for (let i = 0; i < 20; i++) {
+    const req = request(`member${i}`, `golem${i}`, {check_run_id: 100 + i});
+    retained.push(req);
+    await f.enqueue(req);
+  }
+  const peerRepository = 'isp-insoft-gmbh/isp-golem-xiv-test-peer';
+  const peer = request('peer', 'peer', {repository: peerRepository, repository_id: 100, check_run_id: 200});
+  f.repositories.set(peerRepository, {status: 200, body: {id: 100, full_name: peerRepository}});
+  await f.enqueue(peer);
+  f.repositories.set(repository, {status: 403, body: {message: 'Forbidden'}});
+  f.runs.clear();
+  await f.restart(); await f.call('tick');
+  await f.restart(); await f.call('tick');
+  assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id]);
+  for (const req of retained) assert.equal(f.row(req.delivery_id).state, 'pending');
+});
+
+for (const state of ['pending', 'reserved']) {
+  for (const identity of [{dispatched: true}, {run_id: 9000, attempt: 1}]) {
+    await scenario(`${state} with ${Object.keys(identity)[0]} is never retired or redispatched by target preflight`, async f => {
+      f.runs.set(1, {id: 1, status: 'queued'});
+      const req = request(); await f.enqueue(req);
+      const queue = f.queue();
+      Object.assign(queue.records[0], {state}, identity);
+      f.index.content = Buffer.from(JSON.stringify(queue)).toString('base64');
+      const before = structuredClone(f.row(req.delivery_id));
+      f.repositories.set(repository, {status: 404, body: {message: 'Not Found'}});
+      f.runs.clear();
+      // Replay invokes advance without unrelated run reconciliation of this defensive journal shape.
+      await f.restart(); await f.enqueue(req);
+      assert.deepEqual(f.row(req.delivery_id), before);
+      assert.deepEqual(f.repositoryGets, []);
+      assert.deepEqual(f.dispatches, []);
+      assert.deepEqual(f.checks, []);
+    });
+  }
+}
+
+await scenario('target disappearance never retires dispatched, uncertain or bound execution', async f => {
+  const sent = request('alice', 'sent');
+  const uncertain = request('bob', 'uncertain', {check_run_id: 11});
+  const bound = request('carol', 'bound', {check_run_id: 12});
+  await f.enqueue(sent);
+  f.dispatchStatus = 500; await f.enqueue(uncertain);
+  f.dispatchStatus = 204; await f.enqueue(bound); await f.bind(bound);
+  const before = structuredClone(f.queue().records);
+  f.repositoryGets.length = 0;
+  f.repositories.set(repository, {status: 404, body: {message: 'Not Found'}});
+  await f.restart(); await f.call('tick'); await f.call('tick');
+  assert.deepEqual(f.queue().records, before);
+  assert.deepEqual(f.repositoryGets, []);
+  assert.deepEqual(f.dispatches.map(r => r.delivery_id), [sent.delivery_id, uncertain.delivery_id, bound.delivery_id]);
+  assert.deepEqual(f.checks, []);
+});
 
 await scenario('three retained pending requests, shared seat FIFO, no waiting jobs, stale callbacks fenced', async f => {
   const requests = Array.from({length: 4}, (_, i) => request('member', `golem${i}`));

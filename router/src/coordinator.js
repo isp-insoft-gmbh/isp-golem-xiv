@@ -51,7 +51,7 @@ export class Coordinator {
     try { return await fn(); }
     finally { this.waiters--; release(); }
   }
-  async api(path, method = 'GET', body, missing = false, jwt = false) {
+  async api(path, method = 'GET', body, missing = false, jwt = false, expectedStatus = null) {
     if (++this.calls > 45) throw new Failure(503);
     const response = await fetch(`https://api.github.com${path}`, {
       method, redirect: 'manual', signal: AbortSignal.timeout(10000),
@@ -59,7 +59,7 @@ export class Coordinator {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (response.status === 404 && missing) { await response.body?.cancel(); return null; }
-    if (!response.ok || (path.endsWith('/dispatches') && response.status !== 204)) { await response.body?.cancel(); throw new Failure(response.status === 409 || response.status === 422 ? 409 : 503); }
+    if (!response.ok || (expectedStatus !== null && response.status !== expectedStatus) || (path.endsWith('/dispatches') && response.status !== 204)) { await response.body?.cancel(); throw new Failure(response.status === 409 || response.status === 422 ? 409 : 503); }
     if (response.status === 204) return null;
     return JSON.parse(await bounded(response, 524288));
   }
@@ -176,11 +176,30 @@ export class Coordinator {
     if (!this.queue.records.some(r => r.state === 'pending' || r.state === 'reserved')) return;
     if (await this.legacyActive()) return;
     let dispatched = 0;
-    for (let i = 0; i < this.queue.records.length && dispatched < 2; i++) {
+    const count = this.queue.records.length;
+    const start = Number.isSafeInteger(this.queue.advance_cursor) && this.queue.advance_cursor >= 0 ? this.queue.advance_cursor % count : 0;
+    for (let offset = 0; offset < count && dispatched < 2; offset++) {
+      const i = (start + offset) % count;
       const row = this.queue.records[i];
-      if (!['pending', 'reserved'].includes(row.state)) continue;
+      if (!['pending', 'reserved'].includes(row.state) || row.dispatched || row.run_id !== null) continue;
       if (this.queue.records.some((other, j) => other !== row && other.state !== 'terminal' && shares(row, other) && (j < i || other.state !== 'pending'))) continue;
+      if (this.calls > 38) {
+        this.queue.advance_cursor = i;
+        await this.save();
+        break;
+      }
       const request = await this.request(row);
+      let repository;
+      try { repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200); }
+      catch { continue; }
+      if (repository === null) {
+        row.state = 'terminal';
+        row.outcome = 'blocked';
+        row.reason = 'target unavailable at dispatch preflight';
+        await this.save();
+        continue;
+      }
+      if (!positive(request.repository_id) || repository.id !== request.repository_id) continue;
       row.state = 'reserved';
       await this.save(); // Both resources + generation are one guarded GitHub write.
       row.state = 'dispatching';
