@@ -3,6 +3,25 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-04: Live canary identities and cold-start admission gap
+
+- Guarded Slice 2 PR #7 merged only after exact-head CI passed on `0bf104d`; trunk `0a9555f` passed CI, deployed, and published `v2`.
+  Private ops PR #2 merged with green CI after release publication; its runtime workflow was byte-compared with the `v2` pin.
+- First observer incorrectly filtered on nonexistent CheckRun `created_at`; GitHub's default latest-name filter also hides older same-name checks.
+  The corrected read-only observer binds an explicit check to immutable request/comment identity, uses actual workflow timestamps for bounded lifecycle history and fresh-commit causality, and preserves all changed-outcome, content, audit, queue and phase assertions.
+- Delivery `7d8caf40-d7f4-11f1-9909-46c276fd737e` is the fresh-publication proof: check `126340791321`, run `41758683949`, new commit `318d77b` during that invocation, matching immutable request/terminal receipt and bound-before-terminal history.
+  Trusted native logs place confirmed destruction before publication credentials, publication completion before reservation release.
+- Later delivery `7e3b7af0-d7f6-11f1-8d54-9388c7d01961` completed as replied against existing content; its successful run is not evidence of a fresh commit.
+  Original delivery `f6f9c410-d7f1-11f1-8c7e-16908e2f3f3a` remains queued with an immutable prepared source but no request tag, receipt, queue row or run.
+  All three were independently correlated through their source comments/checks; later success does not supersede the original request.
+- The source of the unresolved request was written at `01:49:30Z`, before `golem-state` initialization at `01:50:11Z`.
+  Mention persistence does not establish the coordinator journal before writing its continuation, unlike the event/schedule paths.
+  This cold-start path and the missing orphan-source discovery require a product correction; do not mark or discard the original check to obtain a pass.
+- Canary routing was disabled again; full deployed Slice 1 regression passed with released runner `v2` (`41759292169`).
+  The attributable tail observed a later request only; deletion was verified independently and no tail result is treated as provider/publication proof.
+- Real schedule-owner, bot-owner, incomplete/continuation and full Slice 2 acceptance remain unproven.
+  Auxiliary coverage work is an isolated measured proposal, not a CI ratchet yet.
+
 ## 2026-11-04: Guarded Slice 2 implementation, live proof pending
 
 - Version 2 routing is opt-in via private ops variable `GOLEM_PROTOCOL_VERSION=2`.
