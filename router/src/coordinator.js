@@ -12,7 +12,7 @@ const shares = (a, b) => a.seat === b.seat || a.resource === b.resource;
 const encode = value => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 const decode = value => JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(Uint8Array.from(atob(value.replace(/\s/g, '')), c => c.charCodeAt(0))));
 class Failure extends Error {
-  constructor(status) { super('coordinator unavailable'); this.status = status; }
+  constructor(status, stage = 'upstream', upstreamStatus = null) { super('coordinator unavailable'); this.status = status; this.stage = stage; this.upstreamStatus = upstreamStatus; }
 }
 async function bounded(response, limit) {
   if (!response.body) return '';
@@ -52,19 +52,20 @@ export class Coordinator {
     finally { this.waiters--; release(); }
   }
   async api(path, method = 'GET', body, missing = false, jwt = false, expectedStatus = null) {
-    if (++this.calls > 45) throw new Failure(503);
+    if (++this.calls > 45 || Date.now() >= this.deadline) throw new Failure(503, 'upstream');
     const response = await fetch(`https://api.github.com${path}`, {
-      method, redirect: 'manual', signal: AbortSignal.timeout(10000),
+      method, redirect: 'manual', signal: AbortSignal.timeout(Math.max(1, Math.min(10000, this.deadline - Date.now()))),
       headers: {Authorization: `Bearer ${jwt ? this.jwt : this.token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'isp-golem-xiv', 'Content-Type': 'application/json'},
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (response.status === 404 && missing) { await response.body?.cancel(); return null; }
-    if (!response.ok || (expectedStatus !== null && response.status !== expectedStatus) || (path.endsWith('/dispatches') && response.status !== 204)) { await response.body?.cancel(); throw new Failure(response.status === 409 || response.status === 422 ? 409 : 503); }
+    if (!response.ok || (expectedStatus !== null && response.status !== expectedStatus) || (path.endsWith('/dispatches') && response.status !== 204)) { await response.body?.cancel(); throw new Failure(response.status === 409 || response.status === 422 ? 409 : 503, 'upstream', response.status); }
     if (response.status === 204) return null;
     return JSON.parse(await bounded(response, 524288));
   }
   async connect() {
     this.calls = 0;
+    this.deadline = Date.now() + 25000;
     this.jwt = await appJwt(this.env.APP_PRIVATE_KEY);
     // No repository_ids or permissions override: preserve this installation's all-repo permissions.
     this.token = (await this.api('/app/installations/153964219/access_tokens', 'POST', {}, false, true)).token;
@@ -91,6 +92,7 @@ export class Coordinator {
     }
     if (file.encoding !== 'base64' || typeof file.content !== 'string' || file.content.length > journalLimit * 2) throw new Failure(503);
     this.queue = decode(file.content);
+    this.journalBytes = atob(file.content.replace(/\s/g, ''));
     this.sha = file.sha;
     if (!/^[0-9a-f]{40}$/.test(this.sha)) throw new Failure(503);
     const q = this.queue;
@@ -105,10 +107,35 @@ export class Coordinator {
   async save() {
     const content = encode(this.queue);
     if (content.length > journalLimit) throw new Failure(503);
-    const result = await this.api(indexPath, 'PUT', {branch: 'golem-state', message: 'Update golem queue', content, ...(this.sha ? {sha: this.sha} : {})});
-    if (!/^[0-9a-f]{40}$/.test(result.content?.sha)) throw new Failure(503);
-    this.sha = result.content.sha;
-    this.project();
+    const originalSha = this.sha;
+    const originalBytes = this.journalBytes;
+    const intended = atob(content);
+    const body = {branch: 'golem-state', message: 'Update golem queue', content, sha: originalSha};
+    const until = Math.min(this.deadline, Date.now() + 5000);
+    for (let attempt = 0; attempt < 3 && Date.now() < until; attempt++) {
+      try {
+        const result = await this.api(indexPath, 'PUT', body);
+        if (!/^[0-9a-f]{40}$/.test(result?.content?.sha)) throw new Failure(503);
+        this.sha = result.content.sha;
+        this.journalBytes = intended;
+        this.project();
+        return;
+      } catch (error) {
+        if (error instanceof Failure && error.upstreamStatus !== null && error.upstreamStatus !== 409 && error.upstreamStatus < 500) throw error;
+      }
+      // Do not load/project: readback must not replace the frozen mutation.
+      let file;
+      try { file = await this.api(`${indexPath}?ref=golem-state`); }
+      catch { throw new Failure(503, 'journal_conflict'); }
+      if (file?.encoding !== 'base64' || typeof file.content !== 'string' || file.content.length > journalLimit * 2 || !/^[0-9a-f]{40}$/.test(file.sha)) throw new Failure(503, 'journal_conflict');
+      let bytes;
+      try { bytes = atob(file.content.replace(/\s/g, '')); JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(Uint8Array.from(bytes, c => c.charCodeAt(0)))); }
+      catch { throw new Failure(503, 'journal_conflict'); }
+      if (bytes.length > journalLimit) throw new Failure(503, 'journal_conflict');
+      if (bytes === intended) { this.sha = file.sha; this.journalBytes = intended; this.project(); return; }
+      if (file.sha !== originalSha || bytes !== originalBytes) throw new Failure(503, 'journal_conflict');
+    }
+    throw new Failure(503, 'journal_conflict');
   }
   validate(request) {
     if (!request || request.version !== 2 || !uuid.test(request.delivery_id) || !/^isp-insoft-gmbh\/[A-Za-z0-9_.-]{1,100}$/.test(request.repository) || !/^[A-Za-z0-9_-]{1,64}$/.test(request.golem) || !/^[A-Za-z0-9-]{1,39}$/.test(request.seat_login) || !['anthropic', 'openai-codex', 'github-copilot'].includes(request.provider) || !/^[0-9a-f]{40}$/.test(request.head_sha) || !positive(request.check_run_id) || (request.issue_number !== null && !positive(request.issue_number)) || (request.comment_id !== null && !positive(request.comment_id))) throw new Failure(400);
@@ -221,17 +248,22 @@ export class Coordinator {
     const run = await this.api(`${ops}/actions/runs/${runId}`, 'GET', undefined, true);
     if (!run) return null;
     const request = await this.request(row);
-    if (run.id !== runId || run.event !== 'workflow_dispatch' || run.head_branch !== 'trunk' || run.path !== '.github/workflows/runner.yml' || run.display_title !== `${request.repository} ${request.golem}` || !positive(run.run_attempt)) throw new Failure(409);
+    if (run.id !== runId || run.event !== 'workflow_dispatch' || run.head_branch !== 'trunk' || run.path !== '.github/workflows/runner.yml' || run.display_title !== `${request.repository} ${request.golem}` || !positive(run.run_attempt)) throw new Failure(409, 'mismatch');
     return run;
   }
   async callback(body) {
     const row = this.queue.records.find(r => r.id === body.request_id);
-    if (!row || row.generation !== body.generation || !positive(body.run_id) || !positive(body.attempt)) throw new Failure(409);
+    if (!row) throw new Failure(409, 'row');
+    if (row.generation !== body.generation) throw new Failure(409, 'generation');
+    if (!positive(body.run_id) || !positive(body.attempt)) throw new Failure(409, 'attempt');
     if (body.action === 'bind') {
-      if (!['dispatching', 'dispatch_uncertain', 'bound', 'stop_requested'].includes(row.state) || !row.dispatched || (row.run_id !== null && (row.run_id !== body.run_id || row.attempt !== body.attempt))) throw new Failure(409);
-      if (this.queue.records.some(r => r !== row && r.run_id === body.run_id)) throw new Failure(409);
+      if (!['dispatching', 'dispatch_uncertain', 'bound', 'stop_requested'].includes(row.state) || !row.dispatched) throw new Failure(409, 'state');
+      if (row.run_id !== null && (row.run_id !== body.run_id || row.attempt !== body.attempt)) throw new Failure(409, 'mismatch');
+      if (this.queue.records.some(r => r !== row && r.run_id === body.run_id)) throw new Failure(409, 'mismatch');
       const run = await this.run(row, body.run_id);
-      if (!run || run.status === 'completed' || run.run_attempt !== body.attempt || body.attempt !== 1) throw new Failure(409);
+      if (!run) throw new Failure(503, 'run_missing');
+      if (run.status === 'completed') throw new Failure(409, 'state');
+      if (run.run_attempt !== body.attempt || body.attempt !== 1) throw new Failure(409, 'attempt');
       row.run_id = body.run_id;
       row.attempt = body.attempt;
       const stopped = row.state === 'stop_requested';
@@ -278,7 +310,31 @@ export class Coordinator {
   async terminalCheck(row, run) {
     const request = await this.request(row);
     const path = `/repos/${request.repository}/check-runs/${request.check_run_id}`;
-    const check = await this.api(path);
+    const check = await this.api(path, 'GET', undefined, true);
+    if (!check) {
+      if (run.conclusion !== 'failure' || !positive(request.repository_id)) throw new Failure(503);
+      const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
+      if (repository !== null) throw new Failure(503);
+      const audit = {version: 2, request_id: row.id, request_tag: row.tag, generation: row.generation, repository: request.repository, repository_id: request.repository_id, check_run_id: request.check_run_id, run_id: row.run_id, attempt: row.attempt, seat: row.seat, outcome: 'blocked', model: 'unobserved', reason: 'target unavailable to installation; execution/publication unconfirmed'};
+      const message = JSON.stringify(audit);
+      const refPath = `${ops}/git/ref/tags/golem-audit/${row.id}`;
+      const prior = await this.api(refPath, 'GET', undefined, true);
+      let tag;
+      if (prior) {
+        if (prior.object?.type !== 'tag') throw new Failure(503);
+        tag = await this.api(`${ops}/git/tags/${prior.object.sha}`);
+        if (tag.sha !== prior.object.sha || tag.tag !== `golem-audit/${row.id}` || tag.object?.type !== 'tag' || tag.object.sha !== row.tag || tag.message !== message) throw new Failure(503);
+      } else {
+        tag = await this.api(`${ops}/git/tags`, 'POST', {tag: `golem-audit/${row.id}`, message, object: row.tag, type: 'tag'});
+        if (!/^[0-9a-f]{40}$/.test(tag.sha)) throw new Failure(503);
+        const published = await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/golem-audit/${row.id}`, sha: tag.sha});
+        if (published?.object?.sha !== tag.sha) throw new Failure(503);
+      }
+      row.auditTag = tag.sha;
+      row.outcome = audit.outcome;
+      row.reason = audit.reason;
+      return;
+    }
     const lines = typeof check.output?.summary === 'string' ? check.output.summary.split('\n') : [];
     const outcomes = {changed: 'success', replied: 'success', no_change: 'success', incomplete: 'neutral', blocked: 'failure', stopped: 'cancelled'};
     const outcome = lines.find(line => line.startsWith('outcome: '))?.slice(9);
@@ -346,7 +402,7 @@ export class Coordinator {
     try {
       const body = JSON.parse(await bounded(request, bodyLimit));
       return Response.json(await this.serial(() => this.operate(body)));
-    } catch (error) { return Response.json({error: 'queue operation failed'}, {status: error instanceof Failure ? error.status : 503}); }
+    } catch (error) { return Response.json({error: 'queue operation failed', safeFailure: error instanceof Failure ? error.stage : 'upstream'}, {status: error instanceof Failure ? error.status : 503}); }
   }
   async alarm() {
     try { await this.serial(() => this.operate({action: 'tick'})); }

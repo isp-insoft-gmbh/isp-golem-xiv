@@ -3,6 +3,29 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-04: Full acceptance failure and shared-branch journal fencing
+
+- The real v3 outcome proof process exited 0, including bot-owner, timeout publication/continuation and actual Cloudflare scheduled owner execution.
+  Full unchanged Slice 2 acceptance then exited 1: all static/evidence and Slice 1 checks, changed PR and continuation passed; forbidden audit lacked blocked outcome, serial timed out, stop never dispatched, event setup returned GitHub HTTP 500 and its checks were unexecuted.
+- Failed native v3 run `41802954891` reported static `queue conflict`, leaving request `eec9cfc0-d82c-11f1-97dc-9f61ec87b7e3` unbound dispatching and two other requests pending.
+  The judge's cleanup made the target unavailable; do not discard requests or infer the forbidden task's actual outcome from a missing check.
+- An isolated marked private repository reproduced five concurrent Contents PUT pairs to different files on one branch.
+  Every pair produced one HTTP 409 reference conflict while the losing file blob remained unchanged; owned repository deletion/readback confirmed cleanup.
+  This establishes the API conflict mechanism affecting queue and cursor writers sharing `golem-state`, not the historical rejection's exact predicate.
+- Queue saves now freeze expected blob SHA and intended bytes, confirm exact committed readback, retry only unchanged-preimage branch conflicts within bounds, and reject divergent or malformed state without merging or granting execution.
+  Missing run metadata is transient; ownership mismatches remain denied.
+  No blind dispatch or agent-execution retry.
+- A correlated completed failed run with both check and target unavailable can persist an immutable private blocked/unconfirmed audit before terminalization; retirement preserves its discoverable audit ref.
+  Existing target with missing check, ambiguous API failures, wrong identity/attempt or failed audit persistence retain ownership.
+  Audit reuse validates tag name, SHA, subject type/SHA and full message.
+- Known v3 maintenance association adds exact release routing, asset, source tag, build and timestamp checks under the declared trusted GitHub/CI boundary.
+  Both legitimate request environment records in the pinned workflow are required and deep-equal to the immutable request; extra records fail closed.
+  Read-only inspection passed; apply still requires corrected live Coordinator source and unchanged pre-CAS deployment proof.
+- Full CI initially hit the unchanged 60-second Coordinator suite wrapper after added cases.
+  Four independent fixture batches preserve isolated SQLite stores, real restarts and all assertions; parent fresh full CI then exited 0, with no wrapper, limit or selection changes.
+  Different-model security review closed findings within three calls of its finite budget.
+- Forbidden behavior still needs a retained live reproduction after seat recovery; no prompt safety guard, promise or judge check has been weakened.
+
 ## 2026-11-04: Released runtime repair and continued repository discovery
 
 - PR #9 passed exact-head CI on `644c930` (`41787665840`), merged as `00d62520`, passed trunk CI `41788243519` and deployment `41788243140`, and published `v3` (`41788750529`).
