@@ -154,4 +154,17 @@ Native asset `713835375`, SHA-256 `a97b865e9a12a921841e7e71b686154229c363b60c293
 Release container remains mutable; no independent attestation or immutable-container guarantee.
 Private runtime pin PR #10 merged as `b0ceede98f7495c86852baa88f4868eb40262aae` after exact-head CI `42054652720` on `a3efde5a108ff57e18027d1ea68fa2c377c74193`.
 Live workflow bytes matched the reviewed v5 template, SHA-256 `21f209196050f761bedebb4e27fd0a81b285b0bc14030d19c01061ec43072cc4`.
-Whole v5 binary/live changer/echo behavior and full Slice 2 acceptance remain unproven.
+At release verification, whole-v5 live behavior remained unproven; subsequent case evidence follows below.
+
+## V5 retained changer success and blocked continuation
+
+On original core repository/definitions, new changer comment `6662029945`, check `127344375288`, delivery `14a42220-d92e-11f1-90fe-16fb0fd4ae18`, run `42056029957` passed the real audit.
+Actual App PR #9/commit `91719b5c56af5c433ea3d682097033b64797081e` had only expected golem.txt changes, nonce, non-executable mode and original parent, protected/default content unchanged, attributed feedback, all five ordered phases and exact terminal request binding.
+Original failed requests were not overwritten or redispatched.
+New continuation comment `6662081241`, check `127345695362`, delivery `6271bc60-d92e-11f1-945a-0ee7d18bcfc8`, request tag `a06bf59d74ba8bb84500d754fc20363a8379832d` remains queued/unbound.
+A matching-title workflow `42056406734`/job `127345869143` failed artifact download HTTP504 before validation/preparation/provider access; checksum and native steps never ran.
+That metadata does not prove the exact request inputs for that workflow.
+Complete job log and downloaded full run-log archive had no request envelope or original delivery/check identities, no artifacts were retained, and inspected REST/GraphQL metadata supplied no inputs.
+Diagnostic archive scratch removed; no missing envelope was treated as equal, no run association or manual terminalization performed.
+Observer activity was stopped/exit1 with identities preserved; echo was not submitted, so neither continuation nor echo nor whole suite passed.
+Current authoritative continuation row retains its resource and seat with null run/attempt; recovery requires additional authoritative evidence or a separately proved cancellation protocol, not a blind rerun.

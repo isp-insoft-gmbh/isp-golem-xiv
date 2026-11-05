@@ -3,6 +3,19 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-05: Startup download failure without run-linked inputs
+
+- V5 first retained changer passed actual publication/lifecycle audit; continuation remains unbound.
+  Matching-title workflow download failed HTTP504 before credential selection or native execution, but title/timing/uniqueness do not prove the complete dispatched request.
+  Inspected complete job/run logs have zero request envelopes, no artifacts or API inputs were found; archive scratch removed.
+  Original request/check/generation and reservation remain unchanged, echo unexecuted, no retry/association/manual terminalization.
+- Future prevention should bound only artifact GET retries and record authenticated full-input identity before download, without retrying an agent or weakening checksum/TLS checks.
+  Such records cannot be backfilled for this workflow.
+- Conditional design investigation found a possible distinct pre-admission cancellation path: persisted bind identity precedes every v2 grant, while a durable stop fence denies late grants.
+  This is not implemented or approved and does not authorize current-state mutation.
+  Prerequisites include monotonic no-prior-bind provenance, null run/attempt, exact CAS/readback fence, eligibility recheck after races, durable original-tag receipt, truthful no-admission audit and retention on unknown/bound states.
+  Existing destruction/completion and legacy-active barriers remain; it would not prove cancellation of an unidentified running workflow or satisfy that acceptance case.
+
 ## 2026-11-05: Event context, delegated commits, separate feedback authority
 
 - Unchanged Slice 2 acceptance failed changer and echo while protected-path, serial, stop and issue-opened no-change passed.

@@ -2,7 +2,7 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/pin-v5`; released v5/runtime pin verified, real changer/continuation/echo proof active; unchanged full Slice 2 remains failed.
+- **Current branch:** `fix/pin-v5`; v5 first changer proof passed, continuation unbound/blocked, observer stopped and echo unexecuted; unchanged full Slice 2 remains failed.
 - **Deployed Worker:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`; final exact-head CI `42049159644` on `d9b557c`, trunk CI `42050838758` and deployment `42050838841` succeeded.
   Separately verified live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
   Prior journal/discovery corrections remain included.
@@ -148,11 +148,17 @@
   Final exact-head Linux CI `42049159644` on `d9b557c` passed all required steps and all four complete Worker stages, including old context rejection/recovery and both native regressions.
   Both threads received assertion-level evidence and were resolved before protected merge; outdated flags were not used as evidence.
   Prior Linux/provider proof remains scoped to its recorded old source; unchanged execution/prompt/parser/sandbox/host-publisher files were independently compared, not a whole-v5-binary provider claim.
-- **Real v5 proof active:** completed scratch driver `C:\Users\okr\AppData\Local\Temp\isp-golem-live-changer-echo.mjs` is running as `activity-090b5926-5` against retained original core/events repositories, expected ops commit `b0ceede` and v5.
-  No golem definitions or original failed request identities are changed; first changer, continuation and echo are sequential, each requires complete prior audit.
-  State lease `C:\Users\okr\AppData\Local\Temp\isp-golem-live-v5-b0ceede98f7495c86852baa88f4868eb40262aae.json` prevents blind rerun; preserve emitted comment IDs if stopped.
-  Driver preparation/syntax/start are not case success; inspect full terminal output and every verified record.
-- **Next step:** observe this existing live proof, publish public template v5 through protected CI PR, then unchanged full Slice 2 acceptance; do not redispatch this driver.
+- **Real v5 proof stopped:** activity `activity-090b5926-5` stopped/exit1; no echo comment submitted and no driver redispatch.
+  First changer verified: comment `6662029945`, check `127344375288`, delivery `14a42220-d92e-11f1-90fe-16fb0fd4ae18`, run `42056029957`, actual App PR #9, commit `91719b5c56af5c433ea3d682097033b64797081e`; file/parent/mode/nonce/feedback, all five phases and terminal binding passed.
+  Continuation comment `6662081241`, check `127345695362`, delivery `6271bc60-d92e-11f1-945a-0ee7d18bcfc8` remains queued/unbound; request tag `a06bf59d74ba8bb84500d754fc20363a8379832d`, generation `4b241cec-79d5-4ed9-a420-e83427b4a4b7`.
+  Last authoritative queue blob `54b419402222d1cc56ba5a1a2a0a31e690bbfc42`: dispatching, dispatched=true, run_id/attempt=null, original resource and bugabinga/anthropic seat retained.
+  Candidate matching-title workflow `42056406734`/job `127345869143` failed download with curl22/HTTP504; validation, preparation and native/provider steps all skipped, cleanup success, no native phases.
+  Exact continuation-to-run linkage is NOT established: complete 4195-byte job log and full log archive contain zero request envelopes/delivery/check IDs; artifacts count0, REST attempt has no inputs field, inspected GraphQL WorkflowRun fields provide no inputs.
+  Current repair helper accepts v2/v3 only; merely adding v5 provenance cannot replace missing full input/run evidence. No association, reset, check terminalization or reservation mutation performed.
+  State lease `C:\Users\okr\AppData\Local\Temp\isp-golem-live-v5-b0ceede98f7495c86852baa88f4868eb40262aae.json` retains identities and prevents blind rerun.
+- **Recovery decision needed:** obtain authoritative run-linked full input evidence, or separately design/review a normal pre-admission cancellation fence. Conditional design advice is not implementation/approval and does not authorize clearing current state.
+  Future bounded artifact GET retries and early request-identity evidence can prevent recurrence but cannot retrospectively prove this run's inputs.
+  Public template PR #15 head `767c29f` passed CI `42056160918`; live continuation/echo and full Slice 2 remain incomplete.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
