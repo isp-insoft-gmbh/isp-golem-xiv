@@ -140,3 +140,18 @@ Both hosted native inventories reported one page and zero active; independent in
 Observer exited 0 with verifiedActualProviderCases=true and complete output, then secret removal exit0/temporarySecretAbsenceVerified=true; parent independently rechecked absence.
 Private PR #9 closed unmerged; production runtime remained v4.
 This proves actual-provider cases with mock publication, not real GitHub candidate publication, echo feedback or full Slice 2 acceptance.
+
+## Follow-up Linux regressions and released v5
+
+Final PR #14 head `d9b557c8b08a55f10435a757226eb38440156581` passed canonical Linux CI `42049159644`, job `127320248268`, including every required step and all four complete Worker-suite stages.
+Compiled-Worker assertions verified full-context rejection before API/ref/journal/check side effects and normal retirement of older invalid unprepared work with original-source done receipt, freed index capacity, no check/admission/native outcome.
+Native regressions verified deleted/other-author-edited destinations preserve authorized event paths without feedback for member/owner payer cases; unknown failures retain fail-closed blocked reporting and observed-model/completion guards.
+Both review threads received these exact assertion/CI mappings and were resolved before protected merge, rather than resolved merely as outdated.
+PR #14 merged as `49be24620721baed5c0632395209503b1f81ef0b`; trunk CI `42050838758` and deployment `42050838841` succeeded, and live health independently verified this version and unchanged Coordinator digest.
+Matching v5 release workflow `42051948501` succeeded; annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` resolves to that commit.
+All seven declared assets matched downloaded sizes/GitHub SHA-256 digests, aggregate/native checksums, archived-vs-standalone native bytes and committed license bytes; verification scratch removed.
+Native asset `713835375`, SHA-256 `a97b865e9a12a921841e7e71b686154229c363b60c2933187ebe590894dbca2f`; release ID `435369758`.
+Release container remains mutable; no independent attestation or immutable-container guarantee.
+Private runtime pin PR #10 merged as `b0ceede98f7495c86852baa88f4868eb40262aae` after exact-head CI `42054652720` on `a3efde5a108ff57e18027d1ea68fa2c377c74193`.
+Live workflow bytes matched the reviewed v5 template, SHA-256 `21f209196050f761bedebb4e27fd0a81b285b0bc14030d19c01061ec43072cc4`.
+Whole v5 binary/live changer/echo behavior and full Slice 2 acceptance remain unproven.

@@ -2,17 +2,17 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/event-context-delegation`; unmerged context/delegation candidate, native v4 still deployed; unchanged full Slice 2 remains failed.
-- **Deployed Worker:** PR #13 commit `976a4fd900336006a1293b2818c7aa2ebe8c056b`; exact-head CI `42019226208` on `59e3243`, trunk CI `42020372496` and deployment `42020372451` succeeded.
+- **Current branch:** `fix/pin-v5`; released v5/runtime pin verified, real changer/continuation/echo proof active; unchanged full Slice 2 remains failed.
+- **Deployed Worker:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`; final exact-head CI `42049159644` on `d9b557c`, trunk CI `42050838758` and deployment `42050838841` succeeded.
   Separately verified live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
   Prior journal/discovery corrections remain included.
-- **Released native source:** PR #12 commit `d8af87cffa10081e3f120c60ef49e32dce6372f8`, release v4 from successful matching release workflow `42016735005`.
-  Annotated tag `9181164f3245f8f9e356e8cc9ab78e4513de255c` points to this commit.
+- **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
+  Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.
-  Native asset `713144087`, SHA-256 `a8ae74bcbe33f0b3b95341c9231a0b8d88d915d685bbcbd77d0e7183997a7b92`.
+  Native asset `713835375`, SHA-256 `a97b865e9a12a921841e7e71b686154229c363b60c2933187ebe590894dbca2f`.
   Release container remains mutable; no independent build attestation or immutable-container claim.
-- **Private ops:** PR #8 merged as `5a4e973a3eb51c5455dc8393e6d59d5f659e51db` after exact-head CI `42019253787` on `a87b1e96c0253d22d052fb7eaafc65084cf455c5`.
-  Runtime workflow byte-compared with reviewed v4 template; SHA-256 `ccfe3bf8efe095418b3b0f03d0ce465c6a50344941d64d88916cc955dc7e3035`.
+- **Private ops:** PR #10 merged as `b0ceede98f7495c86852baa88f4868eb40262aae` after exact-head CI `42054652720` on `a3efde5a108ff57e18027d1ea68fa2c377c74193`.
+  Runtime workflow byte-compared with reviewed v5 template; SHA-256 `21f209196050f761bedebb4e27fd0a81b285b0bc14030d19c01061ec43072cc4`.
   Public template/historical-fixture PR #13 merged as `976a4fd900336006a1293b2818c7aa2ebe8c056b`; trunk CI/deployment succeeded and live identity verified.
   `GOLEM_PROTOCOL_VERSION=2` remains enabled.
 
@@ -145,9 +145,14 @@
   Linux follow-up `17f5c3b` CI `42047850669` failed in new fixture setup: it incorrectly read a retired source ref instead of its done receipt.
   The new pre-journal rejection assertions passed before that setup failure; old-work retirement assertions had not run, no thread resolved.
   Fixture now reads immutable source through the done receipt and waits for previous work retirement before its side-effect snapshot; new exact-head Linux CI still required.
-  Prior Linux/provider proof remains scoped to its recorded old source; new follow-up does not establish live behavior.
-- **Next step:** publish follow-up through existing PR #14, inspect complete Linux Worker suite and required checks on the exact new head, then address/resolve review threads with evidence.
-  Protected merge/release, reviewed runtime pin, real previously failing changer/continuation/echo and unchanged full Slice 2 acceptance remain unfinished.
+  Final exact-head Linux CI `42049159644` on `d9b557c` passed all required steps and all four complete Worker stages, including old context rejection/recovery and both native regressions.
+  Both threads received assertion-level evidence and were resolved before protected merge; outdated flags were not used as evidence.
+  Prior Linux/provider proof remains scoped to its recorded old source; unchanged execution/prompt/parser/sandbox/host-publisher files were independently compared, not a whole-v5-binary provider claim.
+- **Real v5 proof active:** completed scratch driver `C:\Users\okr\AppData\Local\Temp\isp-golem-live-changer-echo.mjs` is running as `activity-090b5926-5` against retained original core/events repositories, expected ops commit `b0ceede` and v5.
+  No golem definitions or original failed request identities are changed; first changer, continuation and echo are sequential, each requires complete prior audit.
+  State lease `C:\Users\okr\AppData\Local\Temp\isp-golem-live-v5-b0ceede98f7495c86852baa88f4868eb40262aae.json` prevents blind rerun; preserve emitted comment IDs if stopped.
+  Driver preparation/syntax/start are not case success; inspect full terminal output and every verified record.
+- **Next step:** observe this existing live proof, publish public template v5 through protected CI PR, then unchanged full Slice 2 acceptance; do not redispatch this driver.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
@@ -168,7 +173,7 @@
 - **Open limits:** genuinely ambiguous dispatch retains ownership; large/changing installations may outlast scan capacity; already-completed repository definition changes wait until next UTC day; non-Linux runner labels unsupported; scoped mutation diagnostics unrun within disk budget.
 - **Coverage proposal:** isolated temp worktree `C:\Users\okr\AppData\Local\Temp\golem-coverage-ratchet`, branch `build/coverage-ratchet`, not committed or integrated.
   Auxiliary pinned-nightly host coverage measured; canonical Ubuntu ratchet remains unestablished.
-- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, branch `probe/context-controls`; test-only PR #9 closed unmerged, production pin remains PR #8/v4.
+- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, branch `fix/pin-v5`; production pin PR #10 merged, test-only PR #9 remains closed unmerged.
 - **Secrets:** provisioned under `~/.secrets/isp-golem-xiv/` and encrypted GitHub/Cloudflare secrets; never print or commit.
 - **Blocked on Oliver:** nothing for Slice 2.
   Before Slice 3: GitHub browser session and fresh dedicated Codex sign-in are planned human stops.
