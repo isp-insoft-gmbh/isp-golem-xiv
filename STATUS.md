@@ -134,8 +134,17 @@
   All original exact-change/mock-publication assertions passed; both hosted inventories one page/zero active, independent native window and active inventories empty.
   Temporary secret removal exited 0, temporarySecretAbsenceVerified=true; parent independently rechecked absence before closing private PR #9.
   This is actual Linux/provider execution with mock publication; real GitHub behavior remains unproven for this candidate.
-- **Next step:** publish proof docs through existing PR #14, require fresh exact-head CI, protected merge/release and reviewed runtime pin.
-  Then real previously failing changer/continuation/echo cases and unchanged full Slice 2 acceptance must prove behavior before any fixed/completion claim.
+- **Merge blocked, no bypass/release:** final docs head `05a2dc9f5a4423cc3201758d24a6b9df2fd07c40` passed exact-head CI `42043789832`, but two unresolved valid review threads prohibited merge.
+  `PRRT_kwDOVhkLbc60GFOc`: complete event context could exceed its bound only after durable journaling, stranding event work/index capacity.
+  `PRRT_kwDOVhkLbc60GFOh`: missing deleted comments or different-author edits incorrectly blocked event execution during feedback validation.
+- **Review follow-up candidate:** complete non-mention event context now rejects before durable work; old invalid unprepared work follows normal source-archive retirement without a check/admission or fabricated native outcome.
+  Known comment 404 or valid other-author destination disables feedback without denying authorized event execution; unknown HTTP errors and malformed ID/issue/type remain fail-closed.
+  Actor membership validation remains separate from destination eligibility; mention authorization and payer semantics unchanged.
+  Added Worker fixtures for zero-side-effect oversized-context rejection and old-work retirement, plus native deletion/edit/owner-fallback regressions.
+  Local formatting, Clippy, diff check and Rust tests passed: native 64 passed/2 ignored, router 15 passed; no Windows Worker retry.
+  Prior Linux/provider proof remains scoped to its recorded old source; new follow-up requires canonical Linux CI and does not establish live behavior.
+- **Next step:** publish follow-up through existing PR #14, inspect complete Linux Worker suite and required checks on the exact new head, then address/resolve review threads with evidence.
+  Protected merge/release, reviewed runtime pin, real previously failing changer/continuation/echo and unchanged full Slice 2 acceptance remain unfinished.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.

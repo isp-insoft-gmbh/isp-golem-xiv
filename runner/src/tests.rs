@@ -863,10 +863,14 @@ async fn event_comment_feedback_respects_actor_type_context_and_payer_without_ex
 
 #[tokio::test]
 async fn uncertain_or_mismatched_event_feedback_fails_closed_but_blocked_checks_are_attempted() {
-    let mut failures = vec![(503, json!({})), (404, json!({}))];
+    let mut failures = vec![(503, json!({})), (403, json!({}))];
     for pointer in ["/id", "/user/id", "/user/login", "/issue_url", "/user/type"] {
         let mut comment = event_comment();
-        *comment.pointer_mut(pointer).unwrap() = json!("mismatch");
+        *comment.pointer_mut(pointer).unwrap() = if pointer == "/user/login" {
+            json!("")
+        } else {
+            json!("mismatch")
+        };
         failures.push((200, comment));
     }
     for blocked in [false, true] {
@@ -1003,6 +1007,86 @@ async fn event_comment_fetch_failure_after_initial_validation_reports_without_qu
 }
 
 #[tokio::test]
+async fn deleted_and_other_author_edited_comments_preserve_event_execution_without_feedback() {
+    use base64::Engine as _;
+    let mut other_author = event_comment();
+    other_author["user"]["id"] = json!(11);
+    other_author["user"]["login"] = json!("original-author");
+    for (action, destination) in [
+        ("deleted", (404, json!({}))),
+        ("edited", (200, other_author)),
+    ] {
+        for payer in ["member", "owner"] {
+            let mut request = request();
+            request.version = 2;
+            request.trigger = Some("event".into());
+            request.instructions = format!("GitHub event: issue_comment.{action}");
+            request.owner = Some("owner".into());
+            request.seat_login = payer.into();
+            let mut responses = vec![
+                (
+                    200,
+                    json!({"id":123,"full_name":request.repository,"topics":["isp-golem-xiv-test"]}),
+                ),
+                (204, Value::Null),
+            ];
+            if payer == "owner" {
+                responses.push((204, Value::Null));
+            }
+            responses.extend([
+                destination.clone(),
+                (200, json!({"head_sha":request.head_sha,"name":"golem/hello","app":{"id":golem_runner::APP_ID}})),
+                (200, json!({"type":"file","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode("---\nowner: owner\ntriggers: [issue_comment]\ntimeout: 1m\n---\nProcess comment event\n")})),
+                destination.clone(),
+                (200, json!({})),
+            ]);
+            let count = responses.len();
+            let (github, observed) = server(responses);
+            // Admission validation succeeds: absence of an answer destination is
+            // not denial of otherwise authorized event execution.
+            github
+                .validate_target(&request, "read-token")
+                .await
+                .unwrap();
+            let context = RunContext {
+                github: &github,
+                request: &request,
+                private_key: "unused",
+                run_id: "99",
+                attempt: "1",
+            };
+            let published = context
+                .publish_writable(
+                    "publication-token",
+                    Ok(WritableResult {
+                        base_sha: request.head_sha.clone(),
+                        changes: Ok(vec![]),
+                        output: AgentOutput {
+                            text: "Event processed without code changes.".into(),
+                            model: "observed-model".into(),
+                            disposition: Some(golem_runner::AgentDisposition::Completed),
+                        },
+                        timed_out: false,
+                    }),
+                    &OutputGuard::default(),
+                )
+                .await;
+            assert_eq!(published, Ok(Ok(())));
+            assert!(!request.human());
+            let observed = observed.join().unwrap().unwrap();
+            assert_eq!(observed.len(), count);
+            assert!(observed.iter().all(|(line, _)| !line.starts_with("POST ")));
+            let summary = observed.last().unwrap().1["output"]["summary"]
+                .as_str()
+                .unwrap();
+            assert!(
+                summary.contains("outcome: no_change") && summary.contains("model: observed-model")
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn event_comment_owner_fallback_validates_actor_membership_separately() {
     use base64::Engine as _;
     for payer in ["member", "owner"] {
@@ -1021,13 +1105,13 @@ async fn event_comment_owner_fallback_validates_actor_membership_separately() {
                     json!({"id":123,"full_name":request.repository,"topics":["isp-golem-xiv-test"]}),
                 ),
                 (204, Value::Null),
-                (200, event_comment()),
             ];
             if payer != "member" {
                 responses.push((member_status, Value::Null));
             }
             if member_status == 204 {
                 responses.extend([
+                    (200, event_comment()),
                     (200, json!({"head_sha":request.head_sha,"name":"golem/hello","app":{"id":golem_runner::APP_ID}})),
                     (200, json!({"type":"file","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode("---\nowner: owner\ntriggers: [issue_comment.created]\ntimeout: 1m\n---\nAnswer comment\n")})),
                 ]);
@@ -1040,7 +1124,7 @@ async fn event_comment_owner_fallback_validates_actor_membership_separately() {
             let observed = observed.join().unwrap().unwrap();
             assert!(observed[1].0.contains(&format!("/members/{payer} ")));
             if payer != "member" {
-                assert!(observed[3].0.contains("/members/member "));
+                assert!(observed[2].0.contains("/members/member "));
             }
             assert!(!request.human());
         }
