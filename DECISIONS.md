@@ -3,6 +3,25 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-05: Event context, delegated commits, separate feedback authority
+
+- Unchanged Slice 2 acceptance failed changer and echo while protected-path, serial, stop and issue-opened no-change passed.
+  Historical request inspection confirmed changer instructions preserved but echo's triggering comment body absent.
+  Both runs reported validated typed blocked with observed model and all lifecycle phases; no startup/schema/publication failure is inferred from that terminal path.
+- Candidate event preparation copies signed comment text into existing bounded instructions without truncation; event task text remains untrusted, not authority to bypass runner restrictions.
+  Native feedback eligibility stays separate from `human()` authorization and payer rules.
+  Human event-comment feedback requires API-bound comment ID, actor, issue and User type; owner fallback validates actor membership independently, bots and absent issue/comment context remain silent.
+- Writable prompt explicitly delegates commits/push/PR creation to trusted host after verification.
+  This addresses a plausible changer conflict; its model's actual refusal reasoning was not retained, so behavioral resolution requires the unchanged task on the candidate.
+- A comment lookup may fail after initial successful validation.
+  Candidate attempts a blocked check retaining the observed model, prohibits change publication and does not release ownership while feedback validation remains uncertain.
+  Regression exercises initial success followed by lookup failures through the destruction-guard callback; it is a unit boundary, not real Docker/coordinator proof.
+- Duplicate queued echo check with the same delivery is a separate unresolved creation/journal gap.
+  It does not establish duplicate execution; preserve identities, no deletion/reset/manual terminalization.
+- Local full CI twice reset the Windows Miniflare connection at unchanged oversized-body fixture before event context tests.
+  The same built modules and all four unmodified runtime harness stages subsequently passed once without rebuilding; hashes remained equal.
+  This is diagnostic timing evidence, not full-CI success or proof of exclusive Windows scope; no bounds, assertions, test selection or timeouts changed.
+
 ## 2026-11-04: Protected-path refusal needs an explicit disposition
 
 - Retained reproduction on native v3 produced replied/success for a correctly refused protected-path request.

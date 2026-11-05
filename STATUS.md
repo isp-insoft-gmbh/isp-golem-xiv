@@ -2,7 +2,7 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `docs/v4-live-proof`; native v4 three-case proof passed, unchanged full Slice 2 rerun failed exit 1; context/delegation diagnosis below.
+- **Current branch:** `fix/event-context-delegation`; unmerged context/delegation candidate, native v4 still deployed; unchanged full Slice 2 remains failed.
 - **Deployed Worker:** PR #13 commit `976a4fd900336006a1293b2818c7aa2ebe8c056b`; exact-head CI `42019226208` on `59e3243`, trunk CI `42020372496` and deployment `42020372451` succeeded.
   Separately verified live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
   Prior journal/discovery corrections remain included.
@@ -116,7 +116,16 @@
   Read-only historical request inspection confirms changer mention suffix preserved, echo comment body omitted despite valid comment identity.
   Source inspection confirms event-comment answers are suppressed by mention-only feedback gating; writable prompt does not explicitly delegate commits to the host.
   Changer commit-delegation explanation remains a hypothesis, not recovered model reasoning; host discarded its structured refusal message.
-- **Next step:** narrowly correct authenticated event context and event-comment feedback while preserving human authorization semantics; clarify host commit delegation, test unchanged task semantics and protected guards before rollout.
+- **Candidate implementation:** signed event comment bytes preserved within existing dispatch bounds; writable prompt delegates commits/publication to host.
+  Event-comment feedback validates API-bound actor/comment/issue/User type without changing `human()` authorization; bot, schedule and absent issue/comment contexts remain silent, owner fallback separately validates actor membership.
+  Late lookup failure after initial successful validation attempts blocked check with observed model, no change publication, retained completion boundary; regression is unit-level, not real coordinator proof.
+  Independent formatting, Clippy and Rust tests passed: native 63 passed/2 ignored, router 15 passed.
+  Ignored provider integration adds unchanged changer-style commit-request case while retaining both previous control oracles; provider/live behavior is unrun.
+  Windows full CI failed twice and latest Worker task failed at unchanged oversized-body assertion due Miniflare/Undici ECONNRESET before HTTP status; retain these failures, no guard/assertion/timeout changes.
+  Fixed-artifact diagnostic previously passed all four runtime stages without rebuilding and with unchanged artifact/harness hashes; this does not establish full CI or resolve Windows transport.
+  Latest explicit `git diff --check` and format check passed after the interrupted batch.
+- **Next step:** publish candidate through normal PR and require complete canonical Linux CI, including full Worker suite and unchanged oversized-body assertion; no further Windows retry.
+  Then actual provider changer-style control and live previously failing cases must prove behavior before any fixed/completion claim.
   No acceptance rerun or additional provider case has been dispatched following this failure.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
