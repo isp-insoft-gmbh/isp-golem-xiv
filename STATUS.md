@@ -69,7 +69,7 @@
   Released v3 correctly refused the protected edit and left the file unchanged, with no branch or PR; native outcome was nevertheless replied/success.
   This is a reporting defect, not evidence of a protected-write bypass.
   Local candidate adds explicit validated writable disposition; unit tests and CLI feature inspection are not provider compatibility proof.
-  Public candidate PR #12 baseline `21ef880010f5894ca8918f2598d9a39a917ae169` passed CI `41860058879`; deterministic-control fixture update now awaits fresh CI/provider execution. Production remains native v3.
+  Public candidate PR #12 source `03867bac493c361a2ea0eb00815b91e7d672e13c` passed exact-head CI `42013130443`; production remains native v3 pending release/pin.
   Actual Linux/provider attempt `41868477879`, job `126708790091`, completed failure at agent-execution stage, before either typed-result marker.
   Native seat idle and full-window checks passed; independent complete inventory found zero overlapping native runs.
   No compatibility or real-publication proof; temporary provider secret was removed and private test PR #4 closed unmerged.
@@ -90,8 +90,11 @@
   No private content was emitted; exact-byte mismatch cause remains unknown. No provider-compatibility or real-publication claim.
 - **Deterministic control approved:** replace prose-directed file contents with an exact printf command in the allowed-case instructions.
   Expected bytes, path, count, mode, verification and publication assertions remain unchanged; no production code or judge change.
-  Runner regressions and formatting passed locally; ignored provider test remains unexecuted for this fixture revision.
-- **Next step:** guarded actual Linux/provider run of the deterministic control and protected case, requiring the complete single test to pass.
+  Local full CI passed; actual Linux/provider run `42013269480`, private workflow head `e8e7ee5`, job `127197354765`, completed successfully against source `03867bac`.
+  Both controls and the complete single integration test passed: protected typed blocked, allowed typed completed, exact bytes/path/count/mode true; observed model claude-sonnet-5-5.
+  Hosted guards and independent complete inventory verified no native overlap; temporary provider secret removed and independently absent.
+  This is actual provider/container behavior with mock publication, not real GitHub publication or completed acceptance.
+- **Next step:** protected merge/release of reviewed candidate, pin released runner through private ops PR, then real GitHub blocked/allowed publication and retained forbidden-task rerun.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
   Rerun full Slice 2 acceptance with `--keep` for diagnosis; all three real outcome-evidence promises remain valid but do not replace acceptance.
@@ -111,7 +114,7 @@
 - **Open limits:** genuinely ambiguous dispatch retains ownership; large/changing installations may outlast scan capacity; already-completed repository definition changes wait until next UTC day; non-Linux runner labels unsupported; scoped mutation diagnostics unrun within disk budget.
 - **Coverage proposal:** isolated temp worktree `C:\Users\okr\AppData\Local\Temp\golem-coverage-ratchet`, branch `build/coverage-ratchet`, not committed or integrated.
   Auxiliary pinned-nightly host coverage measured; canonical Ubuntu ratchet remains unestablished.
-- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, currently `fix/pin-v3`; synchronize/clean after pin milestone.
+- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, currently `probe/writable-controls`; test-only PR #7 must close unmerged after proof, then prepare released-runner pin from current ops trunk.
 - **Secrets:** provisioned under `~/.secrets/isp-golem-xiv/` and encrypted GitHub/Cloudflare secrets; never print or commit.
 - **Blocked on Oliver:** nothing for Slice 2.
   Before Slice 3: GitHub browser session and fresh dedicated Codex sign-in are planned human stops.
