@@ -6,14 +6,18 @@ const delivery = 'f37f6672-d908-4ffa-6488-c011eb2f94c7';
 const generation = '3bdb4eb1-d440-4262-80ef-387193452211';
 const input = {delivery, run: 41774622060, apply: false};
 const tagSHA = '7'.repeat(40), fileSHA = '8'.repeat(40), head = '9'.repeat(40);
-// Historical repair stays pinned to v2 even when the current runner pin advances.
-const workflow = Buffer.from((await readFile(new URL('../ops/runner.yml', import.meta.url))).toString('utf8').replace(
+// Reconstruct historical bytes as the live pin advances; exact digests still gate both profiles.
+const currentWorkflow = await readFile(new URL('../ops/runner.yml', import.meta.url));
+const workflowV3 = Buffer.from(currentWorkflow.toString('utf8').replace(
+  /(RUNNER_RELEASE_URL: https:\/\/github\.com\/isp-insoft-gmbh\/isp-golem-xiv\/releases\/download\/)v[0-9]+(?=\n)/,
+  '$1v3',
+));
+assert.equal(digest(workflowV3), 'b6dde8ad547a36bf97ffb97e55fc6bd72a2380fbbf10ab01ef461c3e3d8a95ea');
+const workflow = Buffer.from(workflowV3.toString('utf8').replace(
   'RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v3\n',
   'RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v2\n',
 ));
 assert.equal(digest(workflow), WORKFLOW_SHA256);
-const workflowV3 = await readFile(new URL('../ops/runner.yml', import.meta.url));
-assert.equal(digest(workflowV3), 'b6dde8ad547a36bf97ffb97e55fc6bd72a2380fbbf10ab01ef461c3e3d8a95ea');
 const coordinator = await readFile(new URL('../router/src/coordinator.js', import.meta.url));
 assert.equal(digest(coordinator), COORDINATOR_SHA256);
 function provenance() {

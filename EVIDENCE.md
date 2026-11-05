@@ -84,3 +84,14 @@ Temporary provider-secret removal exited 0, independently verified absent afterw
 Private response content and file contents are not included here.
 This proves the tested protocol/container/provider combination with mock publication, not real GitHub publication, deployed refusal classification, or full Slice 2 acceptance.
 Earlier prose-directed controls failed exact-byte comparison; their actual differing bytes remain undisclosed and unknown.
+
+## Released v4 artifact verification
+
+[Release workflow 42016735005](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/42016735005) completed successfully for annotated v4 tag `9181164f3245f8f9e356e8cc9ab78e4513de255c`, commit `d8af87cffa10081e3f120c60ef49e32dce6372f8`.
+All seven workflow-declared assets were downloaded into OS temp space and matched GitHub-reported SHA-256 digests and sizes.
+The three aggregate checksum entries and standalone native checksum sidecar matched; native tar member equaled standalone binary, and both license assets matched committed source bytes.
+Native asset ID `713144087`, SHA-256 `a8ae74bcbe33f0b3b95341c9231a0b8d88d915d685bbcbd77d0e7183997a7b92`; release ID `435105666`.
+Verification scratch was removed.
+Separately, trunk CI `42015764396` and deployment `42015764736` succeeded, and live health/source digest verified commit `d8af87c` with unchanged reviewed Coordinator digest.
+GitHub reports immutable=false for the release container; this is trusted metadata/checksum verification, not independent build attestation or an immutable-container guarantee.
+Real GitHub native-v4 publication and full Slice 2 acceptance remain unverified.
