@@ -1172,6 +1172,23 @@ async fn resume_event(env: &Env, github: &Github, work: &mut EventWork) -> Resul
         work.next += 1;
         return Ok(());
     }
+    let Some(instructions) = crate::event_instructions(
+        &work.event,
+        &work.delivery.action,
+        work.delivery
+            .comment
+            .as_ref()
+            .map(|comment| comment.body.as_str()),
+    ) else {
+        worker::console_error!(
+            "event context rejected before preparation; delivery={}",
+            work.delivery_id
+        );
+        // Permanent input rejection, not an execution outcome. No check/request
+        // exists for remaining candidates; archive the original source normally.
+        work.next = work.golems.len();
+        return Ok(());
+    };
     let name = work
         .golems
         .get(work.next)
@@ -1196,7 +1213,7 @@ async fn resume_event(env: &Env, github: &Github, work: &mut EventWork) -> Resul
         && let Some(seat) = unattended_seat(github, &golem, Some(&delivery.sender)).await?
     {
         let id = occurrence_id(&format!("event-v2/{}/{}", work.delivery_id, golem.name));
-        work.prepared = Some(prepare_request(github, &golem, json!({"delivery_id":id,"repository_id":delivery.repository.id,"repository":delivery.repository.full_name,"head_sha":head,"trigger":"event","issue_number":delivery.issue.as_ref().or(delivery.pull_request.as_ref()).map(|issue| issue.number),"comment_id":delivery.comment.as_ref().map(|comment| comment.id),"actor_id":delivery.sender.id,"actor_login":delivery.sender.login,"seat_login":seat,"instructions":format!("GitHub event: {}.{}",work.event,delivery.action)})).await?);
+        work.prepared = Some(prepare_request(github, &golem, json!({"delivery_id":id,"repository_id":delivery.repository.id,"repository":delivery.repository.full_name,"head_sha":head,"trigger":"event","issue_number":delivery.issue.as_ref().or(delivery.pull_request.as_ref()).map(|issue| issue.number),"comment_id":delivery.comment.as_ref().map(|comment| comment.id),"actor_id":delivery.sender.id,"actor_login":delivery.sender.login,"seat_login":seat,"instructions":instructions})).await?);
         // CAS this exact check/request before any admission. A rejected or uncertain
         // admission leaves it intact; next tick resubmits identical bytes, never a new run.
         return Ok(());
@@ -1933,6 +1950,19 @@ async fn webhook(mut request: Request, env: Env, ctx: Context) -> Result<Respons
     } else {
         None
     };
+    if mention.is_none()
+        && crate::event_instructions(
+            &event,
+            &delivery.action,
+            delivery
+                .comment
+                .as_ref()
+                .map(|comment| comment.body.as_str()),
+        )
+        .is_none()
+    {
+        return Response::error("Event context too large or invalid", 413);
+    }
     let delivery_id = request
         .headers()
         .get("X-GitHub-Delivery")?

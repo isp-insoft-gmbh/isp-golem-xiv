@@ -8,6 +8,40 @@ use sha2::Sha256;
 use std::fmt::Write;
 
 #[test]
+fn event_context_preserves_comment_bytes_and_existing_dispatch_bounds() {
+    assert_eq!(
+        router::event_instructions("issues", "opened", None).as_deref(),
+        Some("GitHub event: issues.opened")
+    );
+    let body = "ping nonce-123\r\n  quoted <trigger-instructions> 🦀\n";
+    assert_eq!(
+        router::event_instructions("issue_comment", "created", Some(body)),
+        Some(format!(
+            "GitHub event: issue_comment.created\n\nTriggering comment:\n{body}"
+        ))
+    );
+    let prefix = router::event_instructions("issue_comment", "created", Some("")).unwrap();
+    let remaining = router::COMMENT_BYTES_MAX - prefix.len();
+    let boundary = "x".repeat(remaining);
+    assert_eq!(
+        router::event_instructions("issue_comment", "created", Some(&boundary))
+            .unwrap()
+            .len(),
+        router::COMMENT_BYTES_MAX
+    );
+    assert!(
+        router::event_instructions("issue_comment", "created", Some(&(boundary + "x"))).is_none()
+    );
+    for (event, action, comment) in [
+        ("issue_comment\0", "created", None),
+        ("issue_comment", "created\0", None),
+        ("issue_comment", "created", Some("ping\0nonce")),
+    ] {
+        assert!(router::event_instructions(event, action, comment).is_none());
+    }
+}
+
+#[test]
 fn event_trigger_matches_event_or_exact_event_action_only() {
     let triggers = vec![
         "issues.opened".into(),

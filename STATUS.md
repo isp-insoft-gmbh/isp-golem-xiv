@@ -2,17 +2,18 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/pin-v4`; native v4 release verified, private runtime pin pending, full Slice 2 acceptance still failed.
-- **Deployed Worker:** PR #12 commit `d8af87cffa10081e3f120c60ef49e32dce6372f8`; exact-head CI `42014389168` on `807b843`, trunk CI `42015764396` and deployment `42015764736` succeeded.
-  Live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
+- **Current branch:** `fix/event-context-delegation`; unmerged context/delegation candidate, native v4 still deployed; unchanged full Slice 2 remains failed.
+- **Deployed Worker:** PR #13 commit `976a4fd900336006a1293b2818c7aa2ebe8c056b`; exact-head CI `42019226208` on `59e3243`, trunk CI `42020372496` and deployment `42020372451` succeeded.
+  Separately verified live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
   Prior journal/discovery corrections remain included.
 - **Released native source:** PR #12 commit `d8af87cffa10081e3f120c60ef49e32dce6372f8`, release v4 from successful matching release workflow `42016735005`.
   Annotated tag `9181164f3245f8f9e356e8cc9ab78e4513de255c` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.
   Native asset `713144087`, SHA-256 `a8ae74bcbe33f0b3b95341c9231a0b8d88d915d685bbcbd77d0e7183997a7b92`.
   Release container remains mutable; no independent build attestation or immutable-container claim.
-- **Private ops:** PR #3 merged as `8aca09966fff94e36bb757c4566d08aaeae5530d` after exact-head CI on `87e5bff` (`41791328946`).
-  Runtime workflow byte-compared with reviewed local `ops/runner.yml`, now pins released `v3`.
+- **Private ops:** PR #8 merged as `5a4e973a3eb51c5455dc8393e6d59d5f659e51db` after exact-head CI `42019253787` on `a87b1e96c0253d22d052fb7eaafc65084cf455c5`.
+  Runtime workflow byte-compared with reviewed v4 template; SHA-256 `ccfe3bf8efe095418b3b0f03d0ce465c6a50344941d64d88916cc955dc7e3035`.
+  Public template/historical-fixture PR #13 merged as `976a4fd900336006a1293b2818c7aa2ebe8c056b`; trunk CI/deployment succeeded and live identity verified.
   `GOLEM_PROTOCOL_VERSION=2` remains enabled.
 
 ## Verified recoveries
@@ -96,7 +97,57 @@
   Both controls and the complete single integration test passed: protected typed blocked, allowed typed completed, exact bytes/path/count/mode true; observed model claude-sonnet-5-5.
   Hosted guards and independent complete inventory verified no native overlap; temporary provider secret removed and independently absent.
   This is actual provider/container behavior with mock publication, not real GitHub publication or completed acceptance.
-- **Next step:** merge the reviewed released-v4 runtime pin through private ops PR, then real GitHub blocked/allowed publication and retained forbidden-task rerun.
+- **Real GitHub proof passed:** driver `C:\Users\okr\AppData\Local\Temp\isp-golem-live-controls.mjs` runs on sandbox `isp-insoft-gmbh/isp-golem-xiv-test-controls-mw3gyop7-445293cc`, expecting exact private ops commit `5a4e973` and released v4.
+  Protected case verified read-only without redispatch: comment `6656976776`, check `127220936407`, delivery `0de41650-d90d-11f1-81aa-c861ecb10a06`, run `42020289697`, original request tag `ef7781a4b8ba132d05862e85854e7f0b403e1889`.
+  Typed refusal, observed model, all five lifecycle phases, terminal binding, protected-file preservation and absence of branch/PR passed.
+  Initial observer wrongly required an optional reason in check summary; it now verifies the exact native static refusal and App feedback instead, without changing production code or criteria.
+  Continuation `C:\Users\okr\AppData\Local\Temp\isp-golem-continue-v4-controls.mjs` exited 0 with all three verified records; no truncated output.
+  Writer comment `6657267593`, check `127227927227`, delivery `3b17ac20-d90f-11f1-8533-379d53454bf6`, run `42022373569`: exact one-file publication, 16-byte oracle, mode, parent, App-authored PR #2/feedback, phases and terminal binding passed; commit `fe47605bcd87421f16a7da788874de2b2ce992ca`.
+  Retained sneaky comment `6657302443`, check `127228744030`, delivery `7df8cbf0-d90f-11f1-9f95-bb52fa7b23c6`, run `42022613897`: typed refusal, protected content, absence of branch/PR, phases and terminal binding passed; original source/check identities preserved.
+  Actual request branch names independently matched observed branches; all three completed native job windows were non-overlapping.
+- **Acceptance failed:** unchanged full Slice 2 activity `activity-090b5926-3` exited 1; 3455 output bytes, untruncated, after all 18 preflight checks passed.
+  Raw output remains private at `C:\Users\okr\AppData\Local\Temp\golem-slice2-xq6wcl\accept.log`; sanitized gate/error records available in `C:\Users\okr\AppData\Local\rtk\tee\1793883164_mise_exe_0037ff.log`.
+  Forbidden-path, serial, stop, event-trigger and all Slice 1 checks passed.
+  `change-pr`: no PR within unchanged 20m; `continue-branch` blocked by that failure; `no-loop-event`: echo did not reply within unchanged 15m.
+  Retained core/events sandboxes: `isp-insoft-gmbh/isp-golem-xiv-test-core-20261105130008`, `isp-insoft-gmbh/isp-golem-xiv-test-events-20261105130008`.
+  Changer check `127234241422`, delivery `30bed440-d911-11f1-89ac-e59b2587d3ce`, comment `6657535091`, run `42024257200`; validated typed blocked, observed model, all five phases.
+  Echo completed check `127249278530`, delivery `719a6dce-3899-05b1-dfc4-444ba7b15f3d`, comment `6658160790`, run `42028717923`; same typed-blocked/phase evidence.
+  Echo also has queued sibling check `127249296915` with the same delivery; this proves duplicate check creation, not duplicate execution; preserve identities, no manual terminalization.
+  Read-only historical request inspection confirms changer mention suffix preserved, echo comment body omitted despite valid comment identity.
+  Source inspection confirms event-comment answers are suppressed by mention-only feedback gating; writable prompt does not explicitly delegate commits to the host.
+  Changer commit-delegation explanation remains a hypothesis, not recovered model reasoning; host discarded its structured refusal message.
+- **Candidate implementation:** signed event comment bytes preserved within existing dispatch bounds; writable prompt delegates commits/publication to host.
+  Event-comment feedback validates API-bound actor/comment/issue/User type without changing `human()` authorization; bot, schedule and absent issue/comment contexts remain silent, owner fallback separately validates actor membership.
+  Late lookup failure after initial successful validation attempts blocked check with observed model, no change publication, retained completion boundary; regression is unit-level, not real coordinator proof.
+  Independent formatting, Clippy and Rust tests passed: native 63 passed/2 ignored, router 15 passed.
+  Ignored provider integration adds unchanged changer-style commit-request case while retaining both previous control oracles; provider/live behavior is unrun.
+  Windows full CI failed twice and latest Worker task failed at unchanged oversized-body assertion due Miniflare/Undici ECONNRESET before HTTP status; retain these failures, no guard/assertion/timeout changes.
+  Fixed-artifact diagnostic previously passed all four runtime stages without rebuilding and with unchanged artifact/harness hashes; this does not establish full CI or resolve Windows transport.
+  Latest explicit `git diff --check` and format check passed after the interrupted batch.
+- **Canonical Linux CI verified:** public PR #14 exact head `080713783a75e4218806f8e1671a0eb39ec0a1ad`, run `42039276650`, job `127285477751`, required ci green.
+  Every job step succeeded, all four complete Worker-suite markers verified, oversized-body assertion byte-identical to prior trunk, committed diff check passed.
+  This is platform-specific validation; Windows transport remains unresolved, no more Windows retry.
+- **Actual-provider candidate controls passed:** private test-only PR #9 closed unmerged, branch `probe/context-controls`, exact private head `229f2ca3ac154ffa4a073bce45eab61e00707993`, run `42040986651`, job `127291413828`.
+  Public source pinned to `0807137`, unmodified test SHA-256 `b304179a8ae0487ea876213099b0b31c19973392b8c3a358abb28ef9a1bc4c75`.
+  Observer `C:\Users\okr\AppData\Local\Temp\isp-golem-watch-context-controls.mjs`, activity `activity-090b5926-4`, exited 0 with full untruncated output.
+  verifiedActualProviderCases=true, exactly one selected/passed integration test, protected blocked, allowed/changer completed, model claude-sonnet-5-5.
+  All original exact-change/mock-publication assertions passed; both hosted inventories one page/zero active, independent native window and active inventories empty.
+  Temporary secret removal exited 0, temporarySecretAbsenceVerified=true; parent independently rechecked absence before closing private PR #9.
+  This is actual Linux/provider execution with mock publication; real GitHub behavior remains unproven for this candidate.
+- **Merge blocked, no bypass/release:** final docs head `05a2dc9f5a4423cc3201758d24a6b9df2fd07c40` passed exact-head CI `42043789832`, but two unresolved valid review threads prohibited merge.
+  `PRRT_kwDOVhkLbc60GFOc`: complete event context could exceed its bound only after durable journaling, stranding event work/index capacity.
+  `PRRT_kwDOVhkLbc60GFOh`: missing deleted comments or different-author edits incorrectly blocked event execution during feedback validation.
+- **Review follow-up candidate:** complete non-mention event context now rejects before durable work; old invalid unprepared work follows normal source-archive retirement without a check/admission or fabricated native outcome.
+  Known comment 404 or valid other-author destination disables feedback without denying authorized event execution; unknown HTTP errors and malformed ID/issue/type remain fail-closed.
+  Actor membership validation remains separate from destination eligibility; mention authorization and payer semantics unchanged.
+  Added Worker fixtures for zero-side-effect oversized-context rejection and old-work retirement, plus native deletion/edit/owner-fallback regressions.
+  Local formatting, Clippy, diff check and Rust tests passed: native 64 passed/2 ignored, router 15 passed; no Windows Worker retry.
+  Linux follow-up `17f5c3b` CI `42047850669` failed in new fixture setup: it incorrectly read a retired source ref instead of its done receipt.
+  The new pre-journal rejection assertions passed before that setup failure; old-work retirement assertions had not run, no thread resolved.
+  Fixture now reads immutable source through the done receipt and waits for previous work retirement before its side-effect snapshot; new exact-head Linux CI still required.
+  Prior Linux/provider proof remains scoped to its recorded old source; new follow-up does not establish live behavior.
+- **Next step:** publish follow-up through existing PR #14, inspect complete Linux Worker suite and required checks on the exact new head, then address/resolve review threads with evidence.
+  Protected merge/release, reviewed runtime pin, real previously failing changer/continuation/echo and unchanged full Slice 2 acceptance remain unfinished.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
@@ -117,7 +168,7 @@
 - **Open limits:** genuinely ambiguous dispatch retains ownership; large/changing installations may outlast scan capacity; already-completed repository definition changes wait until next UTC day; non-Linux runner labels unsupported; scoped mutation diagnostics unrun within disk budget.
 - **Coverage proposal:** isolated temp worktree `C:\Users\okr\AppData\Local\Temp\golem-coverage-ratchet`, branch `build/coverage-ratchet`, not committed or integrated.
   Auxiliary pinned-nightly host coverage measured; canonical Ubuntu ratchet remains unestablished.
-- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`; test-only PR #7 closed unmerged, prepare released-v4 pin from current ops trunk.
+- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, branch `probe/context-controls`; test-only PR #9 closed unmerged, production pin remains PR #8/v4.
 - **Secrets:** provisioned under `~/.secrets/isp-golem-xiv/` and encrypted GitHub/Cloudflare secrets; never print or commit.
 - **Blocked on Oliver:** nothing for Slice 2.
   Before Slice 3: GitHub browser session and fresh dedicated Codex sign-in are planned human stops.

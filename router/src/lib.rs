@@ -98,6 +98,23 @@ pub fn parse_mention(body: &str) -> Option<Mention<'_>> {
     })
 }
 
+/// Preserve signed event context as untrusted task data within dispatch bounds.
+#[must_use]
+pub fn event_instructions(event: &str, action: &str, comment: Option<&str>) -> Option<String> {
+    if [event, action, comment.unwrap_or_default()]
+        .iter()
+        .any(|text| text.len() > COMMENT_BYTES_MAX || text.contains('\0'))
+    {
+        return None;
+    }
+    let mut instructions = format!("GitHub event: {event}.{action}");
+    if let Some(body) = comment {
+        instructions.push_str("\n\nTriggering comment:\n");
+        instructions.push_str(body);
+    }
+    (instructions.len() <= COMMENT_BYTES_MAX).then_some(instructions)
+}
+
 #[must_use]
 pub fn verify_signature(secret: &[u8], signature: &str, body: &[u8]) -> bool {
     let Some(hex) = signature.strip_prefix("sha256=") else {

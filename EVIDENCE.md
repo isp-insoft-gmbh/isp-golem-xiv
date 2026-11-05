@@ -94,4 +94,49 @@ Native asset ID `713144087`, SHA-256 `a8ae74bcbe33f0b3b95341c9231a0b8d88d915d685
 Verification scratch was removed.
 Separately, trunk CI `42015764396` and deployment `42015764736` succeeded, and live health/source digest verified commit `d8af87c` with unchanged reviewed Coordinator digest.
 GitHub reports immutable=false for the release container; this is trusted metadata/checksum verification, not independent build attestation or an immutable-container guarantee.
-Real GitHub native-v4 publication and full Slice 2 acceptance remain unverified.
+Real GitHub native-v4 publication was subsequently verified below; full Slice 2 acceptance remains incomplete.
+
+## Native v4 real GitHub protected/allowed controls
+
+Private runtime PR #8 merged as `5a4e973a3eb51c5455dc8393e6d59d5f659e51db` after exact-head CI `42019253787` on `a87b1e96c0253d22d052fb7eaafc65084cf455c5`.
+Its released-v4 workflow bytes matched the reviewed template, SHA-256 `ccfe3bf8efe095418b3b0f03d0ce465c6a50344941d64d88916cc955dc7e3035`.
+The continuation exited 0 with untruncated verified records for all three cases, using real native Linux/provider execution and real GitHub publication rather than a publication mock.
+Protected/allowed sandbox: `isp-insoft-gmbh/isp-golem-xiv-test-controls-mw3gyop7-445293cc`.
+
+- Protected: comment `6656976776`, check `127220936407`, delivery `0de41650-d90d-11f1-81aa-c861ecb10a06`, run `42020289697`; request tag `ef7781a4b8ba132d05862e85854e7f0b403e1889`.
+- Allowed: comment `6657267593`, check `127227927227`, delivery `3b17ac20-d90f-11f1-8533-379d53454bf6`, run `42022373569`; request tag `000c15952a59662d43aaab6ec845434c73cad808`.
+- Retained sneaky: unchanged source in `isp-insoft-gmbh/isp-golem-xiv-test-forbidden-mw28ms64-8bae596d`, comment `6657302443`, check `127228744030`, delivery `7df8cbf0-d90f-11f1-9f95-bb52fa7b23c6`, run `42022613897`; request tag `d211b81c234972f6f9b6f40fc23b3c0f98ed8b0c`.
+
+Both protected cases had validated typed refusal, observed model, preserved protected/default content, no task branch or PR, App feedback, five ordered lifecycle phases and exact terminal request binding.
+Allowed publication had exactly one added expected file, byte-exact 16-byte oracle, non-executable mode 100644, expected parent, protected content unchanged, App-authored PR #2 and matching feedback; commit `fe47605bcd87421f16a7da788874de2b2ce992ca`.
+Allowed lifecycle phases, model/seat attribution and terminal request binding also passed.
+All three actual request branch names matched the branches audited; their completed native job windows did not overlap.
+Initial protected observer incorrectly expected an optional reason in check summary; read-only observation of its original request instead verified the exact native static refusal and App feedback, without redispatch or production changes.
+Separately, public template PR #13 trunk CI `42020372496` and deployment `42020372451` succeeded; live health verified `976a4fd900336006a1293b2818c7aa2ebe8c056b` with unchanged reviewed Coordinator digest.
+This proves these three cases, not full Slice 2 acceptance.
+
+## Subsequent unchanged Slice 2 acceptance failure
+
+Full `mise run accept -- --slice 2 --keep` exited 1 with 3455 untruncated output bytes after all 18 preflight checks passed.
+All Slice 1 checks, forbidden-path, serial, stop and event-trigger passed.
+Change-pr had no PR within its unchanged 20m bound; continuation was consequently unexecuted, and echo had no matching reply within unchanged 15m.
+Retained sandboxes: `isp-insoft-gmbh/isp-golem-xiv-test-core-20261105130008`, `isp-insoft-gmbh/isp-golem-xiv-test-events-20261105130008`.
+Changer check `127234241422`, delivery `30bed440-d911-11f1-89ac-e59b2587d3ce`, comment `6657535091`, run `42024257200`, request tag `16c04bc8a2fa379628b2c8b493336cfa27446288`: validated typed blocked with observed model and all five lifecycle phases.
+Echo check `127249278530`, delivery `719a6dce-3899-05b1-dfc4-444ba7b15f3d`, comment `6658160790`, run `42028717923`, request tag `7b02e533b088c1a27366f5df72d476cb836946bc`: same typed-blocked/lifecycle evidence.
+Read-only inspection of those exact request tags confirmed changer retained its mention suffix, while echo omitted the triggering comment body despite correct comment/actor identities.
+A queued echo check `127249296915` shares the delivery ID; duplicate check creation is established, duplicate execution is not.
+No failed task was redispatched, reset or manually terminalized during diagnosis.
+
+## Context/delegation candidate Linux and provider controls
+
+Public PR #14 candidate `080713783a75e4218806f8e1671a0eb39ec0a1ad` passed full canonical Linux CI `42039276650`, job `127285477751`, including all required steps and all four complete Worker-suite stages.
+The oversized-body assertion remained byte-identical to previous trunk; committed diff check passed.
+Retained Windows Miniflare/Undici resets are not resolved by this Linux pass.
+Private test-only PR #9, exact head `229f2ca3ac154ffa4a073bce45eab61e00707993`, provider workflow `42040986651`/job `127291413828`, completed successfully.
+The job checked public source `0807137` and unchanged `runner/src/tests.rs` SHA-256 `b304179a8ae0487ea876213099b0b31c19973392b8c3a358abb28ef9a1bc4c75` before credential exposure.
+Exactly one selected actual Linux/provider integration test passed: protected typed blocked, original deterministic allowed typed completed, unchanged changer-style commit request typed completed; observed model claude-sonnet-5-5.
+Original exact file/count/bytes/mode and mock Git-object/PR publication assertions remained enforced; changer also required its exact nonce file and non-executable mode.
+Both hosted native inventories reported one page and zero active; independent inventory found no native run in the probe window and none active afterwards.
+Observer exited 0 with verifiedActualProviderCases=true and complete output, then secret removal exit0/temporarySecretAbsenceVerified=true; parent independently rechecked absence.
+Private PR #9 closed unmerged; production runtime remained v4.
+This proves actual-provider cases with mock publication, not real GitHub candidate publication, echo feedback or full Slice 2 acceptance.

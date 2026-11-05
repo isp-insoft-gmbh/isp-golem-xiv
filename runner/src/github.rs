@@ -180,6 +180,16 @@ impl Github {
         self.member(&request.seat_login, token).await?;
         if request.human() {
             self.validate_human(request, token).await?;
+        } else if request.trigger.as_deref() == Some("event") {
+            if let Some(actor) = request.actor_login.as_deref()
+                && router::valid_login(actor)
+                && !actor.eq_ignore_ascii_case(&request.seat_login)
+            {
+                self.member(actor, token).await?;
+            }
+            // A known absent/different-author destination suppresses feedback,
+            // not otherwise authorized event execution. Unknown API failures stop.
+            self.feedback_eligible(request, token).await?;
         }
         let check = self
             .json(
@@ -238,17 +248,48 @@ impl Github {
             return Err("human seat mismatch");
         }
         // The seat membership check already covers the actor when both identities coincide.
+        self.trigger_comment(request, token).await?;
+        Ok(())
+    }
+
+    async fn read_trigger_comment(
+        &self,
+        request: &DispatchV1,
+        token: &str,
+    ) -> Result<Option<Value>> {
         let comment_id = request.comment_id.ok_or("missing comment identity")?;
-        let issue = request.issue_number.ok_or("missing issue identity")?;
-        let comment = self
-            .json(
+        let response = self
+            .call(
                 Method::GET,
                 &format!("/repos/{}/issues/comments/{comment_id}", request.repository),
                 token,
                 None,
             )
             .await?;
-        if comment.pointer("/user/id").and_then(Value::as_u64) != request.actor_id
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            return Err("GitHub rejected request");
+        }
+        let bytes = bounded_body(response, RESPONSE_BYTES_MAX).await?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|_| "invalid GitHub response")
+    }
+
+    async fn trigger_comment(&self, request: &DispatchV1, token: &str) -> Result<Value> {
+        let actor = request
+            .actor_login
+            .as_deref()
+            .ok_or("missing actor login")?;
+        let actor_id = request.actor_id.ok_or("missing actor identity")?;
+        let issue = request.issue_number.ok_or("missing issue identity")?;
+        let comment = self
+            .read_trigger_comment(request, token)
+            .await?
+            .ok_or("missing trigger comment")?;
+        if comment.pointer("/user/id").and_then(Value::as_u64) != Some(actor_id)
             || !comment
                 .pointer("/user/login")
                 .and_then(Value::as_str)
@@ -258,7 +299,52 @@ impl Github {
         {
             return Err("trigger identity mismatch");
         }
-        Ok(())
+        Ok(comment)
+    }
+
+    // Feedback is separate from human()'s mention authorization and seat semantics.
+    // Target validation establishes membership with the read token; publication
+    // rechecks the original comment with its issues-scoped token before answering.
+    pub async fn feedback_eligible(&self, request: &DispatchV1, token: &str) -> Result<bool> {
+        if request.human() {
+            return Ok(true);
+        }
+        if request.trigger.as_deref() != Some("event")
+            || request.comment_id.is_none()
+            || request.issue_number.is_none()
+        {
+            return Ok(false);
+        }
+        let actor = request
+            .actor_login
+            .as_deref()
+            .ok_or("missing actor login")?;
+        let Some(comment) = self.read_trigger_comment(request, token).await? else {
+            return Ok(false);
+        };
+        let issue = request.issue_number.ok_or("missing issue identity")?;
+        if comment.get("id").and_then(Value::as_u64) != request.comment_id
+            || comment.get("issue_url").and_then(Value::as_str)
+                != Some(format!("{API}/repos/{}/issues/{issue}", request.repository).as_str())
+        {
+            return Err("trigger identity mismatch");
+        }
+        let author = comment
+            .pointer("/user/login")
+            .and_then(Value::as_str)
+            .ok_or("invalid comment author")?;
+        let author_id = comment
+            .pointer("/user/id")
+            .and_then(Value::as_u64)
+            .filter(|id| *id > 0)
+            .ok_or("invalid comment author")?;
+        match comment.pointer("/user/type").and_then(Value::as_str) {
+            Some("User") if router::valid_login(author) => Ok(Some(author_id) == request.actor_id
+                && author.eq_ignore_ascii_case(actor)
+                && !actor.ends_with("[bot]")),
+            Some("Bot") => Ok(false),
+            _ => Err("unknown comment actor type"),
+        }
     }
 
     fn ownership_marker(request: &DispatchV1) -> String {
