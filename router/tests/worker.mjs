@@ -469,6 +469,7 @@ try {
   assert.equal(state.queue.filter(req => req.delivery_id === mentionDeliveryId).length,1,'restarted mention admits exactly once');
   files.clear();
   files.set('echo.md','---\ntriggers: [issue_comment.created]\nowner: member\n---\nQuote the triggering comment.');
+  await eventually(() => !state.documents.has(mentionPath) && !state.refs.has(`refs/tags/golem-event/${mentionDeliveryId}`),'previous mention fully retires before side-effect snapshot');
   const apiBeforeContextRejection = state.calls;
   const refsBeforeContextRejection = state.refs.size;
   const documentsBeforeContextRejection = state.documents.size;
@@ -494,7 +495,7 @@ try {
   // Simulate valid unprepared work persisted by an older producer before the
   // complete-context bound existed. It must retire, not poison every later tick.
   const oldEventId = deliveryId('old-unprepared-oversized-context');
-  const originalSource = state.tags.get(state.refs.get(`refs/tags/golem-event/${normalEventId}`));
+  const originalSource = state.tags.get(state.refs.get(`refs/tags/golem-event-done/${normalEventId}`));
   const oldWork = JSON.parse(originalSource.message);
   oldWork.delivery_id = oldEventId;
   oldWork.delivery.comment.body = 'x'.repeat(16384);

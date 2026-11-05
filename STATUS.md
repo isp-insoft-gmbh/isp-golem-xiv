@@ -142,7 +142,10 @@
   Actor membership validation remains separate from destination eligibility; mention authorization and payer semantics unchanged.
   Added Worker fixtures for zero-side-effect oversized-context rejection and old-work retirement, plus native deletion/edit/owner-fallback regressions.
   Local formatting, Clippy, diff check and Rust tests passed: native 64 passed/2 ignored, router 15 passed; no Windows Worker retry.
-  Prior Linux/provider proof remains scoped to its recorded old source; new follow-up requires canonical Linux CI and does not establish live behavior.
+  Linux follow-up `17f5c3b` CI `42047850669` failed in new fixture setup: it incorrectly read a retired source ref instead of its done receipt.
+  The new pre-journal rejection assertions passed before that setup failure; old-work retirement assertions had not run, no thread resolved.
+  Fixture now reads immutable source through the done receipt and waits for previous work retirement before its side-effect snapshot; new exact-head Linux CI still required.
+  Prior Linux/provider proof remains scoped to its recorded old source; new follow-up does not establish live behavior.
 - **Next step:** publish follow-up through existing PR #14, inspect complete Linux Worker suite and required checks on the exact new head, then address/resolve review threads with evidence.
   Protected merge/release, reviewed runtime pin, real previously failing changer/continuation/echo and unchanged full Slice 2 acceptance remain unfinished.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
