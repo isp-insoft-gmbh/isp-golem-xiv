@@ -17,6 +17,10 @@ Each entry: date, decision, reason, and evidence where it exists.
   Actual Linux/provider controls must show both protected refusal and allowed work before production rollout; fail-closed behavior alone could hide incompatibility.
   A dedicated opt-in test uses actual containers/provider with generic fixtures, then asserts mock publication payloads.
   Real GitHub publication, retained-scenario rerun and unchanged full acceptance remain separate required proofs.
+- The protected case later passed against the actual provider, while allowed work reported completed with correct count/path/mode but wrong exact bytes.
+  No private contents were disclosed; the exact content mismatch remains unknown.
+  Oliver approved a deterministic printf command as the control's artifact producer rather than prose-directed punctuation.
+  Only control instructions change; byte assertions, verification, protection and publication criteria remain intact, with no judge or production-code change.
 - Review found duplicate timeout terminal records, lost model attribution after validation failure, and incomplete positive-control payload assertions; candidate corrections address each.
   Fresh full CI passed after one unchanged retry of a Windows Miniflare ECONNRESET failure.
 

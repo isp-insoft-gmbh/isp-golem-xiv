@@ -69,9 +69,30 @@
   Released v3 correctly refused the protected edit and left the file unchanged, with no branch or PR; native outcome was nevertheless replied/success.
   This is a reporting defect, not evidence of a protected-write bypass.
   Local candidate adds explicit validated writable disposition; unit tests and CLI feature inspection are not provider compatibility proof.
-  Opt-in test exercises actual Linux container/provider with protected request and allowed-change control, then mock publication assertions; it has not run yet.
-  Docker is unavailable locally; execute candidate in a dedicated private GitHub Actions sandbox before production rollout.
-- **Next step:** actual Linux/provider compatibility controls, then released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
+  Public candidate PR #12 baseline `21ef880010f5894ca8918f2598d9a39a917ae169` passed CI `41860058879`; deterministic-control fixture update now awaits fresh CI/provider execution. Production remains native v3.
+  Actual Linux/provider attempt `41868477879`, job `126708790091`, completed failure at agent-execution stage, before either typed-result marker.
+  Native seat idle and full-window checks passed; independent complete inventory found zero overlapping native runs.
+  No compatibility or real-publication proof; temporary provider secret was removed and private test PR #4 closed unmerged.
+  Earlier attempt `41861343748` failed before provider execution because installed gh rejects combined --slurp/--jq; corrected inventory query was validated independently.
+  Credential-free Linux diagnostic `41870956561` / job `126717544133` completed: both baseline and candidate started successfully, then returned expected authentication failures with no credential and network disabled.
+  Candidate initialization included StructuredOutput automatically; no startup flag/tool incompatibility was established.
+  This excludes only pre-auth startup failure, not authenticated/provider behavior; original live failure remains unexplained because nonzero execution streams are discarded.
+  Private ops PR #5 is diagnostic-only and remains outside the production default branch.
+  User approved two additional bounded review calls; diagnostic cleanup finding fixed before execution, with no further production-code changes.
+  Hosted authenticated comparison `42005164648`, head `872f849`, passed both idle guards: pages=1, active=0.
+  Both greeting records had creation/exit zero, no timeout or truncation, successful terminal/model usage, native parser success; schema returned completed. No native overlap; temporary secret removed.
+  This establishes authenticated greeting protocol behavior only, not protected/allowed or publication compatibility.
+  Subsequent unchanged provider controls `42006322710` failed the allowed exact-change assertion after protected case passed.
+  One isolated diagnostic repeat `42008671537`, head `909e522636a49c92342af8377a9ba11c9885ef32`, verified pinned source `21ef880` and original test SHA-256 `d43655e10efd46ac726c13ec763e43a5dbef73a942d764b76f5efa3171feade1`; every original source byte/assertion was retained around the diagnostic insertion.
+  Protected control passed typed blocked, protections and mock-publication checks.
+  Allowed diagnostic: disposition=completed, count_ok=true, path_ok=true, bytes_ok=false, mode_ok=true.
+  Full single test failed; idle/window checks and independent inventory showed no overlap, temporary-secret removal exited 0.
+  No private content was emitted; exact-byte mismatch cause remains unknown. No provider-compatibility or real-publication claim.
+- **Deterministic control approved:** replace prose-directed file contents with an exact printf command in the allowed-case instructions.
+  Expected bytes, path, count, mode, verification and publication assertions remain unchanged; no production code or judge change.
+  Runner regressions and formatting passed locally; ignored provider test remains unexecuted for this fixture revision.
+- **Next step:** guarded actual Linux/provider run of the deterministic control and protected case, requiring the complete single test to pass.
+  Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
   Rerun full Slice 2 acceptance with `--keep` for diagnosis; all three real outcome-evidence promises remain valid but do not replace acceptance.
   Do not promote running processes, local tests or failed-startup cleanup into outcome proof.
@@ -94,5 +115,6 @@
 - **Secrets:** provisioned under `~/.secrets/isp-golem-xiv/` and encrypted GitHub/Cloudflare secrets; never print or commit.
 - **Blocked on Oliver:** nothing for Slice 2.
   Before Slice 3: GitHub browser session and fresh dedicated Codex sign-in are planned human stops.
-- **Judge:** `accept.nu`, `contract.nuon` and configured loop gate unchanged.
-  Overall Slice 4 goal and operator guide remain unfinished.
+- **Judge:** `accept.nu`, `contract.nuon` and configured bare loop gate unchanged.
+  Bare `mise run accept` defaults to Slice 1; its success does not establish the binding project goal.
+  Completion requires explicit `mise run accept -- --slice 4` and operator guide; both remain unfinished.
