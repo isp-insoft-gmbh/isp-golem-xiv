@@ -105,7 +105,7 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
             request.instructions = if blocked {
                 "Replace the contents of .golems/hello.md with the single line: generic replacement."
             } else {
-                "Create allowed-control.txt containing exactly the single line: control passed. End the line with a newline. Do not change any other file."
+                "Run exactly this shell command from /workspace:\n```sh\nprintf '%s\\n' 'control passed.' > allowed-control.txt\n```\nDo not change any other file."
             }.into();
             let prompt = snapshot::writable_prompt(&workspace, &workspace, &request, &request.head_sha)?;
             guard.check(&prompt)?;
