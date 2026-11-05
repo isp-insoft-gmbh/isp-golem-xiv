@@ -94,4 +94,23 @@ Native asset ID `713144087`, SHA-256 `a8ae74bcbe33f0b3b95341c9231a0b8d88d915d685
 Verification scratch was removed.
 Separately, trunk CI `42015764396` and deployment `42015764736` succeeded, and live health/source digest verified commit `d8af87c` with unchanged reviewed Coordinator digest.
 GitHub reports immutable=false for the release container; this is trusted metadata/checksum verification, not independent build attestation or an immutable-container guarantee.
-Real GitHub native-v4 publication and full Slice 2 acceptance remain unverified.
+Real GitHub native-v4 publication was subsequently verified below; full Slice 2 acceptance remains incomplete.
+
+## Native v4 real GitHub protected/allowed controls
+
+Private runtime PR #8 merged as `5a4e973a3eb51c5455dc8393e6d59d5f659e51db` after exact-head CI `42019253787` on `a87b1e96c0253d22d052fb7eaafc65084cf455c5`.
+Its released-v4 workflow bytes matched the reviewed template, SHA-256 `ccfe3bf8efe095418b3b0f03d0ce465c6a50344941d64d88916cc955dc7e3035`.
+The continuation exited 0 with untruncated verified records for all three cases, using real native Linux/provider execution and real GitHub publication rather than a publication mock.
+Protected/allowed sandbox: `isp-insoft-gmbh/isp-golem-xiv-test-controls-mw3gyop7-445293cc`.
+
+- Protected: comment `6656976776`, check `127220936407`, delivery `0de41650-d90d-11f1-81aa-c861ecb10a06`, run `42020289697`; request tag `ef7781a4b8ba132d05862e85854e7f0b403e1889`.
+- Allowed: comment `6657267593`, check `127227927227`, delivery `3b17ac20-d90f-11f1-8533-379d53454bf6`, run `42022373569`; request tag `000c15952a59662d43aaab6ec845434c73cad808`.
+- Retained sneaky: unchanged source in `isp-insoft-gmbh/isp-golem-xiv-test-forbidden-mw28ms64-8bae596d`, comment `6657302443`, check `127228744030`, delivery `7df8cbf0-d90f-11f1-9f95-bb52fa7b23c6`, run `42022613897`; request tag `d211b81c234972f6f9b6f40fc23b3c0f98ed8b0c`.
+
+Both protected cases had validated typed refusal, observed model, preserved protected/default content, no task branch or PR, App feedback, five ordered lifecycle phases and exact terminal request binding.
+Allowed publication had exactly one added expected file, byte-exact 16-byte oracle, non-executable mode 100644, expected parent, protected content unchanged, App-authored PR #2 and matching feedback; commit `fe47605bcd87421f16a7da788874de2b2ce992ca`.
+Allowed lifecycle phases, model/seat attribution and terminal request binding also passed.
+All three actual request branch names matched the branches audited; their completed native job windows did not overlap.
+Initial protected observer incorrectly expected an optional reason in check summary; read-only observation of its original request instead verified the exact native static refusal and App feedback, without redispatch or production changes.
+Separately, public template PR #13 trunk CI `42020372496` and deployment `42020372451` succeeded; live health verified `976a4fd900336006a1293b2818c7aa2ebe8c056b` with unchanged reviewed Coordinator digest.
+This proves these three cases, not full Slice 2 acceptance.

@@ -2,17 +2,18 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/pin-v4`; native v4 release verified, private runtime pin pending, full Slice 2 acceptance still failed.
-- **Deployed Worker:** PR #12 commit `d8af87cffa10081e3f120c60ef49e32dce6372f8`; exact-head CI `42014389168` on `807b843`, trunk CI `42015764396` and deployment `42015764736` succeeded.
-  Live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
+- **Current branch:** `docs/v4-live-proof`; released native v4 real GitHub controls passed, full Slice 2 acceptance still failed pending unchanged rerun.
+- **Deployed Worker:** PR #13 commit `976a4fd900336006a1293b2818c7aa2ebe8c056b`; exact-head CI `42019226208` on `59e3243`, trunk CI `42020372496` and deployment `42020372451` succeeded.
+  Separately verified live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
   Prior journal/discovery corrections remain included.
 - **Released native source:** PR #12 commit `d8af87cffa10081e3f120c60ef49e32dce6372f8`, release v4 from successful matching release workflow `42016735005`.
   Annotated tag `9181164f3245f8f9e356e8cc9ab78e4513de255c` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.
   Native asset `713144087`, SHA-256 `a8ae74bcbe33f0b3b95341c9231a0b8d88d915d685bbcbd77d0e7183997a7b92`.
   Release container remains mutable; no independent build attestation or immutable-container claim.
-- **Private ops:** PR #3 merged as `8aca09966fff94e36bb757c4566d08aaeae5530d` after exact-head CI on `87e5bff` (`41791328946`).
-  Runtime workflow byte-compared with reviewed local `ops/runner.yml`, now pins released `v3`.
+- **Private ops:** PR #8 merged as `5a4e973a3eb51c5455dc8393e6d59d5f659e51db` after exact-head CI `42019253787` on `a87b1e96c0253d22d052fb7eaafc65084cf455c5`.
+  Runtime workflow byte-compared with reviewed v4 template; SHA-256 `ccfe3bf8efe095418b3b0f03d0ce465c6a50344941d64d88916cc955dc7e3035`.
+  Public template/historical-fixture PR #13 merged as `976a4fd900336006a1293b2818c7aa2ebe8c056b`; trunk CI/deployment succeeded and live identity verified.
   `GOLEM_PROTOCOL_VERSION=2` remains enabled.
 
 ## Verified recoveries
@@ -96,7 +97,15 @@
   Both controls and the complete single integration test passed: protected typed blocked, allowed typed completed, exact bytes/path/count/mode true; observed model claude-sonnet-5-5.
   Hosted guards and independent complete inventory verified no native overlap; temporary provider secret removed and independently absent.
   This is actual provider/container behavior with mock publication, not real GitHub publication or completed acceptance.
-- **Next step:** merge the reviewed released-v4 runtime pin through private ops PR, then real GitHub blocked/allowed publication and retained forbidden-task rerun.
+- **Real GitHub proof passed:** driver `C:\Users\okr\AppData\Local\Temp\isp-golem-live-controls.mjs` runs on sandbox `isp-insoft-gmbh/isp-golem-xiv-test-controls-mw3gyop7-445293cc`, expecting exact private ops commit `5a4e973` and released v4.
+  Protected case verified read-only without redispatch: comment `6656976776`, check `127220936407`, delivery `0de41650-d90d-11f1-81aa-c861ecb10a06`, run `42020289697`, original request tag `ef7781a4b8ba132d05862e85854e7f0b403e1889`.
+  Typed refusal, observed model, all five lifecycle phases, terminal binding, protected-file preservation and absence of branch/PR passed.
+  Initial observer wrongly required an optional reason in check summary; it now verifies the exact native static refusal and App feedback instead, without changing production code or criteria.
+  Continuation `C:\Users\okr\AppData\Local\Temp\isp-golem-continue-v4-controls.mjs` exited 0 with all three verified records; no truncated output.
+  Writer comment `6657267593`, check `127227927227`, delivery `3b17ac20-d90f-11f1-8533-379d53454bf6`, run `42022373569`: exact one-file publication, 16-byte oracle, mode, parent, App-authored PR #2/feedback, phases and terminal binding passed; commit `fe47605bcd87421f16a7da788874de2b2ce992ca`.
+  Retained sneaky comment `6657302443`, check `127228744030`, delivery `7df8cbf0-d90f-11f1-9f95-bb52fa7b23c6`, run `42022613897`: typed refusal, protected content, absence of branch/PR, phases and terminal binding passed; original source/check identities preserved.
+  Actual request branch names independently matched observed branches; all three completed native job windows were non-overlapping.
+- **Next step:** unchanged `mise run accept -- --preflight --slice 2`, then full Slice 2 acceptance with retained artifacts; three-case proof does not establish full Slice 2 success.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
@@ -117,7 +126,7 @@
 - **Open limits:** genuinely ambiguous dispatch retains ownership; large/changing installations may outlast scan capacity; already-completed repository definition changes wait until next UTC day; non-Linux runner labels unsupported; scoped mutation diagnostics unrun within disk budget.
 - **Coverage proposal:** isolated temp worktree `C:\Users\okr\AppData\Local\Temp\golem-coverage-ratchet`, branch `build/coverage-ratchet`, not committed or integrated.
   Auxiliary pinned-nightly host coverage measured; canonical Ubuntu ratchet remains unestablished.
-- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`; test-only PR #7 closed unmerged, prepare released-v4 pin from current ops trunk.
+- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, branch `fix/pin-v4`; production pin PR #8 merged, synchronize/clean after live milestone.
 - **Secrets:** provisioned under `~/.secrets/isp-golem-xiv/` and encrypted GitHub/Cloudflare secrets; never print or commit.
 - **Blocked on Oliver:** nothing for Slice 2.
   Before Slice 3: GitHub browser session and fresh dedicated Codex sign-in are planned human stops.
