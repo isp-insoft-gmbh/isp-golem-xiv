@@ -71,3 +71,16 @@ The helper did not reset, redispatch or mark completion; normal Coordinator reco
 Read-only observer exited 0, checking exact request tag `760eaa30439f66a4313d3c69228216ebbe19d026`, generation and run identity in [bound snapshot](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/blob/9b8b149ef2508ad8279b070cd385f7f87089757e/queue.json) before [terminal snapshot](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/blob/018f1c612059260ae324f6798c4073b0ce448c6c/queue.json), matching terminal receipt and current queue-row absence.
 This proves failed-startup cleanup and resource retirement, not provider execution or successful scheduled owner-seat behavior.
 Fresh `v3` bot-owner, timeout/continuation and genuine scheduled execution are proven in `isp-golem-xiv-test-outcomes-mw1sksn2-4472a81e`; operational proof process exited 0 after all final assertions.
+
+## Writable protocol pre-rollout validation
+
+[Private Linux/provider controls 42013269480](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/42013269480), workflow head `e8e7ee5cab7a14032a0175db31180a5726cef9cb`, job `127197354765`, completed successfully against candidate source `03867bac493c361a2ea0eb00815b91e7d672e13c`.
+Pinned test-source SHA-256 `9d64df8e097cf03b9865a6dcae9211ab12cd87c9a66a8c3e5a0a5056b9915229` was verified before adding metadata-only diagnostics; original source and assertions remained unchanged around that insertion.
+Exactly one ignored integration test ran and passed both sequential actual-provider cases using the Linux container and observed `claude-sonnet-5-5`.
+Protected request returned typed blocked, left protected content unchanged, and passed blocked-feedback/no-publication mock assertions.
+Allowed request ran an exact printf command, returned typed completed, produced the exact expected non-executable file, and passed blob/tree/commit/ref/PR mock payload assertions.
+Both hosted inventory guards reported pages=1 and active=0; independent complete inventory found no native run in the probe window and no active native run afterward.
+Temporary provider-secret removal exited 0, independently verified absent afterward.
+Private response content and file contents are not included here.
+This proves the tested protocol/container/provider combination with mock publication, not real GitHub publication, deployed refusal classification, or full Slice 2 acceptance.
+Earlier prose-directed controls failed exact-byte comparison; their actual differing bytes remain undisclosed and unknown.

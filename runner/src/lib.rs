@@ -397,19 +397,56 @@ struct ClaudeResult {
     subtype: String,
     is_error: bool,
     result: String,
+    structured_output: Option<serde_json::Value>,
     #[serde(rename = "modelUsage")]
     model_usage: std::collections::BTreeMap<String, serde_json::Value>,
 }
+
+#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentDisposition {
+    Completed,
+    Blocked,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WritableAnswer {
+    disposition: AgentDisposition,
+    message: String,
+}
+
+pub const WRITABLE_RESULT_SCHEMA: &str = r#"{"type":"object","properties":{"disposition":{"type":"string","enum":["completed","blocked"],"description":"Use blocked if policy, permissions or another obstacle prevented fulfilling the task; otherwise completed, including ordinary answers or nothing to do."},"message":{"type":"string","minLength":1,"maxLength":48000}},"required":["disposition","message"],"additionalProperties":false}"#;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct AgentOutput {
     pub text: String,
     pub model: String,
+    pub disposition: Option<AgentDisposition>,
 }
 
 /// # Errors
 /// Rejects unsuccessful, malformed, oversized, empty, or credential-bearing results.
 pub fn agent_result(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result<AgentOutput> {
+    parse_agent_result(stdout, stderr, guard, false)
+}
+
+/// # Errors
+/// Requires a successful, strictly typed writable result; never infers status from prose.
+pub fn writable_agent_result(
+    stdout: &[u8],
+    stderr: &[u8],
+    guard: &OutputGuard,
+) -> Result<AgentOutput> {
+    parse_agent_result(stdout, stderr, guard, true)
+}
+
+fn parse_agent_result(
+    stdout: &[u8],
+    stderr: &[u8],
+    guard: &OutputGuard,
+    writable: bool,
+) -> Result<AgentOutput> {
     checked_output(stdout, stderr, guard)?;
     let mut result = None;
     for (index, value) in serde_json::Deserializer::from_slice(stdout)
@@ -428,7 +465,7 @@ pub fn agent_result(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result
         }
     }
     let value = result.ok_or("missing harness result")?;
-    completed_agent_result(value.to_string().as_bytes(), stderr, guard)
+    completed_agent_result(value.to_string().as_bytes(), stderr, guard, writable)
 }
 
 fn checked_output(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result<()> {
@@ -447,11 +484,10 @@ pub fn partial_agent_result(
     guard: &OutputGuard,
 ) -> Result<AgentOutput> {
     checked_output(stdout, stderr, guard)?;
-    if let Ok(result) = agent_result(stdout, stderr, guard) {
-        return Ok(result);
-    }
     let mut models = std::collections::BTreeSet::new();
     let mut text = String::new();
+    let mut terminal_seen = false;
+    let mut completed_terminal = false;
     for (index, value) in serde_json::Deserializer::from_slice(stdout)
         .into_iter::<serde_json::Value>()
         .enumerate()
@@ -464,6 +500,27 @@ pub fn partial_agent_result(
             Err(error) if error.is_eof() => break,
             Err(_) => return Err("invalid partial harness output"),
         };
+        if value.get("type").and_then(serde_json::Value::as_str) == Some("result") {
+            if terminal_seen {
+                return Err("duplicate harness result");
+            }
+            terminal_seen = true;
+            // A completed or structured record must satisfy the writable protocol,
+            // even after timeout. Budget errors without one remain partial work.
+            let partial_error = value.get("is_error").and_then(serde_json::Value::as_bool)
+                == Some(true)
+                && matches!(
+                    value.get("subtype").and_then(serde_json::Value::as_str),
+                    Some(
+                        "error_during_execution"
+                            | "error_max_turns"
+                            | "error_max_budget_usd"
+                            | "error_max_structured_output_retries"
+                    )
+                )
+                && value.get("structured_output").is_none();
+            completed_terminal = !partial_error;
+        }
         if let Some(usage) = value
             .get("modelUsage")
             .and_then(serde_json::Value::as_object)
@@ -497,6 +554,9 @@ pub fn partial_agent_result(
             return Err("partial result exceeds limit");
         }
     }
+    if completed_terminal {
+        return writable_agent_result(stdout, stderr, guard);
+    }
     if models.iter().any(|model| !valid_model(model)) {
         return Err("invalid observed model");
     }
@@ -506,6 +566,7 @@ pub fn partial_agent_result(
     guard.check(&text)?;
     Ok(AgentOutput {
         text,
+        disposition: None,
         model: if models.is_empty() {
             "unobserved".into()
         } else {
@@ -527,6 +588,7 @@ fn completed_agent_result(
     stdout: &[u8],
     stderr: &[u8],
     guard: &OutputGuard,
+    writable: bool,
 ) -> Result<AgentOutput> {
     let stdout = std::str::from_utf8(stdout).map_err(|_| "invalid harness output")?;
     let stderr = std::str::from_utf8(stderr).map_err(|_| "invalid harness diagnostics")?;
@@ -537,7 +599,15 @@ fn completed_agent_result(
     if result.message_type != "result" || result.subtype != "success" || result.is_error {
         return Err("harness did not complete successfully");
     }
-    if result.result.trim().is_empty() || result.result.len() > 48_000 {
+    let (text, disposition) = if writable {
+        let answer: WritableAnswer =
+            serde_json::from_value(result.structured_output.ok_or("missing writable result")?)
+                .map_err(|_| "invalid writable result")?;
+        (answer.message, Some(answer.disposition))
+    } else {
+        (result.result, None)
+    };
+    if text.trim().is_empty() || text.len() > 48_000 {
         return Err("empty or oversized reply");
     }
     if result.model_usage.is_empty()
@@ -552,11 +622,12 @@ fn completed_agent_result(
         .cloned()
         .collect::<Vec<_>>()
         .join(",");
-    guard.check(&result.result)?;
+    guard.check(&text)?;
     guard.check(&model)?;
     Ok(AgentOutput {
-        text: result.result,
+        text,
         model,
+        disposition,
     })
 }
 
@@ -751,10 +822,79 @@ mod tests {
     }
 
     #[test]
+    fn writable_results_require_strict_disposition_without_prose_inference() {
+        let guard = OutputGuard::default();
+        let mut value = serde_json::json!({"type":"result", "subtype":"success", "is_error":false,
+            "result":"", "modelUsage":{"observed-model":{}},
+            "structured_output":{"disposition":"blocked", "message":"Cannot perform this task."}});
+        let parse = |value: &serde_json::Value| {
+            writable_agent_result(value.to_string().as_bytes(), b"", &guard)
+        };
+        let blocked = parse(&value).unwrap();
+        assert_eq!(blocked.disposition, Some(AgentDisposition::Blocked));
+        assert_eq!(blocked.model, "observed-model");
+        value["structured_output"] = serde_json::json!({"disposition":"completed", "message":"I refuse to change anything."});
+        assert_eq!(
+            parse(&value).unwrap().disposition,
+            Some(AgentDisposition::Completed)
+        );
+        for invalid in [
+            serde_json::Value::Null,
+            serde_json::json!({"disposition":"unknown", "message":"answer"}),
+            serde_json::json!({"disposition":"ghp_secret", "message":"answer"}),
+            serde_json::json!({"message":"answer"}),
+            serde_json::json!({"disposition":"blocked"}),
+            serde_json::json!({"disposition":"blocked", "message":" "}),
+            serde_json::json!({"disposition":"blocked", "message":"x".repeat(48_001)}),
+            serde_json::json!({"disposition":"blocked", "message":"answer", "extra":true}),
+            serde_json::json!({"disposition":true, "message":"answer"}),
+        ] {
+            value["structured_output"] = invalid;
+            assert!(parse(&value).is_err());
+            assert!(partial_agent_result(value.to_string().as_bytes(), b"", &guard).is_err());
+        }
+        value["structured_output"] =
+            serde_json::json!({"disposition":"completed", "message":"done"});
+        for (field, invalid) in [
+            ("is_error", serde_json::json!(true)),
+            ("subtype", serde_json::json!("unknown")),
+            ("modelUsage", serde_json::json!({})),
+        ] {
+            let mut bad = value.clone();
+            bad[field] = invalid;
+            assert!(parse(&bad).is_err());
+            assert!(partial_agent_result(bad.to_string().as_bytes(), b"", &guard).is_err());
+        }
+        value.as_object_mut().unwrap().remove("structured_output");
+        value["result"] = serde_json::json!("legacy answer");
+        assert!(parse(&value).is_err());
+        assert!(agent_result(value.to_string().as_bytes(), b"", &guard).is_ok());
+        assert!(writable_agent_result(&vec![b' '; OUTPUT_BYTES_MAX + 1], b"", &guard).is_err());
+    }
+
+    #[test]
+    fn partial_results_reject_duplicate_terminals_in_every_order() {
+        let error = r#"{"type":"result","subtype":"error_max_turns","is_error":true,"modelUsage":{"observed":{}}}"#;
+        let success = r#"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"disposition":"completed","message":"done"},"modelUsage":{"observed":{}}}"#;
+        for (first, second) in [
+            (error, error),
+            (error, success),
+            (success, error),
+            (success, success),
+        ] {
+            let stream = format!("{first}\n{second}");
+            assert_eq!(
+                partial_agent_result(stream.as_bytes(), b"", &OutputGuard::default()),
+                Err("duplicate harness result")
+            );
+        }
+    }
+
+    #[test]
     fn streamed_success_and_partial_results_only_attribute_observed_models() {
         let guard = OutputGuard::default();
         let assistant = r#"{"type":"assistant","message":{"model":"claude-observed","content":[{"type":"text","text":"partial work"}]}}"#;
-        let success = r#"{"type":"result","subtype":"success","is_error":false,"result":"done","modelUsage":{"claude-observed":{}}}"#;
+        let success = r#"{"type":"result","subtype":"success","is_error":false,"result":"done","structured_output":{"disposition":"completed","message":"done"},"modelUsage":{"claude-observed":{}}}"#;
         let stream = format!("{assistant}\n{success}\n");
         assert_eq!(
             agent_result(stream.as_bytes(), b"", &guard).unwrap().text,
@@ -762,12 +902,26 @@ mod tests {
         );
         assert_eq!(
             partial_agent_result(stream.as_bytes(), b"", &guard).unwrap(),
-            agent_result(success.as_bytes(), b"", &guard).unwrap()
+            writable_agent_result(success.as_bytes(), b"", &guard).unwrap()
         );
         let partial = format!("{assistant}\n{{\"type\":");
         let output = partial_agent_result(partial.as_bytes(), b"", &guard).unwrap();
         assert_eq!(output.text, "partial work");
         assert_eq!(output.model, "claude-observed");
+        for subtype in [
+            "error_during_execution",
+            "error_max_turns",
+            "error_max_budget_usd",
+            "error_max_structured_output_retries",
+        ] {
+            let budget_error = format!(
+                "{assistant}\n{{\"type\":\"result\",\"subtype\":\"{subtype}\",\"is_error\":true,\"modelUsage\":{{\"claude-observed\":{{}}}}}}"
+            );
+            let output = partial_agent_result(budget_error.as_bytes(), b"", &guard).unwrap();
+            assert_eq!(output.text, "partial work");
+            assert_eq!(output.model, "claude-observed");
+            assert_eq!(output.disposition, None);
+        }
         assert_eq!(
             partial_agent_result(b"", b"", &guard).unwrap().model,
             "unobserved"

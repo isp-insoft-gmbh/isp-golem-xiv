@@ -2,9 +2,10 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/journal-cas-fencing`, public PR #11 pending required CI; preserving verified outcomes and failed full-acceptance evidence.
-- **Deployed Worker:** PR #10 commit `22e8a24a85205cd742fcafad7bdb83073ec7f753`; exact-head CI `41792925145` on `c8106bc`, trunk CI `41793629432` and deployment `41793629564` succeeded.
-  Live cursor observation confirms scanning resumed (`done=false`, page 2) without resetting 38 completed IDs.
+- **Current branch:** `fix/typed-policy-refusal`; PR #11 remains deployed, full Slice 2 acceptance still failed.
+- **Deployed Worker:** PR #11 commit `65aff0e4a4de1ac64329e0115a31df0d9cffee79`; exact-head CI `41821200011` on `e89adeb`, trunk CI `41822188764` and deployment `41822188562` succeeded.
+  Live health and reviewed Coordinator digest `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891` verified before maintenance association.
+  Prior PR #10 discovery correction remains included.
 - **Released native source:** PR #9 commit `00d62520f873ec404d66f409d51db18933f82ae8`.
   Exact-head CI on `644c930` (`41787665840`), trunk CI `41788243519` and deployment `41788243140` succeeded.
   Release `v3` succeeded (`41788750529`) from this commit.
@@ -42,7 +43,13 @@
   Static/evidence, all Slice 1 scenarios, change-pr and continue-branch passed.
   Forbidden-path audit lacked blocked outcome; serial timed out at 45 minutes; stop never dispatched.
   Event sandbox creation returned GitHub HTTP 500, so event-trigger and no-loop-event had no executed checks.
-- **Retained failure:** run `41802954891` ended before admission with static `queue conflict`; delivery `eec9cfc0-d82c-11f1-97dc-9f61ec87b7e3` remains unbound dispatching, with second hello and slow pending.
+- **Retained failure, terminal blocked and journal retirement verified:** run `41802954891` ended before admission with static `queue conflict`; delivery `eec9cfc0-d82c-11f1-97dc-9f61ec87b7e3` was administratively bound, then reconciled normally to terminal blocked.
+  Read-only observation verified bound snapshot `e3357477f34edb2016df0dd8744d49118053a860`, terminal queue blob `b28ce9ca0060c1906e7a4e8546bd96769ea57d52`, check `126482208907`, and exact private blocked/unconfirmed audit `281795133f8b1067d174205ae402f55640706c5e`.
+  Initial observation was terminal only; the corrected observer later exited 0 after a normal reproduction enqueue.
+  Current queue blob `78bf8f4407e8585c9f52300040f9db3a860c2d79` has no row; terminal ref points exactly to original request tag `71d4676c50641a33b01fbef512a7d6724b4355ff`.
+  Separately verified original bound snapshot and exact private blocked audit remain intact; provider execution remains unproven.
+  Retirement happened through enqueue, not polling or manual request deletion.
+  Second hello and slow state has not been reverified.
   Do not drop/reset these requests or fabricate successful audits.
   Investigate shared-branch GitHub Contents CAS conflicts versus transient run metadata; exact old denial cause remains unknown.
   Successful logs can be labeled UNKNOWN STEP by gh, so absence of the named-step regex is not absence of lifecycle markers.
@@ -52,12 +59,44 @@
   Correlated completed failures can persist a private blocked/unconfirmed audit when check and repository are both unavailable, then retire normally; existing-repository missing checks still retain ownership.
   Audit tag reuse validates full immutable identity.
   Known v3 operator profile preserves exact provenance, dual legitimate request-environment records and deployment/CAS guards; actual read-only inspection passed for retained failed run with targetUnavailable=true.
-  No apply or live recovery of this failure has occurred.
+  PR #11 exact-head CI `41821200011` passed on `e89adebf014ab945cffe90c6182a83e25112e458`; protected squash merge `65aff0e4a4de1ac64329e0115a31df0d9cffee79` deployed successfully through `41822188562`, trunk CI `41822188764` passed.
+  Live health/source digest were verified before guarded association of run `41802954891`; helper returned applied-association with candidate evidence `81674e2077ebe8ba39dcd66e1c3a4c90c227e25e`.
+  Subsequent observation proved normal terminal blocked reconciliation and exact private audit, not retirement or successful provider execution.
   Parent fresh full CI exited 0; independent security review closed findings.
   Maintenance guard matrix also joins the normal test/CI command, rather than depending only on explicit local execution.
   All 68 Coordinator scenarios remain under unchanged 60s wrapper through isolated fixture batching, not skipped tests or raised limits.
-- **Next step:** protected PR CI/deployment for this correction, guarded v3 association, observe normal private blocked audit and retirement.
-  Then reproduce forbidden behavior in a retained isolated repository; do not assume its deleted check's outcome or remove safety guards.
+- **Forbidden-path cause reproduced:** retained sandbox `isp-insoft-gmbh/isp-golem-xiv-test-forbidden-mw28ms64-8bae596d`, source comment `6633850119`, check `126651646306`, run `41852382351`, response comment `6633880139`.
+  Released v3 correctly refused the protected edit and left the file unchanged, with no branch or PR; native outcome was nevertheless replied/success.
+  This is a reporting defect, not evidence of a protected-write bypass.
+  Local candidate adds explicit validated writable disposition; unit tests and CLI feature inspection are not provider compatibility proof.
+  Public candidate PR #12 source `03867bac493c361a2ea0eb00815b91e7d672e13c` passed exact-head CI `42013130443`; production remains native v3 pending release/pin.
+  Actual Linux/provider attempt `41868477879`, job `126708790091`, completed failure at agent-execution stage, before either typed-result marker.
+  Native seat idle and full-window checks passed; independent complete inventory found zero overlapping native runs.
+  No compatibility or real-publication proof; temporary provider secret was removed and private test PR #4 closed unmerged.
+  Earlier attempt `41861343748` failed before provider execution because installed gh rejects combined --slurp/--jq; corrected inventory query was validated independently.
+  Credential-free Linux diagnostic `41870956561` / job `126717544133` completed: both baseline and candidate started successfully, then returned expected authentication failures with no credential and network disabled.
+  Candidate initialization included StructuredOutput automatically; no startup flag/tool incompatibility was established.
+  This excludes only pre-auth startup failure, not authenticated/provider behavior; original live failure remains unexplained because nonzero execution streams are discarded.
+  Private ops PR #5 is diagnostic-only and remains outside the production default branch.
+  User approved two additional bounded review calls; diagnostic cleanup finding fixed before execution, with no further production-code changes.
+  Hosted authenticated comparison `42005164648`, head `872f849`, passed both idle guards: pages=1, active=0.
+  Both greeting records had creation/exit zero, no timeout or truncation, successful terminal/model usage, native parser success; schema returned completed. No native overlap; temporary secret removed.
+  This establishes authenticated greeting protocol behavior only, not protected/allowed or publication compatibility.
+  Subsequent unchanged provider controls `42006322710` failed the allowed exact-change assertion after protected case passed.
+  One isolated diagnostic repeat `42008671537`, head `909e522636a49c92342af8377a9ba11c9885ef32`, verified pinned source `21ef880` and original test SHA-256 `d43655e10efd46ac726c13ec763e43a5dbef73a942d764b76f5efa3171feade1`; every original source byte/assertion was retained around the diagnostic insertion.
+  Protected control passed typed blocked, protections and mock-publication checks.
+  Allowed diagnostic: disposition=completed, count_ok=true, path_ok=true, bytes_ok=false, mode_ok=true.
+  Full single test failed; idle/window checks and independent inventory showed no overlap, temporary-secret removal exited 0.
+  No private content was emitted; exact-byte mismatch cause remains unknown. No provider-compatibility or real-publication claim.
+- **Deterministic control approved:** replace prose-directed file contents with an exact printf command in the allowed-case instructions.
+  Expected bytes, path, count, mode, verification and publication assertions remain unchanged; no production code or judge change.
+  Local full CI passed; actual Linux/provider run `42013269480`, private workflow head `e8e7ee5`, job `127197354765`, completed successfully against source `03867bac`.
+  Both controls and the complete single integration test passed: protected typed blocked, allowed typed completed, exact bytes/path/count/mode true; observed model claude-sonnet-5-5.
+  Hosted guards and independent complete inventory verified no native overlap; temporary provider secret removed and independently absent.
+  This is actual provider/container behavior with mock publication, not real GitHub publication or completed acceptance.
+- **Next step:** protected merge/release of reviewed candidate, pin released runner through private ops PR, then real GitHub blocked/allowed publication and retained forbidden-task rerun.
+  Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
+  No production-fix claim until these pass; keep private response content out of public evidence.
   Rerun full Slice 2 acceptance with `--keep` for diagnosis; all three real outcome-evidence promises remain valid but do not replace acceptance.
   Do not promote running processes, local tests or failed-startup cleanup into outcome proof.
 
@@ -75,9 +114,10 @@
 - **Open limits:** genuinely ambiguous dispatch retains ownership; large/changing installations may outlast scan capacity; already-completed repository definition changes wait until next UTC day; non-Linux runner labels unsupported; scoped mutation diagnostics unrun within disk budget.
 - **Coverage proposal:** isolated temp worktree `C:\Users\okr\AppData\Local\Temp\golem-coverage-ratchet`, branch `build/coverage-ratchet`, not committed or integrated.
   Auxiliary pinned-nightly host coverage measured; canonical Ubuntu ratchet remains unestablished.
-- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, currently `fix/pin-v3`; synchronize/clean after pin milestone.
+- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, currently `probe/writable-controls`; test-only PR #7 must close unmerged after proof, then prepare released-runner pin from current ops trunk.
 - **Secrets:** provisioned under `~/.secrets/isp-golem-xiv/` and encrypted GitHub/Cloudflare secrets; never print or commit.
 - **Blocked on Oliver:** nothing for Slice 2.
   Before Slice 3: GitHub browser session and fresh dedicated Codex sign-in are planned human stops.
-- **Judge:** `accept.nu`, `contract.nuon` and configured loop gate unchanged.
-  Overall Slice 4 goal and operator guide remain unfinished.
+- **Judge:** `accept.nu`, `contract.nuon` and configured bare loop gate unchanged.
+  Bare `mise run accept` defaults to Slice 1; its success does not establish the binding project goal.
+  Completion requires explicit `mise run accept -- --slice 4` and operator guide; both remain unfinished.
