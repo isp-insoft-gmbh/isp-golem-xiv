@@ -114,3 +114,15 @@ All three actual request branch names matched the branches audited; their comple
 Initial protected observer incorrectly expected an optional reason in check summary; read-only observation of its original request instead verified the exact native static refusal and App feedback, without redispatch or production changes.
 Separately, public template PR #13 trunk CI `42020372496` and deployment `42020372451` succeeded; live health verified `976a4fd900336006a1293b2818c7aa2ebe8c056b` with unchanged reviewed Coordinator digest.
 This proves these three cases, not full Slice 2 acceptance.
+
+## Subsequent unchanged Slice 2 acceptance failure
+
+Full `mise run accept -- --slice 2 --keep` exited 1 with 3455 untruncated output bytes after all 18 preflight checks passed.
+All Slice 1 checks, forbidden-path, serial, stop and event-trigger passed.
+Change-pr had no PR within its unchanged 20m bound; continuation was consequently unexecuted, and echo had no matching reply within unchanged 15m.
+Retained sandboxes: `isp-insoft-gmbh/isp-golem-xiv-test-core-20261105130008`, `isp-insoft-gmbh/isp-golem-xiv-test-events-20261105130008`.
+Changer check `127234241422`, delivery `30bed440-d911-11f1-89ac-e59b2587d3ce`, comment `6657535091`, run `42024257200`, request tag `16c04bc8a2fa379628b2c8b493336cfa27446288`: validated typed blocked with observed model and all five lifecycle phases.
+Echo check `127249278530`, delivery `719a6dce-3899-05b1-dfc4-444ba7b15f3d`, comment `6658160790`, run `42028717923`, request tag `7b02e533b088c1a27366f5df72d476cb836946bc`: same typed-blocked/lifecycle evidence.
+Read-only inspection of those exact request tags confirmed changer retained its mention suffix, while echo omitted the triggering comment body despite correct comment/actor identities.
+A queued echo check `127249296915` shares the delivery ID; duplicate check creation is established, duplicate execution is not.
+No failed task was redispatched, reset or manually terminalized during diagnosis.

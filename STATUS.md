@@ -2,7 +2,7 @@
 
 - **Current slice:** 2, incomplete.
   Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `docs/v4-live-proof`; released native v4 real GitHub controls passed, full Slice 2 acceptance still failed pending unchanged rerun.
+- **Current branch:** `docs/v4-live-proof`; native v4 three-case proof passed, unchanged full Slice 2 rerun failed exit 1; context/delegation diagnosis below.
 - **Deployed Worker:** PR #13 commit `976a4fd900336006a1293b2818c7aa2ebe8c056b`; exact-head CI `42019226208` on `59e3243`, trunk CI `42020372496` and deployment `42020372451` succeeded.
   Separately verified live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
   Prior journal/discovery corrections remain included.
@@ -105,7 +105,19 @@
   Writer comment `6657267593`, check `127227927227`, delivery `3b17ac20-d90f-11f1-8533-379d53454bf6`, run `42022373569`: exact one-file publication, 16-byte oracle, mode, parent, App-authored PR #2/feedback, phases and terminal binding passed; commit `fe47605bcd87421f16a7da788874de2b2ce992ca`.
   Retained sneaky comment `6657302443`, check `127228744030`, delivery `7df8cbf0-d90f-11f1-9f95-bb52fa7b23c6`, run `42022613897`: typed refusal, protected content, absence of branch/PR, phases and terminal binding passed; original source/check identities preserved.
   Actual request branch names independently matched observed branches; all three completed native job windows were non-overlapping.
-- **Next step:** unchanged `mise run accept -- --preflight --slice 2`, then full Slice 2 acceptance with retained artifacts; three-case proof does not establish full Slice 2 success.
+- **Acceptance failed:** unchanged full Slice 2 activity `activity-090b5926-3` exited 1; 3455 output bytes, untruncated, after all 18 preflight checks passed.
+  Raw output remains private at `C:\Users\okr\AppData\Local\Temp\golem-slice2-xq6wcl\accept.log`; sanitized gate/error records available in `C:\Users\okr\AppData\Local\rtk\tee\1793883164_mise_exe_0037ff.log`.
+  Forbidden-path, serial, stop, event-trigger and all Slice 1 checks passed.
+  `change-pr`: no PR within unchanged 20m; `continue-branch` blocked by that failure; `no-loop-event`: echo did not reply within unchanged 15m.
+  Retained core/events sandboxes: `isp-insoft-gmbh/isp-golem-xiv-test-core-20261105130008`, `isp-insoft-gmbh/isp-golem-xiv-test-events-20261105130008`.
+  Changer check `127234241422`, delivery `30bed440-d911-11f1-89ac-e59b2587d3ce`, comment `6657535091`, run `42024257200`; validated typed blocked, observed model, all five phases.
+  Echo completed check `127249278530`, delivery `719a6dce-3899-05b1-dfc4-444ba7b15f3d`, comment `6658160790`, run `42028717923`; same typed-blocked/phase evidence.
+  Echo also has queued sibling check `127249296915` with the same delivery; this proves duplicate check creation, not duplicate execution; preserve identities, no manual terminalization.
+  Read-only historical request inspection confirms changer mention suffix preserved, echo comment body omitted despite valid comment identity.
+  Source inspection confirms event-comment answers are suppressed by mention-only feedback gating; writable prompt does not explicitly delegate commits to the host.
+  Changer commit-delegation explanation remains a hypothesis, not recovered model reasoning; host discarded its structured refusal message.
+- **Next step:** narrowly correct authenticated event context and event-comment feedback while preserving human authorization semantics; clarify host commit delegation, test unchanged task semantics and protected guards before rollout.
+  No acceptance rerun or additional provider case has been dispatched following this failure.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
