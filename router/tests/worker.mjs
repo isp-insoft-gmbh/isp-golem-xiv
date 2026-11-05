@@ -467,5 +467,18 @@ try {
   assert.equal(admittedMention.trigger,'mention');
   assert.equal(admittedMention.seat_login,'member');
   assert.equal(state.queue.filter(req => req.delivery_id === mentionDeliveryId).length,1,'restarted mention admits exactly once');
-  console.log('Built Workers artifact: released v1 regressions; v2 mention/config, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
+  files.clear();
+  files.set('echo.md','---\ntriggers: [issue_comment.created]\nowner: member\n---\nQuote the triggering comment.');
+  const commentBody = 'ping event-nonce\r\n  preserve indentation and 🦀\n';
+  const commentEvent = payload('member',commentBody);
+  const beforeCommentEvent = state.queue.length;
+  assert.equal((await deliver('v2-comment-context',commentEvent)).status,200);
+  await eventually(() => state.queue.length === beforeCommentEvent + 1,'signed comment event admission');
+  const commentRequest = state.queue.at(-1);
+  assert.equal(commentRequest.trigger,'event');
+  assert.equal(commentRequest.golem,'echo');
+  assert.equal(commentRequest.comment_id,commentEvent.comment.id);
+  assert.equal(commentRequest.actor_id,commentEvent.sender.id);
+  assert.equal(commentRequest.instructions,`GitHub event: issue_comment.created\n\nTriggering comment:\n${commentBody}`,'signed event comment preserved byte-for-byte as task context');
+  console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
 } finally {await worker.dispose();}

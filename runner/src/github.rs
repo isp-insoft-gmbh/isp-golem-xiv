@@ -180,6 +180,14 @@ impl Github {
         self.member(&request.seat_login, token).await?;
         if request.human() {
             self.validate_human(request, token).await?;
+        } else if self.feedback_eligible(request, token).await? {
+            let actor = request
+                .actor_login
+                .as_deref()
+                .ok_or("missing actor login")?;
+            if !actor.eq_ignore_ascii_case(&request.seat_login) {
+                self.member(actor, token).await?;
+            }
         }
         let check = self
             .json(
@@ -238,6 +246,16 @@ impl Github {
             return Err("human seat mismatch");
         }
         // The seat membership check already covers the actor when both identities coincide.
+        self.trigger_comment(request, token).await?;
+        Ok(())
+    }
+
+    async fn trigger_comment(&self, request: &DispatchV1, token: &str) -> Result<Value> {
+        let actor = request
+            .actor_login
+            .as_deref()
+            .ok_or("missing actor login")?;
+        let actor_id = request.actor_id.ok_or("missing actor identity")?;
         let comment_id = request.comment_id.ok_or("missing comment identity")?;
         let issue = request.issue_number.ok_or("missing issue identity")?;
         let comment = self
@@ -248,7 +266,7 @@ impl Github {
                 None,
             )
             .await?;
-        if comment.pointer("/user/id").and_then(Value::as_u64) != request.actor_id
+        if comment.pointer("/user/id").and_then(Value::as_u64) != Some(actor_id)
             || !comment
                 .pointer("/user/login")
                 .and_then(Value::as_str)
@@ -258,7 +276,35 @@ impl Github {
         {
             return Err("trigger identity mismatch");
         }
-        Ok(())
+        Ok(comment)
+    }
+
+    // Feedback is separate from human()'s mention authorization and seat semantics.
+    // Target validation establishes membership with the read token; publication
+    // rechecks the original comment with its issues-scoped token before answering.
+    pub async fn feedback_eligible(&self, request: &DispatchV1, token: &str) -> Result<bool> {
+        if request.human() {
+            return Ok(true);
+        }
+        if request.trigger.as_deref() != Some("event")
+            || request.comment_id.is_none()
+            || request.issue_number.is_none()
+        {
+            return Ok(false);
+        }
+        let actor = request
+            .actor_login
+            .as_deref()
+            .ok_or("missing actor login")?;
+        let comment = self.trigger_comment(request, token).await?;
+        if comment.get("id").and_then(Value::as_u64) != request.comment_id {
+            return Err("trigger identity mismatch");
+        }
+        match comment.pointer("/user/type").and_then(Value::as_str) {
+            Some("User") if !actor.ends_with("[bot]") => Ok(true),
+            Some("Bot") => Ok(false),
+            _ => Err("unknown comment actor type"),
+        }
     }
 
     fn ownership_marker(request: &DispatchV1) -> String {

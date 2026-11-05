@@ -449,87 +449,78 @@ impl RunContext<'_> {
         result: Result<WritableResult>,
         guard: &OutputGuard,
     ) -> Result<Result<()>> {
-        let result = result.and_then(|result| {
+        let mut result = match result.and_then(|result| {
             guard.check(&result.output.text)?;
             guard.check(&result.output.model)?;
             // publish_changes rescans the complete batch against the newly minted token.
             Ok(result)
-        });
-        let (outcome, model, text, terminal) = match result {
-            Ok(mut result) => {
-                let changes = match result.changes {
-                    Ok(changes) => changes,
-                    Err(error) => {
-                        return self
-                            .report_blocked(token, error, &result.output.model, guard)
-                            .await;
-                    }
-                };
-                let blocked = if result.output.disposition
-                    == Some(golem_runner::AgentDisposition::Blocked)
-                {
-                    Some("agent reported task blocked")
-                } else if !result.timed_out
-                    && result.output.disposition != Some(golem_runner::AgentDisposition::Completed)
-                {
-                    Some("missing writable disposition")
-                } else {
-                    None
-                };
-                if let Some(reason) = blocked {
-                    return self
-                        .report_blocked(token, reason, &result.output.model, guard)
-                        .await;
-                }
-                if result.timed_out {
-                    result
-                        .output
-                        .text
-                        .push_str("\n\nRun incomplete: agent wall-clock budget exhausted.");
-                }
-                let mut text = result.output.text.clone();
-                let outcome = if result.timed_out {
-                    "incomplete"
-                } else if !changes.is_empty() {
-                    "changed"
-                } else if self.request.human() {
-                    "replied"
-                } else {
-                    "no_change"
-                };
-                if !changes.is_empty() {
-                    match self
-                        .github
-                        .publish_changes(
-                            self.request,
-                            token,
-                            &result.base_sha,
-                            &changes,
-                            &result.output,
-                            guard,
-                        )
-                        .await
-                    {
-                        Ok(url) => {
-                            text.push_str("\n\nPull request: ");
-                            text.push_str(&url);
-                        }
-                        Err(error) => {
-                            let _reported = self
-                                .report_blocked(token, error, &result.output.model, guard)
-                                .await?;
-                            // Publication may have partially succeeded; retain ownership for repair.
-                            return Err(error);
-                        }
-                    }
-                }
-                (outcome, result.output.model, text, Ok(()))
-            }
-            Err(error) => {
-                return self.report_blocked(token, error, "unobserved", guard).await;
-            }
+        }) {
+            Ok(result) => result,
+            Err(error) => return self.report_blocked(token, error, "unobserved", guard).await,
         };
-        let reply = if self.request.human() {
+        let model = result.output.model.as_str();
+        let changes = match result.changes {
+            Ok(changes) => changes,
+            Err(error) => return self.report_blocked(token, error, model, guard).await,
+        };
+        let blocked = if result.output.disposition == Some(golem_runner::AgentDisposition::Blocked)
+        {
+            Some("agent reported task blocked")
+        } else if !result.timed_out
+            && result.output.disposition != Some(golem_runner::AgentDisposition::Completed)
+        {
+            Some("missing writable disposition")
+        } else {
+            None
+        };
+        if let Some(reason) = blocked {
+            return self.report_blocked(token, reason, model, guard).await;
+        }
+        if result.timed_out {
+            result
+                .output
+                .text
+                .push_str("\n\nRun incomplete: agent wall-clock budget exhausted.");
+        }
+        let feedback = match self.github.feedback_eligible(self.request, token).await {
+            Ok(feedback) => feedback,
+            Err(error) => return self.report_blocked(token, error, model, guard).await,
+        };
+        let mut text = result.output.text.clone();
+        let outcome = if result.timed_out {
+            "incomplete"
+        } else if !changes.is_empty() {
+            "changed"
+        } else if feedback {
+            "replied"
+        } else {
+            "no_change"
+        };
+        if !changes.is_empty() {
+            match self
+                .github
+                .publish_changes(
+                    self.request,
+                    token,
+                    &result.base_sha,
+                    &changes,
+                    &result.output,
+                    guard,
+                )
+                .await
+            {
+                Ok(url) => {
+                    text.push_str("\n\nPull request: ");
+                    text.push_str(&url);
+                }
+                Err(error) => {
+                    let _reported = self.report_blocked(token, error, model, guard).await?;
+                    // Publication may have partially succeeded; retain ownership for repair.
+                    return Err(error);
+                }
+            }
+        }
+        let reply = if feedback {
             self.github.reply(self.request, token, &text, guard).await
         } else {
             Ok(())
@@ -540,7 +531,7 @@ impl RunContext<'_> {
                 self.request,
                 token,
                 outcome,
-                &model,
+                model,
                 self.run_id,
                 (outcome == "no_change").then_some(text.as_str()),
                 guard,
@@ -548,7 +539,7 @@ impl RunContext<'_> {
             .await;
         reply?;
         check?;
-        Ok(terminal)
+        Ok(Ok(()))
     }
 
     async fn report_blocked(
@@ -558,18 +549,23 @@ impl RunContext<'_> {
         model: &str,
         guard: &OutputGuard,
     ) -> Result<Result<()>> {
+        let feedback = self.github.feedback_eligible(self.request, token).await;
         let label = self.github.mark_blocked(self.request, token).await;
-        let reply = if self.request.human() {
-            self.github
-                .reply(
-                    self.request,
-                    token,
-                    &format!("Run blocked: {error}. Inspect the private Actions run for status."),
-                    guard,
-                )
-                .await
-        } else {
-            Ok(())
+        let reply = match feedback {
+            Ok(true) => {
+                self.github
+                    .reply(
+                        self.request,
+                        token,
+                        &format!(
+                            "Run blocked: {error}. Inspect the private Actions run for status."
+                        ),
+                        guard,
+                    )
+                    .await
+            }
+            Ok(false) => Ok(()),
+            Err(error) => Err(error),
         };
         let check = self
             .github

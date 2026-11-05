@@ -14,7 +14,7 @@ type ObservedRequest = (String, Value);
 
 // Layer: actual provider + Linux sandbox; loopback-only mock publication, not GitHub proof.
 #[tokio::test]
-// Keep both real-provider cases and their cleanup in one explicit opt-in boundary.
+// Keep real-provider cases and their cleanup in one explicit opt-in boundary.
 #[allow(clippy::too_many_lines)]
 #[ignore = "requires Linux Docker, pinned mise and explicit GOLEM_TEST_ANTHROPIC_TOKEN; spends provider subscription"]
 async fn linux_provider_writable_disposition_with_mock_publication() {
@@ -83,10 +83,21 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
         "trusted image preparation failed"
     );
 
-    for blocked in [true, false] {
+    for case in ["protected", "allowed", "changer"] {
+        let blocked = case == "protected";
+        let commit_requested = case == "changer";
+        let expected_path = if commit_requested {
+            "golem.txt"
+        } else {
+            "allowed-control.txt"
+        };
+        let expected_bytes: &[u8] = if commit_requested {
+            b"changer-nonce-123\n"
+        } else {
+            b"control passed.\n"
+        };
         let temporary = tempfile::tempdir().unwrap();
         let workspace = temporary.path().join("workspace");
-        let case = if blocked { "protected" } else { "allowed" };
         let name = format!("golem-provider-{}-{case}", std::process::id());
         let names = [
             format!("{name}-prepare"),
@@ -96,7 +107,11 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
         let result: Result<String> = async {
             std::fs::create_dir(&workspace).map_err(|_| "workspace creation failed")?;
             std::fs::create_dir(workspace.join(".golems")).map_err(|_| "fixture directory failed")?;
-            let definition = "---\n---\nPerform the requested repository task, respecting runner protections.\n";
+            let definition = if commit_requested {
+                "---\n---\nAppend the text after `write` in the comment that started you as a new line to golem.txt, creating the file if needed, and commit it.\nChange nothing else.\n"
+            } else {
+                "---\n---\nPerform the requested repository task, respecting runner protections.\n"
+            };
             std::fs::write(workspace.join(".golems/hello.md"), definition).map_err(|_| "fixture write failed")?;
             let mut request = request();
             request.version = 2;
@@ -104,6 +119,8 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
             request.timeout_seconds = 180;
             request.instructions = if blocked {
                 "Replace the contents of .golems/hello.md with the single line: generic replacement."
+            } else if commit_requested {
+                "write changer-nonce-123"
             } else {
                 "Run exactly this shell command from /workspace:\n```sh\nprintf '%s\\n' 'control passed.' > allowed-control.txt\n```\nDo not change any other file."
             }.into();
@@ -127,11 +144,13 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
                     return Err("protected task did not produce typed blocked without changes");
                 }
             } else if output.disposition != Some(golem_runner::AgentDisposition::Completed)
-                || changes.len() != 1 || changes[0].path != "allowed-control.txt"
-                || changes[0].file.as_ref().is_none_or(|file| file.bytes != b"control passed.\n" || file.executable) {
+                || changes.len() != 1 || changes[0].path != expected_path
+                || changes[0].file.as_ref().is_none_or(|file| file.bytes != expected_bytes || file.executable) {
                 return Err("allowed control disposition or exact change failed");
             }
-            let verify = if blocked { "test ! -e allowed-control.txt" } else {
+            let verify = if blocked { "test ! -e allowed-control.txt" } else if commit_requested {
+                "test -s golem.txt"
+            } else {
                 "test \"$(cat allowed-control.txt)\" = 'control passed.'"
             };
             sandbox::verify(&workspace, &names[2], Some(verify)).await.map_err(|_| "verification destruction unconfirmed")?
@@ -172,10 +191,10 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
                 || observed[9].1["head"] != request.branch_name()
                 || observed[9].1["base"] != "trunk"
                 || observed[4].1["encoding"] != "base64"
-                || observed[4].1["content"] != "Y29udHJvbCBwYXNzZWQuCg=="
+                || observed[4].1["content"] != if commit_requested { "Y2hhbmdlci1ub25jZS0xMjMK" } else { "Y29udHJvbCBwYXNzZWQuCg==" }
                 || observed[5].1["base_tree"] != "b".repeat(40)
                 || observed[5].1["tree"].as_array().is_none_or(|tree| tree.len() != 1)
-                || observed[5].1["tree"][0]["path"] != "allowed-control.txt"
+                || observed[5].1["tree"][0]["path"] != expected_path
                 || observed[5].1["tree"][0]["mode"] != "100644"
                 || observed[5].1["tree"][0]["type"] != "blob"
                 || observed[5].1["tree"][0]["sha"] != "c".repeat(40)
@@ -279,6 +298,10 @@ async fn writable_no_changes_answer_humans_but_unattended_runs_only_record_reaso
         let mut request = request();
         request.version = 2;
         request.trigger = Some(if human { "mention" } else { "event" }.into());
+        if !human {
+            // issues.opened carries issue/actor context, but no comment to answer.
+            request.comment_id = None;
+        }
         let mut responses = Vec::new();
         if human {
             responses.push((201, json!({})));
@@ -714,6 +737,316 @@ async fn blocked_label_failure_does_not_suppress_human_reply_or_check() {
     }
 }
 
+#[tokio::test]
+async fn non_issue_event_comment_has_no_issue_feedback_destination() {
+    let mut request = request();
+    request.version = 2;
+    request.trigger = Some("event".into());
+    request.issue_number = None;
+    assert!(request.comment_id.is_some());
+    let (github, observed) = server(vec![]);
+    assert!(!github.feedback_eligible(&request, "token").await.unwrap());
+    assert_eq!(
+        observed.join().unwrap().unwrap(),
+        Vec::<ObservedRequest>::new()
+    );
+}
+
+fn event_comment() -> Value {
+    json!({"id":9, "user":{"id":10,"login":"member","type":"User"},
+        "issue_url":"https://api.github.com/repos/isp-insoft-gmbh/isp-golem-xiv-test-example/issues/7"})
+}
+
+#[tokio::test]
+async fn event_comment_feedback_respects_actor_type_context_and_payer_without_expanding_human() {
+    for (trigger, actor_type, has_comment, payer, blocked) in [
+        ("event", "User", true, "member", false),
+        ("event", "User", true, "owner", false),
+        ("event", "Bot", true, "owner", false),
+        ("event", "User", false, "member", false),
+        ("schedule", "User", false, "owner", false),
+        ("event", "User", true, "owner", true),
+        ("event", "Bot", true, "owner", true),
+    ] {
+        let mut request = request();
+        request.version = 2;
+        request.trigger = Some(trigger.into());
+        request.seat_login = payer.into();
+        request.owner = Some("owner".into());
+        if !has_comment {
+            request.comment_id = None;
+        }
+        if trigger == "schedule" {
+            request.actor_id = None;
+            request.actor_login = None;
+            request.issue_number = None;
+        }
+        assert!(!request.human());
+        let feedback = trigger == "event" && has_comment && actor_type == "User";
+        let mut responses = Vec::new();
+        if has_comment {
+            let mut comment = event_comment();
+            comment["user"]["type"] = json!(actor_type);
+            responses.push((200, comment));
+        }
+        if blocked {
+            responses.push((200, json!([])));
+        }
+        if feedback {
+            responses.push((201, json!({})));
+        }
+        responses.push((200, json!({})));
+        let count = responses.len();
+        let (github, observed) = server(responses);
+        let context = RunContext {
+            github: &github,
+            request: &request,
+            private_key: "unused",
+            run_id: "99",
+            attempt: "1",
+        };
+        let result = context
+            .publish_writable(
+                "token",
+                Ok(WritableResult {
+                    base_sha: request.head_sha.clone(),
+                    changes: Ok(vec![]),
+                    output: AgentOutput {
+                        text: "No changes needed.".into(),
+                        model: "observed-model".into(),
+                        disposition: Some(if blocked {
+                            golem_runner::AgentDisposition::Blocked
+                        } else {
+                            golem_runner::AgentDisposition::Completed
+                        }),
+                    },
+                    timed_out: false,
+                }),
+                &OutputGuard::default(),
+            )
+            .await;
+        assert_eq!(
+            result,
+            if blocked {
+                Ok(Err("agent reported task blocked"))
+            } else {
+                Ok(Ok(()))
+            }
+        );
+        let observed = observed.join().unwrap().unwrap();
+        assert_eq!(observed.len(), count);
+        assert_eq!(
+            observed
+                .iter()
+                .filter(|(line, _)| line.starts_with("POST ") && line.contains("/comments "))
+                .count(),
+            usize::from(feedback)
+        );
+        assert!(observed.iter().all(|(line, _)| !line.contains("/git/")));
+        let check = &observed.last().unwrap().1;
+        let outcome = if blocked {
+            "blocked"
+        } else if feedback {
+            "replied"
+        } else {
+            "no_change"
+        };
+        let summary = check["output"]["summary"].as_str().unwrap();
+        assert!(summary.contains(&format!("outcome: {outcome}")));
+        assert!(summary.contains(&format!("seat: {payer}/anthropic")));
+        assert!(summary.contains("model: observed-model"));
+        if !feedback && !blocked {
+            assert!(summary.contains("reason: No changes needed."));
+        }
+    }
+}
+
+#[tokio::test]
+async fn uncertain_or_mismatched_event_feedback_fails_closed_but_blocked_checks_are_attempted() {
+    let mut failures = vec![(503, json!({})), (404, json!({}))];
+    for pointer in ["/id", "/user/id", "/user/login", "/issue_url", "/user/type"] {
+        let mut comment = event_comment();
+        *comment.pointer_mut(pointer).unwrap() = json!("mismatch");
+        failures.push((200, comment));
+    }
+    for blocked in [false, true] {
+        for failure in &failures {
+            let mut request = request();
+            request.version = 2;
+            request.trigger = Some("event".into());
+            let mut responses = vec![failure.clone()];
+            if !blocked {
+                responses.push(failure.clone());
+            }
+            responses.extend([(200, json!([])), (200, json!({}))]);
+            let (github, observed) = server(responses);
+            let context = RunContext {
+                github: &github,
+                request: &request,
+                private_key: "unused",
+                run_id: "99",
+                attempt: "1",
+            };
+            let result = if blocked {
+                context
+                    .publish_writable("token", Err("execution failed"), &OutputGuard::default())
+                    .await
+            } else {
+                context
+                    .publish_writable(
+                        "token",
+                        Ok(WritableResult {
+                            base_sha: request.head_sha.clone(),
+                            changes: Ok(vec![]),
+                            output: AgentOutput {
+                                text: "answer".into(),
+                                model: "observed-model".into(),
+                                disposition: Some(golem_runner::AgentDisposition::Completed),
+                            },
+                            timed_out: false,
+                        }),
+                        &OutputGuard::default(),
+                    )
+                    .await
+            };
+            // Outer failure prevents queue completion, preserving coordinator ownership.
+            assert!(result.is_err());
+            let observed = observed.join().unwrap().unwrap();
+            assert_eq!(observed.len(), if blocked { 3 } else { 4 });
+            assert!(observed.iter().all(|(line, _)| !line.starts_with("POST ")));
+            let last = observed.last().unwrap();
+            assert!(last.0.starts_with("PATCH ") && last.0.contains("/check-runs/55 "));
+            assert_eq!(last.1["conclusion"], "failure");
+            let summary = last.1["output"]["summary"].as_str().unwrap();
+            assert!(summary.contains("outcome: blocked"));
+            if !blocked {
+                assert!(summary.contains("model: observed-model"));
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn event_comment_fetch_failure_after_initial_validation_reports_without_queue_completion() {
+    use base64::Engine as _;
+    let mut request = request();
+    request.version = 2;
+    request.trigger = Some("event".into());
+    request.owner = Some("member".into());
+    let responses = vec![
+        (
+            200,
+            json!({"id":123,"full_name":request.repository,"topics":["isp-golem-xiv-test"]}),
+        ),
+        (204, Value::Null),
+        (200, event_comment()),
+        (
+            200,
+            json!({"head_sha":request.head_sha,"name":"golem/hello","app":{"id":golem_runner::APP_ID}}),
+        ),
+        (
+            200,
+            json!({"type":"file","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode("---\nowner: member\ntriggers: [issue_comment.created]\ntimeout: 1m\n---\nAnswer comment\n")}),
+        ),
+        (503, json!({})),
+        (503, json!({})),
+        (200, json!([])),
+        (200, json!({})),
+    ];
+    let (github, observed) = server(responses);
+    github
+        .validate_target(&request, "read-token")
+        .await
+        .unwrap();
+    let context = RunContext {
+        github: &github,
+        request: &request,
+        private_key: "unused",
+        run_id: "99",
+        attempt: "1",
+    };
+    let mut completion_reached = false;
+    // Unit boundary: no Docker or real coordinator; mirror run_writable's
+    // fail-fast publication callback through its production destruction guard.
+    let result = after_destruction(
+        std::future::ready(Ok(WritableResult {
+            base_sha: request.head_sha.clone(),
+            changes: Ok(vec![]),
+            output: AgentOutput {
+                text: "answer".into(),
+                model: "observed-model".into(),
+                disposition: Some(golem_runner::AgentDisposition::Completed),
+            },
+            timed_out: false,
+        })),
+        async |result| {
+            let _terminal = context
+                .publish_writable("publication-token", Ok(result), &OutputGuard::default())
+                .await?;
+            completion_reached = true;
+            Ok(())
+        },
+    )
+    .await;
+    assert!(result.is_err());
+    assert!(!completion_reached);
+    let observed = observed.join().unwrap().unwrap();
+    assert_eq!(observed.len(), 9);
+    assert!(observed.iter().all(|(line, _)| !line.starts_with("POST ")
+        && !line.contains("/git/")
+        && !line.contains("/complete")));
+    assert!(observed[5].0.contains("/issues/comments/9 "));
+    assert!(observed[6].0.contains("/issues/comments/9 "));
+    assert!(observed[8].0.starts_with("PATCH ") && observed[8].0.contains("/check-runs/55 "));
+    let summary = observed[8].1["output"]["summary"].as_str().unwrap();
+    assert!(summary.contains("outcome: blocked") && summary.contains("model: observed-model"));
+}
+
+#[tokio::test]
+async fn event_comment_owner_fallback_validates_actor_membership_separately() {
+    use base64::Engine as _;
+    for payer in ["member", "owner"] {
+        for member_status in [204, 503] {
+            if payer == "member" && member_status != 204 {
+                continue;
+            }
+            let mut request = request();
+            request.version = 2;
+            request.trigger = Some("event".into());
+            request.seat_login = payer.into();
+            request.owner = Some("owner".into());
+            let mut responses = vec![
+                (
+                    200,
+                    json!({"id":123,"full_name":request.repository,"topics":["isp-golem-xiv-test"]}),
+                ),
+                (204, Value::Null),
+                (200, event_comment()),
+            ];
+            if payer != "member" {
+                responses.push((member_status, Value::Null));
+            }
+            if member_status == 204 {
+                responses.extend([
+                    (200, json!({"head_sha":request.head_sha,"name":"golem/hello","app":{"id":golem_runner::APP_ID}})),
+                    (200, json!({"type":"file","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode("---\nowner: owner\ntriggers: [issue_comment.created]\ntimeout: 1m\n---\nAnswer comment\n")})),
+                ]);
+            }
+            let (github, observed) = server(responses);
+            assert_eq!(
+                github.validate_target(&request, "token").await.is_ok(),
+                member_status == 204
+            );
+            let observed = observed.join().unwrap().unwrap();
+            assert!(observed[1].0.contains(&format!("/members/{payer} ")));
+            if payer != "member" {
+                assert!(observed[3].0.contains("/members/member "));
+            }
+            assert!(!request.human());
+        }
+    }
+}
+
 fn server(
     responses: Vec<(u16, Value)>,
 ) -> (
@@ -888,6 +1221,7 @@ fn writable_prompt_uses_pinned_definition_and_house_rules_not_continuation_confi
     .unwrap();
     let mut request = request();
     request.version = 2;
+    request.instructions = "Append instructed nonce nonce-123 to result.txt and commit.".into();
     let base_sha = "b".repeat(40);
     let prompt =
         snapshot::writable_prompt(workspace.path(), configuration.path(), &request, &base_sha)
@@ -897,6 +1231,9 @@ fn writable_prompt_uses_pinned_definition_and_house_rules_not_continuation_confi
         "Pinned rules sentinel",
         "Continuation instructions sentinel",
         "writable repository snapshot",
+        "Edit files only; the trusted host verifies your changes, creates the commit, pushes the branch and opens or updates the pull request after you exit.",
+        "those requests alone are not grounds to report blocked",
+        "<trigger-instructions>\nAppend instructed nonce nonce-123 to result.txt and commit.\n</trigger-instructions>",
         base_sha.as_str(),
     ] {
         assert!(prompt.contains(required), "missing {required}");
