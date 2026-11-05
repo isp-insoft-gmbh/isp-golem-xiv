@@ -126,3 +126,17 @@ Echo check `127249278530`, delivery `719a6dce-3899-05b1-dfc4-444ba7b15f3d`, comm
 Read-only inspection of those exact request tags confirmed changer retained its mention suffix, while echo omitted the triggering comment body despite correct comment/actor identities.
 A queued echo check `127249296915` shares the delivery ID; duplicate check creation is established, duplicate execution is not.
 No failed task was redispatched, reset or manually terminalized during diagnosis.
+
+## Context/delegation candidate Linux and provider controls
+
+Public PR #14 candidate `080713783a75e4218806f8e1671a0eb39ec0a1ad` passed full canonical Linux CI `42039276650`, job `127285477751`, including all required steps and all four complete Worker-suite stages.
+The oversized-body assertion remained byte-identical to previous trunk; committed diff check passed.
+Retained Windows Miniflare/Undici resets are not resolved by this Linux pass.
+Private test-only PR #9, exact head `229f2ca3ac154ffa4a073bce45eab61e00707993`, provider workflow `42040986651`/job `127291413828`, completed successfully.
+The job checked public source `0807137` and unchanged `runner/src/tests.rs` SHA-256 `b304179a8ae0487ea876213099b0b31c19973392b8c3a358abb28ef9a1bc4c75` before credential exposure.
+Exactly one selected actual Linux/provider integration test passed: protected typed blocked, original deterministic allowed typed completed, unchanged changer-style commit request typed completed; observed model claude-sonnet-5-5.
+Original exact file/count/bytes/mode and mock Git-object/PR publication assertions remained enforced; changer also required its exact nonce file and non-executable mode.
+Both hosted native inventories reported one page and zero active; independent inventory found no native run in the probe window and none active afterwards.
+Observer exited 0 with verifiedActualProviderCases=true and complete output, then secret removal exit0/temporarySecretAbsenceVerified=true; parent independently rechecked absence.
+Private PR #9 closed unmerged; production runtime remained v4.
+This proves actual-provider cases with mock publication, not real GitHub candidate publication, echo feedback or full Slice 2 acceptance.

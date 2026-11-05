@@ -124,9 +124,18 @@
   Windows full CI failed twice and latest Worker task failed at unchanged oversized-body assertion due Miniflare/Undici ECONNRESET before HTTP status; retain these failures, no guard/assertion/timeout changes.
   Fixed-artifact diagnostic previously passed all four runtime stages without rebuilding and with unchanged artifact/harness hashes; this does not establish full CI or resolve Windows transport.
   Latest explicit `git diff --check` and format check passed after the interrupted batch.
-- **Next step:** publish candidate through normal PR and require complete canonical Linux CI, including full Worker suite and unchanged oversized-body assertion; no further Windows retry.
-  Then actual provider changer-style control and live previously failing cases must prove behavior before any fixed/completion claim.
-  No acceptance rerun or additional provider case has been dispatched following this failure.
+- **Canonical Linux CI verified:** public PR #14 exact head `080713783a75e4218806f8e1671a0eb39ec0a1ad`, run `42039276650`, job `127285477751`, required ci green.
+  Every job step succeeded, all four complete Worker-suite markers verified, oversized-body assertion byte-identical to prior trunk, committed diff check passed.
+  This is platform-specific validation; Windows transport remains unresolved, no more Windows retry.
+- **Actual-provider candidate controls passed:** private test-only PR #9 closed unmerged, branch `probe/context-controls`, exact private head `229f2ca3ac154ffa4a073bce45eab61e00707993`, run `42040986651`, job `127291413828`.
+  Public source pinned to `0807137`, unmodified test SHA-256 `b304179a8ae0487ea876213099b0b31c19973392b8c3a358abb28ef9a1bc4c75`.
+  Observer `C:\Users\okr\AppData\Local\Temp\isp-golem-watch-context-controls.mjs`, activity `activity-090b5926-4`, exited 0 with full untruncated output.
+  verifiedActualProviderCases=true, exactly one selected/passed integration test, protected blocked, allowed/changer completed, model claude-sonnet-5-5.
+  All original exact-change/mock-publication assertions passed; both hosted inventories one page/zero active, independent native window and active inventories empty.
+  Temporary secret removal exited 0, temporarySecretAbsenceVerified=true; parent independently rechecked absence before closing private PR #9.
+  This is actual Linux/provider execution with mock publication; real GitHub behavior remains unproven for this candidate.
+- **Next step:** publish proof docs through existing PR #14, require fresh exact-head CI, protected merge/release and reviewed runtime pin.
+  Then real previously failing changer/continuation/echo cases and unchanged full Slice 2 acceptance must prove behavior before any fixed/completion claim.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
@@ -147,7 +156,7 @@
 - **Open limits:** genuinely ambiguous dispatch retains ownership; large/changing installations may outlast scan capacity; already-completed repository definition changes wait until next UTC day; non-Linux runner labels unsupported; scoped mutation diagnostics unrun within disk budget.
 - **Coverage proposal:** isolated temp worktree `C:\Users\okr\AppData\Local\Temp\golem-coverage-ratchet`, branch `build/coverage-ratchet`, not committed or integrated.
   Auxiliary pinned-nightly host coverage measured; canonical Ubuntu ratchet remains unestablished.
-- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, branch `fix/pin-v4`; production pin PR #8 merged, synchronize/clean after live milestone.
+- **Ops checkout:** `C:\Users\okr\AppData\Local\Temp\isp-golem-xiv-ops-bootstrap`, branch `probe/context-controls`; test-only PR #9 closed unmerged, production pin remains PR #8/v4.
 - **Secrets:** provisioned under `~/.secrets/isp-golem-xiv/` and encrypted GitHub/Cloudflare secrets; never print or commit.
 - **Blocked on Oliver:** nothing for Slice 2.
   Before Slice 3: GitHub browser session and fresh dedicated Codex sign-in are planned human stops.
