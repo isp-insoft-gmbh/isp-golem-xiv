@@ -786,8 +786,8 @@ pub struct SeatChoice {
 }
 
 impl SeatChoice {
-    /// Whether the released runner can execute this choice: Anthropic seats with `claude` or
-    /// `pi`, and a model identifier that is a single safe CLI argument.
+    /// Whether the pinned runner (v7+) can execute this choice: Anthropic seats with `claude` or
+    /// `pi`, `OpenAI` Codex seats with `codex`, and a model that is a single safe CLI argument.
     #[must_use]
     pub fn runnable(&self) -> bool {
         runner_supports(&self.provider, &self.harness, self.model.as_deref())
@@ -797,16 +797,17 @@ impl SeatChoice {
 /// Shared by router dispatch and the runner's credential-boundary validation.
 #[must_use]
 pub fn runner_supports(provider: &str, harness: &str, model: Option<&str>) -> bool {
-    provider == "anthropic"
-        && matches!(harness, "claude" | "pi")
-        && model.is_none_or(|model| {
-            !model.is_empty()
-                && model.len() <= 128
-                && !model.starts_with('-')
-                && model
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
-        })
+    matches!(
+        (provider, harness),
+        ("anthropic", "claude" | "pi") | ("openai-codex", "codex")
+    ) && model.is_none_or(|model| {
+        !model.is_empty()
+            && model.len() <= 128
+            && !model.starts_with('-')
+            && model
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
+    })
 }
 
 /// The provider a golem prefers: its own, else its harness's home provider.
