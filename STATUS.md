@@ -6,7 +6,7 @@
   PR #20 (`27e847f`): help and seat replies live-verified (core sandbox issue 10, comments `6786466094`, `6786465986`); `/seats` and `/admin` sign-in redirect; `seat-page` gate green.
   PR #21 (`5e2222d`): `golems/validate` pull-request check (fixture-tested; live via Slice 3 acceptance).
   Branch `feat/onboarding-dashboard`: onboarding PR and pinned dashboard on push, seats incl. people who left; upkeep reuses the delivery's head/index so 20-golem pushes keep the event budget.
-  Onboarding/dashboard workerd scenarios passed locally; the relocated 20-golem scenario and the scheduler-init scenario after it have not yet run green (Windows resets at the oversized-body test, line 243); awaiting Linux CI.
+  Full workerd suite including the 20-golem push scenario passed on Linux CI `42960377318` (`cd21ce1`); Windows still resets at the oversized-body test (line 243).
   Open: seat registration page and OAuth callback (needs callback + browser session), seat-replace/refresh evidence (fresh Codex sign-in), fallback runs (runner `pi` harness and non-Anthropic providers), dashboard last outcome and run boxes.
 - **Current branch:** `feat/onboarding-dashboard`.
 - **Deployed Worker:** PR #21 merge `5e2222dadce72fcc8108dfad48ce740e2a63bb7f` (CI `42956246837`, deploy `42956246890`); live health verified. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
