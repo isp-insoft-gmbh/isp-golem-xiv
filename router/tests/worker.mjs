@@ -133,6 +133,8 @@ async function github(request) {
   if (path.endsWith('/check-runs')) {state.checks.push(body); return answer(201, {id:state.checks.length});}
   if (path === `/repos/${ops}/actions/workflows/runner.yml/dispatches`) {state.dispatches.push(body); return answer(dispatchStatus, dispatchStatus === 204 ? null : {});}
   if (path === `/repos/${repository}/issues/1/comments`) {state.comments.push(body.body); return answer(201, {id:state.comments.length});}
+  if (path === `/repos/${repository}/pulls/7`) return answer(200, {number:7, head:{sha:'c'.repeat(40)}});
+  if (path === `/repos/${repository}/pulls/7/files`) return answer(200, state.pullFiles ?? []);
   if (path.startsWith('/repos/')) return answer(404, {});
   throw new Error(`Unexpected fixture API: ${method} ${path}`);
 }
@@ -311,6 +313,29 @@ try {
   assert.ok(seatReply.includes('https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats'));
   assert.equal(state.queue.length, queuedBeforeHelp, 'help and seat never enqueue');
   assert.equal(state.dispatches.length, directDispatches, 'help and seat never dispatch');
+  const pullEvent = {action:'opened', sender:{id:42,login:'member',type:'User'}, repository:{id:99,full_name:repository}, installation:{id:153964219}, pull_request:{number:7}};
+  const validations = () => state.checks.filter(check => check.name === 'golems/validate');
+  state.pullFiles = [{filename:'README.md'}];
+  assert.equal((await deliver('v2-pr-unrelated', pullEvent, true, false, 'pull_request')).status, 200);
+  await sleep(300);
+  assert.equal(validations().length, 0, 'pull requests not touching .golems/ get no validation check');
+  state.pullFiles = [{filename:'docs/x.md'}, {filename:'.golems/broken.md'}];
+  assert.equal((await deliver('v2-pr-golems', pullEvent, true, false, 'pull_request')).status, 200);
+  await eventually(() => validations().length === 1, 'validation check on .golems/ change');
+  const validation = validations()[0];
+  assert.equal(validation.head_sha, 'c'.repeat(40), 'validated at the pull request head');
+  assert.equal(validation.status, 'completed');
+  assert.equal(validation.conclusion, 'failure');
+  assert.match(validation.output.summary, /^- `broken`: .*schedule/m);
+  assert.match(validation.output.summary, /^- `hello`: valid$/m);
+  assert.match(validation.output.summary, /^- `stop`: /m);
+  state.pullFiles = [{filename:'.golems/hello.md'}];
+  const savedBroken = files.get('broken.md'), savedStop = files.get('stop.md');
+  files.delete('broken.md'); files.delete('stop.md');
+  assert.equal((await deliver('v2-pr-valid', {...pullEvent, action:'synchronize'}, true, false, 'pull_request')).status, 200);
+  await eventually(() => validations().length === 2, 'validation check on synchronize');
+  assert.equal(validations()[1].conclusion, 'success');
+  files.set('broken.md', savedBroken); files.set('stop.md', savedStop);
   assert.equal((await deliver('v2-stop',payload('member','@isp-golem-xiv stop'))).status,202);
   await eventually(() => state.internal.some(body => body.action === 'stop'), 'thread stop handoff');
   assert.deepEqual(state.internal.find(body => body.action === 'stop'),{action:'stop',repository,issue_number:1});

@@ -729,6 +729,48 @@ async fn preferred_seat(github: &Github, login: &str) -> Result<Option<String>> 
     }
 }
 
+/// Validates `.golems/` at the pull request head when the pull request touches it.
+async fn validate_pull(github: &Github, repository: &str, number: u64) -> Result<()> {
+    let pull = github
+        .get(&format!("/repos/{repository}/pulls/{number}"))
+        .await?;
+    let head = pull
+        .pointer("/head/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| valid_sha(sha))
+        .ok_or_else(|| failure("invalid pull request head"))?
+        .to_owned();
+    let files = github
+        .get(&format!(
+            "/repos/{repository}/pulls/{number}/files?per_page=100"
+        ))
+        .await?;
+    let files = files
+        .as_array()
+        .ok_or_else(|| failure("invalid pull request files"))?;
+    // A full page may hide further files; validate rather than miss a change.
+    let touched = files.len() >= 100
+        || files.iter().any(|file| {
+            ["filename", "previous_filename"].iter().any(|key| {
+                file.get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| name.starts_with(".golems/"))
+            })
+        });
+    if !touched {
+        return Ok(());
+    }
+    let golems = github.index(repository, &head).await?;
+    let (ok, summary) = crate::validation_summary(&golems);
+    github
+        .post(
+            &format!("/repos/{repository}/check-runs"),
+            json!({"name":crate::VALIDATION_CHECK,"head_sha":head,"status":"completed","conclusion":if ok {"success"} else {"failure"},"output":{"title":if ok {"Golems valid"} else {"Invalid golems"},"summary":summary}}),
+        )
+        .await?;
+    Ok(())
+}
+
 async fn has_seat(github: &Github, login: &str) -> Result<bool> {
     let secret = seat_secret(login, "anthropic").ok_or_else(|| failure("invalid seat login"))?;
     let (status, _) = github
@@ -990,6 +1032,19 @@ async fn process(
             &info,
         )
         .await;
+    }
+    if event == "pull_request"
+        && matches!(
+            delivery.action.as_str(),
+            "opened" | "synchronize" | "reopened"
+        )
+        && let Some(pull) = &delivery.pull_request
+        && validate_pull(&github, repository, pull.number)
+            .await
+            .is_err()
+    {
+        // Validation is advisory to triggers; a failure must not drop matching golems.
+        worker::console_error!("golem validation failed; delivery={delivery_id}");
     }
     let head = github.head(repository, &info).await?;
     let golems = github.index(repository, &head).await?;
