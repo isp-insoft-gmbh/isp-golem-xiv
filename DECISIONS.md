@@ -12,7 +12,8 @@ Each entry: date, decision, reason, and evidence where it exists.
   The typed result is exactly one successful `golem_report` call made last, parsed from Pi's events; missing, duplicate or malformed reports, unsettled or aborted runs fail closed, because Pi's JSON mode exits 0 even on provider errors.
 - Pi runs only on writable (version 2) requests; read-only v1 stays on `claude`.
 - Known gaps: Pi has no turn limit (timeout bounds it); the seat token is visible to Pi's bash tool like Claude's, guarded only by output scanning; coordinator-written stopped/blocked summaries lack the fallback line; help may show choices the runner cannot yet run; codex and Copilot providers still unsupported.
-  Real Pi behaviour (report call, default model) is unproven until a live run.
+  Live run `42970383464` showed Pi authenticating with the Anthropic setup token, calling `golem_report`, and observing `claude-opus-5-5`.
+- Rollout order matters: a Worker that emits new request fields must not deploy before the runner release accepting them is pinned; PR #24 briefly violated this until v6 was pinned (fail-closed at `--validate`, no seat cost).
 
 ## 2026-11-11: Onboarding and dashboard on push
 
