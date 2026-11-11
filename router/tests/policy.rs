@@ -63,6 +63,67 @@ fn seat_choice_prefers_golem_provider_then_preferred_then_order_and_names_fallba
 }
 
 #[test]
+fn fallback_dispatch_runs_foreign_golems_on_an_anthropic_seat_with_pi_and_says_so() {
+    use router::{choose_seat, queued_summary, runner_supports};
+    let foreign = parse_golem(
+        "foreign",
+        "---\nharness: codex\nprovider: github-copilot\n---\nReply with one short greeting.",
+    );
+    assert!(foreign.errors.is_empty(), "{:?}", foreign.errors);
+    let choice = choose_seat(&foreign.frontmatter, &["anthropic"], None).unwrap();
+    assert!(
+        choice.runnable(),
+        "anthropic-only payer runs foreign golems with pi"
+    );
+    let summary = queued_summary("member", &choice, 1800);
+    assert!(summary.starts_with("outcome: queued\nseat: member/anthropic\nharness: pi\nmodel: default\nbudget: 1800s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions\n"));
+    // contract check_run.fallback: `fallback: {any}`, one or more non-space characters.
+    let fallback = summary
+        .lines()
+        .find_map(|line| line.strip_prefix("fallback: "))
+        .unwrap();
+    assert!(fallback.starts_with(|c: char| !c.is_whitespace()));
+    assert!(
+        !summary.contains("/github-copilot\n") && !summary.contains("seat: member/github-copilot")
+    );
+    assert!(summary.ends_with("\nStop: @isp-golem-xiv stop"));
+    let plain = parse_golem("hello", "---\n---\nTask");
+    let own = choose_seat(&plain.frontmatter, &["anthropic"], None).unwrap();
+    assert!(own.runnable());
+    assert!(!queued_summary("member", &own, 1800).contains("fallback"));
+    // The runner executes only Anthropic seats; other choices are refused, never rerouted.
+    for seats in [["openai-codex"], ["github-copilot"]] {
+        assert!(
+            !choose_seat(&foreign.frontmatter, &seats, None)
+                .unwrap()
+                .runnable()
+        );
+    }
+    assert!(
+        choose_seat(&foreign.frontmatter, &[], None).is_none(),
+        "no seat, no run"
+    );
+    assert!(runner_supports(
+        "anthropic",
+        "claude",
+        Some("claude-sonnet-5-5")
+    ));
+    assert!(runner_supports("anthropic", "pi", None));
+    for (provider, harness, model) in [
+        ("anthropic", "codex", None),
+        ("openai-codex", "pi", None),
+        ("anthropic", "pi", Some("anthropic/claude:high")),
+        ("anthropic", "pi", Some("--injected")),
+        ("anthropic", "pi", Some("")),
+    ] {
+        assert!(
+            !runner_supports(provider, harness, model),
+            "{harness} {model:?}"
+        );
+    }
+}
+
+#[test]
 fn seat_holders_map_secret_names_to_members_and_report_people_who_left() {
     let names = [
         "APP_PRIVATE_KEY",

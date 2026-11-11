@@ -686,21 +686,36 @@ fn runtime_timestamp(milliseconds: f64) -> Result<u64> {
 async fn seats_of(github: &Github, login: &str) -> Result<Vec<&'static str>> {
     let mut seats = Vec::new();
     for provider in crate::PROVIDERS {
-        let secret = seat_secret(login, provider).ok_or_else(|| failure("invalid seat login"))?;
-        let (status, _) = github
-            .call(
-                Method::Get,
-                &format!("/repos/{OPS}/actions/secrets/{secret}"),
-                None,
-            )
-            .await?;
-        match status {
-            200 => seats.push(provider),
-            404 => {}
-            _ => return Err(failure("seat metadata unavailable")),
+        if has_seat(github, login, provider).await? {
+            seats.push(provider);
         }
     }
     Ok(seats)
+}
+
+/// The payer's seat choice, `None` without any seat. The common case, a seat at the golem's
+/// provider, costs one metadata read; only a fallback reads the other seats and the preference.
+async fn seat_choice(
+    github: &Github,
+    golem: &Golem,
+    login: &str,
+) -> Result<Option<crate::SeatChoice>> {
+    let front = &golem.frontmatter;
+    let wanted = crate::wanted_provider(front);
+    if has_seat(github, login, wanted).await? {
+        return Ok(crate::choose_seat(front, &[wanted], None));
+    }
+    let mut seats = Vec::new();
+    for provider in crate::PROVIDERS {
+        if provider != wanted && has_seat(github, login, provider).await? {
+            seats.push(provider);
+        }
+    }
+    if seats.is_empty() {
+        return Ok(None);
+    }
+    let preferred = preferred_seat(github, login).await?;
+    Ok(crate::choose_seat(front, &seats, preferred.as_deref()))
 }
 
 async fn preferred_seat(github: &Github, login: &str) -> Result<Option<String>> {
@@ -1019,8 +1034,8 @@ async fn validate_pull(github: &Github, repository: &str, number: u64) -> Result
     Ok(())
 }
 
-async fn has_seat(github: &Github, login: &str) -> Result<bool> {
-    let secret = seat_secret(login, "anthropic").ok_or_else(|| failure("invalid seat login"))?;
+async fn has_seat(github: &Github, login: &str, provider: &str) -> Result<bool> {
+    let secret = seat_secret(login, provider).ok_or_else(|| failure("invalid seat login"))?;
     let (status, _) = github
         .call(
             Method::Get,
@@ -1035,41 +1050,37 @@ async fn has_seat(github: &Github, login: &str) -> Result<bool> {
     }
 }
 
+/// Payer and seat choice of an unattended run. Any seat makes a member the payer; a choice the
+/// runner cannot execute is the caller's to skip, never silently moved to another payer.
 async fn unattended_seat(
     github: &Github,
     golem: &Golem,
     actor: Option<&crate::User>,
-) -> Result<Option<String>> {
+) -> Result<Option<(String, crate::SeatChoice)>> {
     let human = actor.is_some_and(|actor| actor.kind == "User");
+    let login = actor.map_or("", |actor| actor.login.as_str());
     let member = if human {
-        github
-            .member(actor.map_or("", |actor| actor.login.as_str()))
-            .await?
+        github.member(login).await?
     } else {
         false
     };
     if human && !member {
         return Ok(None);
     }
-    let actor_seat = if member {
-        has_seat(github, actor.map_or("", |actor| actor.login.as_str())).await?
-    } else {
-        false
-    };
-    if actor_seat {
-        return Ok(actor.map(|actor| actor.login.clone()));
+    if member && let Some(choice) = seat_choice(github, golem, login).await? {
+        return Ok(Some((login.to_owned(), choice)));
     }
     let Some(owner) = golem.frontmatter.owner.as_deref() else {
         return Ok(None);
     };
     let owner_member = github.member(owner).await?;
-    let owner_seat = if owner_member {
-        has_seat(github, owner).await?
+    let owner_choice = if owner_member {
+        seat_choice(github, golem, owner).await?
     } else {
-        false
+        None
     };
     Ok(event_seat(
-        actor.map_or("", |actor| actor.login.as_str()),
+        login,
         if human {
             crate::EventActor::MemberWithoutSeat
         } else {
@@ -1077,27 +1088,26 @@ async fn unattended_seat(
         },
         Some(owner),
         owner_member,
-        owner_seat,
+        owner_choice.is_some(),
     )
-    .map(str::to_owned))
+    .map(str::to_owned)
+    .zip(owner_choice))
 }
 
-fn supported(golem: &Golem) -> bool {
-    golem.errors.is_empty()
-        && golem.frontmatter.provider.as_deref().unwrap_or("anthropic") == "anthropic"
-        && golem.frontmatter.harness.as_deref().unwrap_or("claude") == "claude"
-}
-
-async fn prepare_request(github: &Github, golem: &Golem, mut request: Value) -> Result<Value> {
+async fn prepare_request(
+    github: &Github,
+    golem: &Golem,
+    choice: &crate::SeatChoice,
+    mut request: Value,
+) -> Result<Value> {
+    if !choice.runnable() {
+        return Err(failure("seat choice unsupported by runner"));
+    }
     let repository = string(&request, "repository")?;
     let timeout = golem
         .timeout_seconds()
         .ok_or_else(|| failure("invalid timeout"))?;
-    let summary = format!(
-        "outcome: queued\nseat: {}/anthropic\nharness: claude\nmodel: {}\nbudget: {timeout}s\nlog: https://github.com/{OPS}/actions\nStop: @isp-golem-xiv stop",
-        string(&request, "seat_login")?,
-        golem.frontmatter.model.as_deref().unwrap_or("default")
-    );
+    let summary = crate::queued_summary(string(&request, "seat_login")?, choice, timeout);
     let check = github.post(&format!("/repos/{repository}/check-runs"), json!({"name":format!("golem/{}",golem.name),"head_sha":request.get("head_sha"),"status":"queued","external_id":request.get("delivery_id"),"output":{"title":"Golem queued","summary":summary}})).await?;
     let fields = request
         .as_object_mut()
@@ -1116,12 +1126,16 @@ async fn prepare_request(github: &Github, golem: &Golem, mut request: Value) -> 
         ("branch", json!(golem.branch())),
         ("verify", json!(golem.frontmatter.verify)),
         ("owner", json!(golem.frontmatter.owner)),
-        ("provider", json!("anthropic")),
-        ("harness", json!("claude")),
-        ("model", json!(golem.frontmatter.model)),
+        ("provider", json!(choice.provider)),
+        ("harness", json!(choice.harness)),
+        ("model", json!(choice.model)),
         ("timeout_seconds", json!(timeout)),
     ] {
         fields.insert(key.into(), value);
+    }
+    // Absent rather than null: requests without fallback stay byte-identical for older runners.
+    if let Some(fallback) = &choice.fallback {
+        fields.insert("fallback".into(), json!(fallback));
     }
     Ok(request)
 }
@@ -1195,10 +1209,13 @@ async fn process_mention(
     else {
         return github.refuse(mention, "unknown-golem", &golems).await;
     };
-    if !supported(golem) || !has_seat(github, &mention.sender.login).await? {
+    let Some(choice) = seat_choice(github, golem, &mention.sender.login)
+        .await?
+        .filter(crate::SeatChoice::runnable)
+    else {
         return github.refuse(mention, "no-seat", &golems).await;
-    }
-    let prepared = prepare_request(github, golem, json!({"delivery_id":delivery_id,"repository_id":delivery.repository.id,"repository":repository,"head_sha":head,"trigger":"mention","issue_number":mention.issue.number,"comment_id":mention.comment.id,"actor_id":mention.sender.id,"actor_login":mention.sender.login,"seat_login":mention.sender.login,"instructions":command.instructions})).await?;
+    };
+    let prepared = prepare_request(github, golem, &choice, json!({"delivery_id":delivery_id,"repository_id":delivery.repository.id,"repository":repository,"head_sha":head,"trigger":"mention","issue_number":mention.issue.number,"comment_id":mention.comment.id,"actor_id":mention.sender.id,"actor_login":mention.sender.login,"seat_login":mention.sender.login,"instructions":command.instructions})).await?;
     let mut work = EventWork {
         version: 2,
         head,
@@ -1286,7 +1303,7 @@ async fn process(
     let selected: Vec<_> = golems
         .into_iter()
         .filter(|golem| {
-            supported(golem)
+            golem.errors.is_empty()
                 && trigger_matches(&golem.frontmatter.triggers, &event, &delivery.action)
         })
         .map(|golem| golem.name)
@@ -1569,12 +1586,14 @@ async fn resume_event(env: &Env, github: &Github, work: &mut EventWork) -> Resul
         work.next += 1;
         return Ok(());
     };
-    if supported(&golem)
+    if golem.errors.is_empty()
         && trigger_matches(&golem.frontmatter.triggers, &work.event, &delivery.action)
-        && let Some(seat) = unattended_seat(github, &golem, Some(&delivery.sender)).await?
+        && let Some((seat, choice)) =
+            unattended_seat(github, &golem, Some(&delivery.sender)).await?
+        && choice.runnable()
     {
         let id = occurrence_id(&format!("event-v2/{}/{}", work.delivery_id, golem.name));
-        work.prepared = Some(prepare_request(github, &golem, json!({"delivery_id":id,"repository_id":delivery.repository.id,"repository":delivery.repository.full_name,"head_sha":head,"trigger":"event","issue_number":delivery.issue.as_ref().or(delivery.pull_request.as_ref()).map(|issue| issue.number),"comment_id":delivery.comment.as_ref().map(|comment| comment.id),"actor_id":delivery.sender.id,"actor_login":delivery.sender.login,"seat_login":seat,"instructions":instructions})).await?);
+        work.prepared = Some(prepare_request(github, &golem, &choice, json!({"delivery_id":id,"repository_id":delivery.repository.id,"repository":delivery.repository.full_name,"head_sha":head,"trigger":"event","issue_number":delivery.issue.as_ref().or(delivery.pull_request.as_ref()).map(|issue| issue.number),"comment_id":delivery.comment.as_ref().map(|comment| comment.id),"actor_id":delivery.sender.id,"actor_login":delivery.sender.login,"seat_login":seat,"instructions":instructions})).await?);
         // CAS this exact check/request before any admission. A rejected or uncertain
         // admission leaves it intact; next tick resubmits identical bytes, never a new run.
         return Ok(());
@@ -2094,7 +2113,7 @@ async fn discover_schedule(
                 .next_golem(repository, &head, cursor.after.as_deref())
                 .await?
             {
-                if supported(&golem)
+                if golem.errors.is_empty()
                     && let Some(due) = golem
                         .frontmatter
                         .schedule
@@ -2150,19 +2169,20 @@ async fn prepare_schedule(
     let Some(golem) = github.golem(repository, &head, &selected.golem).await? else {
         return Ok(None);
     };
-    if supported(&golem)
+    if golem.errors.is_empty()
         && golem
             .frontmatter
             .schedule
             .as_ref()
             .is_some_and(|schedule| crate::schedule_matches(schedule, day))
-        && let Some(seat) = unattended_seat(github, &golem, None).await?
+        && let Some((seat, choice)) = unattended_seat(github, &golem, None).await?
+        && choice.runnable()
     {
         let id = occurrence_id(&format!(
             "schedule-v2/{}/{}/{day}",
             selected.repository_id, golem.name
         ));
-        return prepare_request(github, &golem, json!({"delivery_id":id,"repository_id":selected.repository_id,"repository":repository,"head_sha":head,"trigger":"schedule","issue_number":null,"comment_id":null,"actor_id":null,"actor_login":null,"seat_login":seat,"instructions":"Scheduled daily run."})).await.map(Some);
+        return prepare_request(github, &golem, &choice, json!({"delivery_id":id,"repository_id":selected.repository_id,"repository":repository,"head_sha":head,"trigger":"schedule","issue_number":null,"comment_id":null,"actor_id":null,"actor_login":null,"seat_login":seat,"instructions":"Scheduled daily run."})).await.map(Some);
     }
     Ok(None)
 }

@@ -129,7 +129,7 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
             let before = golem_runner::changes::scan(&workspace)?;
             sandbox::prepare_target(&workspace, &names[0]).await.map_err(|_| "preparation destruction unconfirmed")?
                 .map_err(|_| "target preparation failed")?;
-            let execution = sandbox::run_writable(&workspace, &name, &token, None, &prompt, 180)
+            let execution = sandbox::run_writable(&workspace, &name, &token, "claude", None, &prompt, 180)
                 .await.map_err(|_| "agent destruction unconfirmed")?.map_err(|_| "agent execution failed")?;
             if execution.timed_out { return Err("agent exceeded case budget"); }
             let output = golem_runner::writable_agent_result(&execution.stdout, &execution.stderr, &guard)

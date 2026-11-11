@@ -387,6 +387,7 @@ impl RunContext<'_> {
                 &workspace,
                 name,
                 seat,
+                &self.request.harness,
                 self.request.model.as_deref(),
                 &prompt,
                 self.request.timeout_seconds,
@@ -396,11 +397,8 @@ impl RunContext<'_> {
                 Ok(execution) => execution,
                 Err(error) => return Ok(Err(error)),
             };
-            let output = match if execution.timed_out {
-                golem_runner::partial_agent_result(&execution.stdout, &execution.stderr, guard)
-            } else {
-                golem_runner::writable_agent_result(&execution.stdout, &execution.stderr, guard)
-            } {
+            let parse = golem_runner::writable_parser(&self.request.harness, execution.timed_out);
+            let output = match parse(&execution.stdout, &execution.stderr, guard) {
                 Ok(output) => output,
                 Err(error) => return Ok(Err(error)),
             };

@@ -150,7 +150,7 @@ async function github(request) {
   }
   if (path.startsWith(`/repos/${ops}/git/tags/`)) return answer(200, state.tags.get(path.split('/').at(-1)));
   if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) return path.endsWith('/outsider') ? answer(404, {}) : answer(200, {state:'active'});
-  if (path.startsWith(`/repos/${ops}/actions/secrets/`)) return answer(path.endsWith('SEAT_MEMBER__ANTHROPIC') ? 200 : 404, {});
+  if (path.startsWith(`/repos/${ops}/actions/secrets/`)) return answer(path.endsWith('SEAT_MEMBER__ANTHROPIC') || path.endsWith('SEAT_CODEXONLY__OPENAI_CODEX') ? 200 : 404, {});
   if (path.startsWith(`/repos/${ops}/actions/variables/`)) return answer(404, {});
   if (path.endsWith('/reactions')) {state.reactions.push({path, ...body}); return answer(201, {id:1});}
   if (path.endsWith('/check-runs')) {state.checks.push(body); return answer(201, {id:state.checks.length});}
@@ -320,6 +320,34 @@ try {
   assert.equal(state.queue[0].head_sha,head);
   assert.equal(state.queue[0].instructions,request.instructions);
   assert.equal(state.reactions.filter(reaction => reaction.content === 'rocket').length,1,'coordinator owns v2 rockets');
+  // A golem preferring a provider the payer has no seat at runs on the payer's anthropic seat with pi.
+  files.set('foreign.md', '---\nharness: codex\nprovider: github-copilot\n---\nReply with one short greeting.');
+  const queuedBeforeForeign = state.queue.length;
+  assert.equal((await deliver('v2-fallback-mention', payload('member', '@isp-golem-xiv foreign'))).status, 202);
+  await eventually(() => state.queue.length === queuedBeforeForeign + 1, 'fallback mention admission');
+  const foreign = state.queue.at(-1);
+  assert.equal(foreign.golem, 'foreign');
+  assert.equal(foreign.seat_login, 'member');
+  assert.equal(foreign.provider, 'anthropic');
+  assert.equal(foreign.harness, 'pi');
+  assert.equal(foreign.model, null);
+  assert.match(foreign.fallback, /^asked for github-copilot\/codex, used anthropic\/pi .*no github-copilot seat$/);
+  const foreignCheck = state.checks.at(-1);
+  assert.equal(foreignCheck.name, 'golem/foreign');
+  assert.match(foreignCheck.output.summary, /^seat: member\/anthropic\nharness: pi\nmodel: default$/m);
+  assert.match(foreignCheck.output.summary, /^fallback: \S/m, 'queued check names the fallback');
+  assert.ok(!/seat: \S+\/github-copilot/.test(foreignCheck.output.summary));
+  const refusedBeforeForeign = state.comments.length;
+  assert.equal((await deliver('v2-fallback-no-seat', payload('noseat', '@isp-golem-xiv foreign'))).status, 202);
+  await eventually(() => state.comments.length > refusedBeforeForeign, 'seatless fallback refusal');
+  assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a payer without any seat is still refused');
+  assert.equal(state.queue.length, queuedBeforeForeign + 1, 'seatless mention never enqueues');
+  const refusedBeforeCodex = state.comments.length;
+  assert.equal((await deliver('v2-fallback-unrunnable-seat', payload('codexonly', '@isp-golem-xiv foreign'))).status, 202);
+  await eventually(() => state.comments.length > refusedBeforeCodex, 'unrunnable seat refusal');
+  assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a seat the runner cannot use is refused, never rerouted');
+  assert.equal(state.queue.length, queuedBeforeForeign + 1, 'unrunnable seat never enqueues');
+  files.delete('foreign.md');
   const queuedBeforeHelp = state.queue.length;
   const helpCount = state.comments.length;
   assert.equal((await deliver('v2-bare-help', payload('member', '@isp-golem-xiv\nanything'))).status, 202);
