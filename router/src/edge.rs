@@ -729,6 +729,254 @@ async fn preferred_seat(github: &Github, login: &str) -> Result<Option<String>> 
     }
 }
 
+/// Advisory pull-request validation and push upkeep around the delivery's single head/index read.
+/// Their failures are logged and never drop matching event golems.
+async fn index_with_upkeep(
+    github: &Github,
+    event: &str,
+    delivery: &EventDelivery,
+    repository: &str,
+    info: &Value,
+    delivery_id: &str,
+) -> Result<(String, Vec<Golem>)> {
+    if event == "pull_request"
+        && matches!(
+            delivery.action.as_str(),
+            "opened" | "synchronize" | "reopened"
+        )
+        && let Some(pull) = &delivery.pull_request
+        && validate_pull(github, repository, pull.number)
+            .await
+            .is_err()
+    {
+        worker::console_error!("golem validation failed; delivery={delivery_id}");
+    }
+    let head = github.head(repository, info).await?;
+    let golems = github.index(repository, &head).await?;
+    if event == "push"
+        && maintain_repository(github, repository, info, &head, &golems)
+            .await
+            .is_err()
+    {
+        worker::console_error!("repository upkeep failed; delivery={delivery_id}");
+    }
+    Ok((head, golems))
+}
+
+/// Default-branch upkeep on push, reusing the delivery's head and index so the event
+/// path keeps its subrequest budget: onboard without `.golems/`, else keep the dashboard current.
+async fn maintain_repository(
+    github: &Github,
+    repository: &str,
+    info: &Value,
+    head: &str,
+    golems: &[Golem],
+) -> Result<()> {
+    if golems.is_empty() {
+        // An empty index means a missing directory or one without golems; only the former onboards.
+        let (status, _) = github
+            .call(
+                Method::Get,
+                &format!("/repos/{repository}/contents/.golems?ref={head}"),
+                None,
+            )
+            .await?;
+        match status {
+            404 => return onboard(github, repository, info, head).await,
+            200 => {}
+            _ => return Err(failure("golem directory lookup failed")),
+        }
+    }
+    update_dashboard(github, repository, info, golems).await
+}
+
+/// Opens the onboarding pull request once per repository; an ops tag is the durable claim.
+async fn onboard(github: &Github, repository: &str, info: &Value, head: &str) -> Result<()> {
+    let id = info
+        .get("id")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| failure("missing repository id"))?;
+    let trunk = github
+        .get(&format!("/repos/{OPS}/git/ref/heads/trunk"))
+        .await?;
+    let anchor = trunk
+        .pointer("/object/sha")
+        .and_then(Value::as_str)
+        .filter(|sha| valid_sha(sha))
+        .ok_or_else(|| failure("invalid ops trunk"))?;
+    let (status, _) = github
+        .call(
+            Method::Post,
+            &format!("/repos/{OPS}/git/refs"),
+            Some(json!({"ref":format!("refs/tags/golem-onboarding/{id}"),"sha":anchor})),
+        )
+        .await?;
+    if status == 422 {
+        return Ok(()); // Already onboarded once; closing the pull request is respected.
+    }
+    if status != 201 {
+        return Err(failure("onboarding claim failed"));
+    }
+    let (status, _) = github
+        .call(
+            Method::Post,
+            &format!("/repos/{repository}/git/refs"),
+            Some(json!({"ref":format!("refs/heads/{}", crate::ONBOARDING_BRANCH),"sha":head})),
+        )
+        .await?;
+    if status != 201 {
+        return Err(failure("onboarding branch creation failed"));
+    }
+    for (path, content) in crate::onboarding_files() {
+        let (status, _) = github
+            .call(
+                Method::Put,
+                &format!("/repos/{repository}/contents/{path}"),
+                Some(json!({"message":crate::ONBOARDING_TITLE,"content":STANDARD.encode(content),"branch":crate::ONBOARDING_BRANCH})),
+            )
+            .await?;
+        if status != 201 {
+            return Err(failure("onboarding file write failed"));
+        }
+    }
+    let root = github
+        .get(&format!("/repos/{repository}/contents?ref={head}"))
+        .await?;
+    let names: Vec<&str> = root
+        .as_array()
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|entry| entry.get("name").and_then(Value::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    let toolchain = ["mise.toml", ".mise.toml", ".tool-versions"]
+        .into_iter()
+        .find(|file| names.contains(file));
+    github
+        .post(
+            &format!("/repos/{repository}/pulls"),
+            json!({"title":crate::ONBOARDING_TITLE,"head":crate::ONBOARDING_BRANCH,"base":string(info, "default_branch")?,"body":crate::onboarding_body(toolchain)}),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Seat holders from ops secret names and current organization members; never values.
+async fn live_seat_holders(github: &Github) -> Result<crate::SeatHolders> {
+    let secrets = github
+        .get(&format!("/repos/{OPS}/actions/secrets?per_page=100"))
+        .await?;
+    if secrets
+        .get("total_count")
+        .and_then(Value::as_u64)
+        .is_none_or(|count| count > 100)
+    {
+        return Err(failure("seat secret listing incomplete"));
+    }
+    let names: Vec<&str> = secrets
+        .get("secrets")
+        .and_then(Value::as_array)
+        .ok_or_else(|| failure("invalid seat secret listing"))?
+        .iter()
+        .filter_map(|secret| secret.get("name").and_then(Value::as_str))
+        .collect();
+    let mut members = Vec::new();
+    for page in 1..=3 {
+        let listed = github
+            .get(&format!(
+                "/orgs/{ORGANIZATION}/members?per_page=100&page={page}"
+            ))
+            .await?;
+        let listed = listed
+            .as_array()
+            .ok_or_else(|| failure("invalid member listing"))?;
+        members.extend(
+            listed
+                .iter()
+                .filter_map(|member| member.get("login").and_then(Value::as_str))
+                .map(str::to_owned),
+        );
+        if listed.len() < 100 {
+            let members: Vec<&str> = members.iter().map(String::as_str).collect();
+            return Ok(crate::seat_holders(&names, &members));
+        }
+    }
+    Err(failure("member listing exceeds bound"))
+}
+
+/// Creates and pins the dashboard issue, or updates it when its body changed.
+async fn update_dashboard(
+    github: &Github,
+    repository: &str,
+    info: &Value,
+    golems: &[Golem],
+) -> Result<()> {
+    let holders = if info.get("private").and_then(Value::as_bool) == Some(true) {
+        Some(live_seat_holders(github).await?)
+    } else {
+        None
+    };
+    let body = crate::dashboard_body(golems, holders.as_ref());
+    let issues = github
+        .get(&format!(
+            "/repos/{repository}/issues?state=open&per_page=100"
+        ))
+        .await?;
+    let existing = issues
+        .as_array()
+        .ok_or_else(|| failure("invalid issue listing"))?
+        .iter()
+        .find(|issue| {
+            issue.pointer("/user/login").and_then(Value::as_str) == Some(crate::BOT)
+                && issue.get("title").and_then(Value::as_str) == Some(crate::DASHBOARD_TITLE)
+                && issue.get("pull_request").is_none()
+                && issue
+                    .get("body")
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| text.starts_with(crate::DASHBOARD_MARKER))
+        });
+    if let Some(issue) = existing {
+        if issue.get("body").and_then(Value::as_str) == Some(body.as_str()) {
+            return Ok(());
+        }
+        let number = issue
+            .get("number")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| failure("invalid dashboard number"))?;
+        let (status, _) = github
+            .call(
+                Method::Patch,
+                &format!("/repos/{repository}/issues/{number}"),
+                Some(json!({"body":body})),
+            )
+            .await?;
+        return if status == 200 {
+            Ok(())
+        } else {
+            Err(failure("dashboard update failed"))
+        };
+    }
+    let created = github
+        .post(
+            &format!("/repos/{repository}/issues"),
+            json!({"title":crate::DASHBOARD_TITLE,"body":body}),
+        )
+        .await?;
+    let node = string(&created, "node_id")?;
+    let pinned = github
+        .post(
+            "/graphql",
+            json!({"query":"mutation($id:ID!){pinIssue(input:{issueId:$id}){issue{id}}}","variables":{"id":node}}),
+        )
+        .await?;
+    if pinned.get("errors").is_some() {
+        return Err(failure("dashboard pin failed"));
+    }
+    Ok(())
+}
+
 /// Validates `.golems/` at the pull request head when the pull request touches it.
 async fn validate_pull(github: &Github, repository: &str, number: u64) -> Result<()> {
     let pull = github
@@ -1033,21 +1281,8 @@ async fn process(
         )
         .await;
     }
-    if event == "pull_request"
-        && matches!(
-            delivery.action.as_str(),
-            "opened" | "synchronize" | "reopened"
-        )
-        && let Some(pull) = &delivery.pull_request
-        && validate_pull(&github, repository, pull.number)
-            .await
-            .is_err()
-    {
-        // Validation is advisory to triggers; a failure must not drop matching golems.
-        worker::console_error!("golem validation failed; delivery={delivery_id}");
-    }
-    let head = github.head(repository, &info).await?;
-    let golems = github.index(repository, &head).await?;
+    let (head, golems) =
+        index_with_upkeep(&github, &event, &delivery, repository, &info, &delivery_id).await?;
     let selected: Vec<_> = golems
         .into_iter()
         .filter(|golem| {

@@ -197,6 +197,9 @@ pub struct Golem {
     pub errors: Vec<String>,
     #[serde(skip)]
     pub frontmatter: Frontmatter,
+    /// First task line for the dashboard; never part of the public index.
+    #[serde(skip)]
+    pub purpose: String,
 }
 
 fn timeout_seconds(value: Option<&str>) -> Option<u32> {
@@ -341,6 +344,7 @@ pub fn parse_golem(name: &str, document: &str) -> Golem {
         name: name.into(),
         errors: Vec::new(),
         frontmatter: Frontmatter::default(),
+        purpose: String::new(),
     };
     if !valid_golem_name(name) {
         golem.errors.push("invalid or reserved golem name".into());
@@ -369,6 +373,15 @@ pub fn parse_golem(name: &str, document: &str) -> Golem {
     if task.trim().is_empty() {
         golem.errors.push("task must not be empty".into());
     }
+    golem.purpose = task
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(160)
+        .collect();
     let options = serde_saphyr::options! {
         no_schema: true,
         budget: serde_saphyr::budget! {
@@ -500,6 +513,198 @@ pub fn refusal(reason: &str, golems: &[Golem]) -> String {
         ),
     };
     format!("<!-- isp-golem-xiv kind=refused reason={reason} -->\n{explanation}")
+}
+
+pub const ONBOARDING_TITLE: &str = "Enable golems";
+pub const ONBOARDING_BRANCH: &str = "golems/enable";
+pub const HOUSE_RULES: &str = "You are a golem working unattended in this repository.";
+pub const DASHBOARD_TITLE: &str = "Golems";
+pub const DASHBOARD_MARKER: &str = "<!-- isp-golem-xiv kind=dashboard -->";
+
+/// Exactly the files of the onboarding pull request.
+#[must_use]
+pub fn onboarding_files() -> [(&'static str, String); 2] {
+    [
+        (".golems/_golems.md", format!("{HOUSE_RULES}\n")),
+        (
+            ".golems/hello.md",
+            "---\n---\nLook around this repository and reply with what you see: its purpose, layout, toolchain, and how to build and test it.\nChange nothing in the repository.\n".into(),
+        ),
+    ]
+}
+
+/// Onboarding description: house rules, toolchain presence, and how to check your seat.
+#[must_use]
+pub fn onboarding_body(toolchain: Option<&str>) -> String {
+    let toolchain = toolchain.map_or_else(
+        || "No toolchain description found (`mise.toml`, `.mise.toml` or `.tool-versions`); golems then work with the base image's tools only.".to_owned(),
+        |file| format!("Toolchain description found: `{file}`; golems prepare it before working."),
+    );
+    [
+        "Merging this enables golems here; closing it leaves the repository alone until someone adds `.golems/`.".to_owned(),
+        String::new(),
+        "**House rules.** `.golems/_golems.md` holds rules every golem in this repository follows, like a briefing; edit it to describe how work is done here.".to_owned(),
+        "`.golems/hello.md` is a first golem that changes nothing and reports what it sees.".to_owned(),
+        String::new(),
+        format!("**Toolchain.** {toolchain}"),
+        String::new(),
+        format!("**Seats.** Every run is paid by one person's seat. Check yours with `@isp-golem-xiv seat`; register one at {SEAT_URL}."),
+    ]
+    .join("\n")
+        + "\n"
+}
+
+/// Seat holders derived from ops secret names; logins are matched to current members.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SeatHolders {
+    pub registered: Vec<(String, Vec<&'static str>)>,
+    /// Normalized secret login of seats whose holder is no longer a member.
+    pub departed: Vec<(String, Vec<&'static str>)>,
+}
+
+fn normalized_login(login: &str) -> String {
+    login.replace('-', "_").to_ascii_uppercase()
+}
+
+#[must_use]
+pub fn seat_holders(secret_names: &[&str], members: &[&str]) -> SeatHolders {
+    let mut by_login: std::collections::BTreeMap<String, Vec<&'static str>> =
+        std::collections::BTreeMap::new();
+    for name in secret_names {
+        let Some(rest) = name.strip_prefix("SEAT_") else {
+            continue;
+        };
+        let Some(provider) = PROVIDERS
+            .iter()
+            .copied()
+            .find(|p| rest.ends_with(&format!("__{}", normalized_login(p))))
+        else {
+            continue;
+        };
+        let login = &rest[..rest.len() - normalized_login(provider).len() - 2];
+        if login.is_empty()
+            || !login
+                .bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+        {
+            continue;
+        }
+        by_login.entry(login.to_owned()).or_default().push(provider);
+    }
+    let mut holders = SeatHolders::default();
+    for (login, mut providers) in by_login {
+        providers.sort_by_key(|p| PROVIDERS.iter().position(|x| x == p));
+        match members.iter().find(|m| normalized_login(m) == login) {
+            Some(member) => holders.registered.push(((*member).to_owned(), providers)),
+            None => holders.departed.push((login, providers)),
+        }
+    }
+    holders.registered.sort();
+    holders
+}
+
+fn wakes(front: &Frontmatter) -> String {
+    let mut ways = vec!["mention".to_owned()];
+    if !front.triggers.is_empty() {
+        ways.push(format!(
+            "events {}",
+            front
+                .triggers
+                .iter()
+                .map(|t| format!("`{t}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    match &front.schedule {
+        Some(Schedule::Daily(_)) => ways.push("daily".into()),
+        Some(Schedule::Days(days)) => ways.push(format!("on {}", days.join(", "))),
+        None => {}
+    }
+    ways.join("; ")
+}
+
+/// The pinned dashboard issue; `holders` is `None` in public repositories.
+#[must_use]
+pub fn dashboard_body(golems: &[Golem], holders: Option<&SeatHolders>) -> String {
+    let mut lines = vec![
+        DASHBOARD_MARKER.to_owned(),
+        "Golems in this repository, kept current by isp-golem-xiv.".to_owned(),
+        String::new(),
+        "## Golems".to_owned(),
+        String::new(),
+    ];
+    let enabled: Vec<_> = golems.iter().filter(|g| g.errors.is_empty()).collect();
+    if enabled.is_empty() {
+        lines.push("None yet; add one to `.golems/`.".into());
+    }
+    for golem in enabled {
+        let pays = golem.frontmatter.owner.as_deref().map_or_else(
+            || "whoever mentions it".to_owned(),
+            |owner| format!("whoever mentions it; unattended runs @{owner}"),
+        );
+        lines.push(format!(
+            "- `{}`: {} Wakes: {}. Pays: {pays}. Start: comment `@isp-golem-xiv {}`.",
+            golem.name,
+            golem.purpose,
+            wakes(&golem.frontmatter),
+            golem.name
+        ));
+    }
+    lines.extend([String::new(), "## Disabled".to_owned(), String::new()]);
+    let disabled: Vec<_> = golems.iter().filter(|g| !g.errors.is_empty()).collect();
+    if disabled.is_empty() {
+        lines.push("None.".into());
+    }
+    for golem in disabled {
+        lines.push(format!("- `{}`: {}", golem.name, golem.errors.join("; ")));
+    }
+    lines.extend([
+        String::new(),
+        "## Talk to golems".to_owned(),
+        String::new(),
+        "- `@isp-golem-xiv`: list the golems here and the seat and model each would use for you"
+            .to_owned(),
+        "- `@isp-golem-xiv <golem> [instructions]`: run a golem here".to_owned(),
+        "- `@isp-golem-xiv stop`: stop the golem run started here".to_owned(),
+        "- `@isp-golem-xiv seat`: show your seats and link to registration".to_owned(),
+        String::new(),
+        "## Seats".to_owned(),
+        String::new(),
+    ]);
+    let list = |items: &[(String, Vec<&str>)], prefix: &str| -> Vec<String> {
+        if items.is_empty() {
+            return vec!["- none".into()];
+        }
+        items
+            .iter()
+            .map(|(who, providers)| {
+                format!(
+                    "- {prefix}{who}: {}",
+                    providers
+                        .iter()
+                        .map(|p| format!("`{p}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .collect()
+    };
+    match holders {
+        Some(holders) => {
+            lines.push("Registered seats:".into());
+            lines.extend(list(&holders.registered, "@"));
+            lines.push(String::new());
+            lines.push("Seats of people who left the organization:".into());
+            lines.extend(list(&holders.departed, ""));
+            lines.push(String::new());
+            lines.push(format!("Register or replace your seat: {SEAT_URL}"));
+        }
+        None => lines.push(format!(
+            "Check your own seat with `@isp-golem-xiv seat`; register one at {SEAT_URL}."
+        )),
+    }
+    lines.join("\n") + "\n"
 }
 
 /// Check run name for pull requests that change `.golems/`.

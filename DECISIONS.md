@@ -3,6 +3,16 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-11: Onboarding and dashboard on push
+
+- Pushes by people to an allowlisted repository trigger upkeep after event claiming: without `.golems/` at the default-branch head, the App opens **Enable golems** from branch `golems/enable` with exactly `.golems/_golems.md` (house rules) and `.golems/hello.md`; with `.golems/`, it keeps the **Golems** dashboard current.
+- Onboarding happens once per repository: an ops tag `golem-onboarding/<repository id>` is claimed before any write, so closing the pull request is respected; a failure after the claim is not retried and needs manual cleanup (accepted trade-off).
+- The dashboard is found by App author, title and a hidden marker; it is created and pinned once, and patched only when its rendered body changes.
+  Sections follow SPEC: Golems (purpose, wakes, who pays, how to start), Disabled with reasons, Talk to golems, Seats.
+  Seats are listed only in private repositories, from ops secret names matched to current members; unmatched seat names are reported as people who left; values are never read.
+- Open gaps: last outcome per golem and updates after every run, and dashboard run boxes, are not implemented yet; concurrent first pushes could create two dashboards.
+- Upkeep failures are logged and never drop event golems.
+
 ## 2026-11-11: Pull-request validation check
 
 - `pull_request` opened/synchronize/reopened events whose files touch `.golems/` (or fill a whole files page) get a completed `golems/validate` check at the head commit, built from the same index parser the router uses; any invalid golem fails it and the summary lists each golem's reasons.
