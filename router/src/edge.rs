@@ -729,6 +729,40 @@ async fn preferred_seat(github: &Github, login: &str) -> Result<Option<String>> 
     }
 }
 
+/// Advisory pull-request validation and push upkeep around the delivery's single head/index read.
+/// Their failures are logged and never drop matching event golems.
+async fn index_with_upkeep(
+    github: &Github,
+    event: &str,
+    delivery: &EventDelivery,
+    repository: &str,
+    info: &Value,
+    delivery_id: &str,
+) -> Result<(String, Vec<Golem>)> {
+    if event == "pull_request"
+        && matches!(
+            delivery.action.as_str(),
+            "opened" | "synchronize" | "reopened"
+        )
+        && let Some(pull) = &delivery.pull_request
+        && validate_pull(github, repository, pull.number)
+            .await
+            .is_err()
+    {
+        worker::console_error!("golem validation failed; delivery={delivery_id}");
+    }
+    let head = github.head(repository, info).await?;
+    let golems = github.index(repository, &head).await?;
+    if event == "push"
+        && maintain_repository(github, repository, info, &head, &golems)
+            .await
+            .is_err()
+    {
+        worker::console_error!("repository upkeep failed; delivery={delivery_id}");
+    }
+    Ok((head, golems))
+}
+
 /// Default-branch upkeep on push, reusing the delivery's head and index so the event
 /// path keeps its subrequest budget: onboard without `.golems/`, else keep the dashboard current.
 async fn maintain_repository(
@@ -1247,29 +1281,8 @@ async fn process(
         )
         .await;
     }
-    if event == "pull_request"
-        && matches!(
-            delivery.action.as_str(),
-            "opened" | "synchronize" | "reopened"
-        )
-        && let Some(pull) = &delivery.pull_request
-        && validate_pull(&github, repository, pull.number)
-            .await
-            .is_err()
-    {
-        // Validation is advisory to triggers; a failure must not drop matching golems.
-        worker::console_error!("golem validation failed; delivery={delivery_id}");
-    }
-    let head = github.head(repository, &info).await?;
-    let golems = github.index(repository, &head).await?;
-    if event == "push"
-        && maintain_repository(&github, repository, &info, &head, &golems)
-            .await
-            .is_err()
-    {
-        // Onboarding and dashboard upkeep never block event golems.
-        worker::console_error!("repository upkeep failed; delivery={delivery_id}");
-    }
+    let (head, golems) =
+        index_with_upkeep(&github, &event, &delivery, repository, &info, &delivery_id).await?;
     let selected: Vec<_> = golems
         .into_iter()
         .filter(|golem| {
