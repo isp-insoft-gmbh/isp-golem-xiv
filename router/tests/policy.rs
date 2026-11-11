@@ -63,6 +63,24 @@ fn seat_choice_prefers_golem_provider_then_preferred_then_order_and_names_fallba
 }
 
 #[test]
+fn sign_in_location_uses_public_client_encoded_callback_and_uuid_state() {
+    let state = "0f6e1c2a-1b2c-4d3e-8f90-123456789abc";
+    assert_eq!(
+        router::sign_in_location(state).as_deref(),
+        Some(
+            "https://github.com/login/oauth/authorize?client_id=Iv23liEnfLEVCSS2aUdR&redirect_uri=https%3A%2F%2Fisp-golem-xiv.isp-insoft-gmbh.workers.dev%2Fauth%2Fgithub%2Fcallback&state=0f6e1c2a-1b2c-4d3e-8f90-123456789abc"
+        )
+    );
+    for invalid in [
+        "",
+        "x&redirect_uri=evil",
+        "0f6e1c2a-1b2c-4d3e-8f90-123456789abc&x",
+    ] {
+        assert_eq!(router::sign_in_location(invalid), None, "{invalid}");
+    }
+}
+
+#[test]
 fn help_and_seat_replies_carry_markers_choices_and_only_the_askers_seats() {
     let golems = vec![
         parse_golem("hello", "---\n---\nTask"),

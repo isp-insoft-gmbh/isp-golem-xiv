@@ -12,6 +12,34 @@ pub const BOT: &str = "isp-golem-xiv[bot]";
 pub const OPS: &str = "isp-insoft-gmbh/isp-golem-xiv-ops";
 pub const TEST_TOPIC: &str = "isp-golem-xiv-test";
 pub const SEAT_URL: &str = "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats";
+pub const ROUTER_URL: &str = "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev";
+pub const OAUTH_CALLBACK: &str = "/auth/github/callback";
+/// Public client id of the App's user authorization; the client secret stays a Worker secret.
+pub const CLIENT_ID: &str = "Iv23liEnfLEVCSS2aUdR";
+
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                char::from(b).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
+/// GitHub sign-in URL; `state` must be a UUID bound to the browser by cookie.
+#[must_use]
+pub fn sign_in_location(state: &str) -> Option<String> {
+    valid_delivery(state).then(|| {
+        format!(
+            "https://github.com/login/oauth/authorize?client_id={CLIENT_ID}&redirect_uri={}&state={state}",
+            percent_encode(&format!("{ROUTER_URL}{OAUTH_CALLBACK}"))
+        )
+    })
+}
 pub const FILE_BYTES_MAX: usize = 65_536;
 pub const COMMENT_BYTES_MAX: usize = 16_384;
 pub const GOLEMS_MAX: usize = 20;

@@ -14,6 +14,8 @@ function der(tag, bytes) {
   const length = size < 128 ? [size] : size < 256 ? [0x81, size] : [0x82, size >> 8, size & 255];
   return new Uint8Array([tag, ...length, ...bytes]);
 }
+export function randomState() { return crypto.randomUUID(); }
+
 export async function appJwt(pem) {
   if (pem.length > 16384) throw new Error('key limit');
   const pkcs1 = pem.includes('-----BEGIN RSA PRIVATE KEY-----');

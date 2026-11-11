@@ -31,6 +31,8 @@ extern "C" {
     fn deadline_promise(deadline: &JsValue) -> worker::js_sys::Promise;
     #[wasm_bindgen(js_name = cancelDeadline)]
     fn cancel_deadline(deadline: &JsValue);
+    #[wasm_bindgen(js_name = randomState)]
+    fn random_state() -> String;
 }
 
 type Result<T> = std::result::Result<T, worker::Error>;
@@ -1950,6 +1952,21 @@ async fn fetch(mut request: Request, env: Env, ctx: Context) -> Result<Response>
             worker::console_error!("golem index failed (details suppressed)");
             Response::error("Index temporarily unavailable", 502)
         };
+    }
+    // Without a session every page sends the browser to GitHub sign-in; state binds the callback.
+    if request.method() == Method::Get && matches!(path.as_str(), "/seats" | "/admin") {
+        let state = random_state();
+        let Some(location) = crate::sign_in_location(&state) else {
+            return Response::error("Sign-in unavailable", 503);
+        };
+        let headers = Headers::new();
+        headers.set("Location", &location)?;
+        headers.set(
+            "Set-Cookie",
+            &format!("golem_oauth_state={state}; Path=/auth/github; Max-Age=600; HttpOnly; Secure; SameSite=Lax"),
+        )?;
+        headers.set("Cache-Control", "no-store")?;
+        return Ok(Response::empty()?.with_status(302).with_headers(headers));
     }
     if request.method() == Method::Post && path == "/internal/queue" {
         return match bounded(internal_queue(&mut request, &env), 25_000).await {

@@ -12,6 +12,7 @@ Each entry: date, decision, reason, and evidence where it exists.
 - Validation no longer disables incompatible harness/provider pairs such as `codex` with `github-copilot`: SPEC calls them preferences resolved at run time, and the contract's fallback scenario requires such a golem to run.
   Unknown harness or provider values stay invalid.
   Dispatch still refuses golems not on `anthropic`/`claude` until the runner supports `pi` and other providers.
+- `/seats` and `/admin` without a session redirect to GitHub's App user authorization with the public client id, the contract callback, and a fresh `crypto.randomUUID` state mirrored in a ten-minute `HttpOnly; Secure; SameSite=Lax` cookie scoped to `/auth/github`; the callback and sessions follow once the callback URL is registered.
 
 ## 2026-11-06: Stop fence for dispatched rows that never bound
 
