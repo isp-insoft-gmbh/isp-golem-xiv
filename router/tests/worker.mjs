@@ -128,6 +128,7 @@ async function github(request) {
   if (path.startsWith(`/repos/${ops}/git/tags/`)) return answer(200, state.tags.get(path.split('/').at(-1)));
   if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) return path.endsWith('/outsider') ? answer(404, {}) : answer(200, {state:'active'});
   if (path.startsWith(`/repos/${ops}/actions/secrets/`)) return answer(path.endsWith('SEAT_MEMBER__ANTHROPIC') ? 200 : 404, {});
+  if (path.startsWith(`/repos/${ops}/actions/variables/`)) return answer(404, {});
   if (path.endsWith('/reactions')) {state.reactions.push({path, ...body}); return answer(201, {id:1});}
   if (path.endsWith('/check-runs')) {state.checks.push(body); return answer(201, {id:state.checks.length});}
   if (path === `/repos/${ops}/actions/workflows/runner.yml/dispatches`) {state.dispatches.push(body); return answer(dispatchStatus, dispatchStatus === 204 ? null : {});}
@@ -224,7 +225,16 @@ try {
   const refusalCount = state.comments.length;
   assert.equal((await deliver('bare-first-line', payload('member', '@isp-golem-xiv\nhello say this'))).status, 202);
   await eventually(() => state.comments.length > refusalCount, 'bare first line remains a bare mention');
-  assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=unknown-golem -->'));
+  const help = state.comments.at(-1);
+  assert.ok(help.startsWith('<!-- isp-golem-xiv kind=help -->'), 'bare mention answers help');
+  assert.match(help, /^- `hello`: seat `member\/anthropic`, harness `claude`, model `default`$/m);
+  assert.ok(help.includes('Your seats: `anthropic`.') && help.includes('/seats'));
+  const seatCount = state.comments.length;
+  assert.equal((await deliver('seat-command', payload('member', '@isp-golem-xiv seat'))).status, 202);
+  await eventually(() => state.comments.length > seatCount, 'seat command answers');
+  const seatReply = state.comments.at(-1);
+  assert.ok(seatReply.startsWith('<!-- isp-golem-xiv kind=seat -->\n@member, your seats: `anthropic`.'), 'seat reply names only the asker');
+  assert.ok(seatReply.includes('https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats'));
   assert.equal(state.dispatches.length, 0);
   const deliveries = await Promise.all([deliver('duplicate', payload()), deliver('duplicate', payload())]);
   assert.ok(deliveries.every(response => response.status === 202));

@@ -680,6 +680,53 @@ fn runtime_timestamp(milliseconds: f64) -> Result<u64> {
     Ok(milliseconds as u64)
 }
 
+/// Names only: secret values are never readable through the API.
+async fn seats_of(github: &Github, login: &str) -> Result<Vec<&'static str>> {
+    let mut seats = Vec::new();
+    for provider in crate::PROVIDERS {
+        let secret = seat_secret(login, provider).ok_or_else(|| failure("invalid seat login"))?;
+        let (status, _) = github
+            .call(
+                Method::Get,
+                &format!("/repos/{OPS}/actions/secrets/{secret}"),
+                None,
+            )
+            .await?;
+        match status {
+            200 => seats.push(provider),
+            404 => {}
+            _ => return Err(failure("seat metadata unavailable")),
+        }
+    }
+    Ok(seats)
+}
+
+async fn preferred_seat(github: &Github, login: &str) -> Result<Option<String>> {
+    if !crate::valid_login(login) {
+        return Err(failure("invalid seat login"));
+    }
+    let name = format!(
+        "SEAT_PREFERRED_{}",
+        login.replace('-', "_").to_ascii_uppercase()
+    );
+    let (status, value) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{OPS}/actions/variables/{name}"),
+            None,
+        )
+        .await?;
+    match status {
+        200 => Ok(value
+            .get("value")
+            .and_then(Value::as_str)
+            .filter(|v| crate::PROVIDERS.contains(v))
+            .map(str::to_owned)),
+        404 => Ok(None),
+        _ => Err(failure("preferred seat unavailable")),
+    }
+}
+
 async fn has_seat(github: &Github, login: &str) -> Result<bool> {
     let secret = seat_secret(login, "anthropic").ok_or_else(|| failure("invalid seat login"))?;
     let (status, _) = github
@@ -824,6 +871,28 @@ async fn process_mention(
         if !(200..300).contains(&response.status_code()) {
             return Err(failure("stop failed"));
         }
+        return Ok(());
+    }
+    if matches!(command.golem, "" | "help" | "seat") {
+        let login = &mention.sender.login;
+        let seats = seats_of(github, login).await?;
+        let preferred = preferred_seat(github, login).await?;
+        let body = if command.golem == "seat" {
+            crate::seat_reply(login, &seats, preferred.as_deref())
+        } else {
+            let head = github.head(repository, info).await?;
+            let golems = github.index(repository, &head).await?;
+            crate::help_reply(login, &golems, &seats, preferred.as_deref())
+        };
+        github
+            .post(
+                &format!(
+                    "/repos/{repository}/issues/{}/comments",
+                    mention.issue.number
+                ),
+                json!({"body":body}),
+            )
+            .await?;
         return Ok(());
     }
     let head = github.head(repository, info).await?;
