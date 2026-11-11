@@ -184,4 +184,19 @@ Router versions differ across this proof: the first changer case (run `420560299
   After 207 seconds (≥ unchanged 3-minute loop watch) there was exactly one echo runner run and one App reply `6784735711`, marked and quoting the trigger, with no `golems/echo` branch or PR.
   The driver itself exited 1 on its own wrong assumption that event requests carry a null branch (router assigns `golems/echo`); remaining checks were completed read-only without a new comment.
 
-This proves the previously failing changer, continuation and echo behaviours live on v5; unchanged full Slice 2 acceptance has not yet been rerun.
+This proves the previously failing changer, continuation and echo behaviours live on v5; unchanged full Slice 2 acceptance follows below.
+
+## Unchanged full Slice 2 acceptance passed
+
+After Oliver granted the `delete_repo` and `workflow` gh scopes, private runtime PR #11 merged as `abf9489eea62f5f7aac43b1185f048a89e05591e` (CI `42946847311`); its runner.yml byte-matches the reviewed template (native v5 plus bounded download retries).
+All 18 Slice 2 preflight checks passed, then `mise run accept -- --slice 2 --keep` ran as activity `activity-d4ea3e67-2` and exited 0 with 2287 untruncated log bytes (`C:\Users\okr\AppData\Local\Temp\golem-slice2-kaTx7M\accept.log`, private).
+The gate table had 32 rows, all ok: every Slice 1 and Slice 2 promise in `contract.nuon`, including the previously failing `change-pr`, `continue-branch` and `no-loop-event`.
+`accept.nu` and `contract.nuon` were clean and identical to trunk `3413531383f278a82c4428460dd9f758182a40c3`.
+Live `/health` reported version `3413531`, a docs-only successor (EVIDENCE.md, STATUS.md) of the fenced code `1b72c82`; its CI `42943643378` and deploy `42943643392` succeeded.
+
+Kept sandboxes and App check runs, harvested read-only after the run:
+
+- `isp-insoft-gmbh/isp-golem-xiv-test-core-20261111033454`: hello replied (`130282306450`, run `42947096710`); changer changed (`130284060122`, run `42947630773`) and continuation changed (`130284594447`, run `42947791952`) on the single App PR #4 at `77192308d6cf566bf1a65acbbb7f682021ba432a`; sneaky blocked (`130285106537`, run `42947946715`); serial hello/hello/hi replied (`130285653317`/`130285655846`/`130285657374`, runs `42948398974`/`42948596050`/`42948119399`); slow stopped/cancelled (`130287774046`, run `42948779907`).
+- `isp-insoft-gmbh/isp-golem-xiv-test-events-20261111033454`: quiet no_change (`130288474757`, run `42948981421`); echo replied (`130288993679`, run `42949142583`).
+
+The gate table does not cover two known open gaps: a stopped row whose target repository is gone stays retained, and the Windows-only Miniflare/Undici reset in the oversized-body Worker test remains unexplained.
