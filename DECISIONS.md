@@ -3,6 +3,17 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-11: Seat fallback runs on a `pi` harness
+
+- Dispatch uses `choose_seat` with the payer's seats and preferred seat; it dispatches only choices the runner can execute (Anthropic with `claude` or `pi`) and otherwise refuses mentions with no-seat or skips unattended work, never moving cost to another payer.
+  Requests carry the chosen provider, harness and model, plus an optional bounded `fallback` text that every check summary, reply and pull request repeats as `fallback: ...`; requests without fallback stay byte-identical.
+  The runner recomputes the choice from the pinned definition and the paying seat and rejects any mismatch.
+- The agent image adds Pi `1.5.1` (pinned) with `ripgrep`/`fd`, run in JSON mode with sessions, extensions, skills, context files and MCP disabled except a baked `golem_report` extension; the seat token is passed as `ANTHROPIC_OAUTH_TOKEN` only to Pi.
+  The typed result is exactly one successful `golem_report` call made last, parsed from Pi's events; missing, duplicate or malformed reports, unsettled or aborted runs fail closed, because Pi's JSON mode exits 0 even on provider errors.
+- Pi runs only on writable (version 2) requests; read-only v1 stays on `claude`.
+- Known gaps: Pi has no turn limit (timeout bounds it); the seat token is visible to Pi's bash tool like Claude's, guarded only by output scanning; coordinator-written stopped/blocked summaries lack the fallback line; help may show choices the runner cannot yet run; codex and Copilot providers still unsupported.
+  Real Pi behaviour (report call, default model) is unproven until a live run.
+
 ## 2026-11-11: Onboarding and dashboard on push
 
 - Pushes by people to an allowlisted repository trigger upkeep after event claiming: without `.golems/` at the default-branch head, the App opens **Enable golems** from branch `golems/enable` with exactly `.golems/_golems.md` (house rules) and `.golems/hello.md`; with `.golems/`, it keeps the **Golems** dashboard current.

@@ -39,12 +39,57 @@ function toolEnvironment() {
     return env;
   } finally { fs.closeSync(fd); }
 }
-function execute(executable, args, env) {
+function execute(executable, args, env, filter) {
   // Forward termination and preserve the watchdog's process group.
-  const child = cp.spawn(executable, args, { env, stdio: 'inherit', cwd: '/workspace' });
+  const child = cp.spawn(executable, args, { env, stdio: filter ? ['inherit', 'pipe', 'inherit'] : 'inherit', cwd: '/workspace' });
   child.on('error', () => { process.exitCode = 1; });
-  child.on('exit', (code, signal) => { process.exitCode = signal ? 1 : code; });
+  child.on(filter ? 'close' : 'exit', (code, signal) => { process.exitCode = signal ? 1 : code; });
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => child.kill(signal));
+  if (!filter) return;
+  // JSONL records end only at LF (never Unicode separators); a final partial line passes as is.
+  let parts = [];
+  const emit = bytes => {
+    const kept = filter(bytes.toString('utf8').replace(/\r$/, ''));
+    if (kept !== undefined) process.stdout.write(kept + '\n');
+  };
+  child.stdout.on('data', chunk => {
+    let start = 0;
+    for (let end = chunk.indexOf(10); end !== -1; end = chunk.indexOf(10, start)) {
+      parts.push(chunk.subarray(start, end));
+      emit(Buffer.concat(parts));
+      parts = [];
+      start = end + 1;
+    }
+    if (start < chunk.length) parts.push(chunk.subarray(start));
+  });
+  child.stdout.on('end', () => { if (parts.length) emit(Buffer.concat(parts)); });
+}
+// Pi's JSON stream repeats content in deltas, turn and agent summaries. Keep only the facts the
+// runner judges: assistant model, stop reason and text; tool identities; the single report's
+// arguments; settlement. Malformed lines pass unchanged so the runner fails closed.
+function piRecord(line) {
+  let record;
+  try { record = JSON.parse(line); } catch { return line; }
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) return line;
+  const { type, message, toolCallId, toolName } = record;
+  if (type === 'message_end' && message?.role === 'assistant') {
+    const content = Array.isArray(message.content) ? message.content.filter(block => block?.type === 'text').map(({ type, text }) => ({ type, text })) : [];
+    return JSON.stringify({ type, message: { role: 'assistant', model: message.model, responseModel: message.responseModel, stopReason: message.stopReason, content } });
+  }
+  if (type === 'tool_execution_start') return JSON.stringify({ type, toolCallId, toolName, args: toolName === 'golem_report' ? record.args : undefined });
+  if (type === 'tool_execution_end') return JSON.stringify({ type, toolCallId, toolName, isError: record.isError });
+  if (type === 'agent_settled') return JSON.stringify({ type, aborted: record.aborted });
+  return undefined;
+}
+function harnessEntry(entry, args, env, filter) {
+  // npm may provide either a JS launcher or a native executable. Resolve once
+  // at image build, never through the target's PATH or mise configuration.
+  const fd = fs.openSync(entry, 'r');
+  const magic = Buffer.alloc(256);
+  const count = fs.readSync(fd, magic, 0, magic.length, 0);
+  fs.closeSync(fd);
+  const javascript = magic.subarray(0, count).toString().startsWith('#!') && magic.subarray(0, count).toString().split('\n')[0].includes('node');
+  execute(javascript ? '/usr/local/bin/node' : entry, javascript ? [entry, ...args] : args, env, filter);
 }
 const args = process.argv.slice(2);
 if (args[0] === '--prepare-target') {
@@ -64,19 +109,22 @@ if (args[0] === '--prepare-target') {
   const command = fs.readFileSync(0, 'utf8');
   execute('/bin/bash', ['--noprofile', '--norc', '-c', command || ':'], toolEnvironment());
 } else {
-  const env = {
-    ...(process.env.GOLEM_WRITABLE === '1' ? toolEnvironment() : targetEnv),
-    CLAUDE_CONFIG_DIR: '/home/agent/.claude', DISABLE_AUTOUPDATER: '1',
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-    CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
-  };
-  // npm may provide either a JS launcher or a native executable. Resolve once
-  // at image build, never through the target's PATH or mise configuration.
-  const entry = '/opt/golem/claude-entry';
-  const fd = fs.openSync(entry, 'r');
-  const magic = Buffer.alloc(256);
-  const count = fs.readSync(fd, magic, 0, magic.length, 0);
-  fs.closeSync(fd);
-  const javascript = magic.subarray(0, count).toString().startsWith('#!') && magic.subarray(0, count).toString().split('\n')[0].includes('node');
-  execute(javascript ? '/usr/local/bin/node' : entry, javascript ? [entry, ...args] : args, env);
+  const harness = process.env.GOLEM_HARNESS ?? 'claude';
+  const base = process.env.GOLEM_WRITABLE === '1' ? toolEnvironment() : targetEnv;
+  // Each harness receives only its own seat variable, never the other's.
+  if (harness === 'pi') {
+    harnessEntry('/opt/golem/pi-entry', args, {
+      ...base, PI_CODING_AGENT_DIR: '/home/agent/.pi/agent', PI_OFFLINE: '1',
+      PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0', JITI_FS_CACHE: 'false',
+      ANTHROPIC_OAUTH_TOKEN: process.env.ANTHROPIC_OAUTH_TOKEN,
+    }, piRecord);
+  } else if (harness === 'claude') {
+    harnessEntry('/opt/golem/claude-entry', args, {
+      ...base, CLAUDE_CONFIG_DIR: '/home/agent/.claude', DISABLE_AUTOUPDATER: '1',
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+    });
+  } else {
+    process.exit(64);
+  }
 }

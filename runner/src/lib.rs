@@ -49,6 +49,9 @@ pub struct DispatchV1 {
     pub owner: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queue_generation: Option<String>,
+    /// What was asked for, what is used, and why; present only when the seat choice fell back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
     pub seat_login: String,
     pub provider: String,
     pub harness: String,
@@ -98,9 +101,16 @@ impl DispatchV1 {
         let raw: serde_json::Value =
             serde_json::from_str(json).map_err(|_| "invalid dispatch JSON")?;
         if request.version == 1
-            && ["trigger", "branch", "verify", "owner", "queue_generation"]
-                .iter()
-                .any(|field| raw.get(field).is_some())
+            && [
+                "trigger",
+                "branch",
+                "verify",
+                "owner",
+                "queue_generation",
+                "fallback",
+            ]
+            .iter()
+            .any(|field| raw.get(field).is_some())
         {
             return Err("version 1 cannot contain version 2 fields");
         }
@@ -129,21 +139,22 @@ impl DispatchV1 {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
             || !identifier(&request.seat_login, 39)
-            || request.provider != "anthropic"
-            || request.harness != "claude"
+            || !router::runner_supports(
+                &request.provider,
+                &request.harness,
+                request.model.as_deref(),
+            )
+            || (request.harness == "pi" && request.version != 2)
+            || request.fallback.as_ref().is_some_and(|fallback| {
+                fallback.trim().is_empty()
+                    || fallback.len() > 512
+                    || fallback.chars().any(char::is_control)
+            })
             || !(1..=18_000).contains(&request.timeout_seconds)
             || request.instructions.len() > 16_384
             || request.instructions.contains('\0')
             || [request.repository_id, request.check_run_id].contains(&0)
             || [request.issue_number, request.comment_id, request.actor_id].contains(&Some(0))
-            || request.model.as_ref().is_some_and(|model| {
-                model.len() > 128
-                    || model.is_empty()
-                    || model.starts_with('-')
-                    || !model
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
-            })
         {
             return Err("unsupported or inconsistent dispatch");
         }
@@ -241,10 +252,15 @@ impl DispatchV1 {
             .timeout_seconds()
             .ok_or("invalid definition timeout")?;
         let front = definition.frontmatter;
+        // The router's choice for a payer whose seat is at this provider: the golem's own
+        // preference, or exactly the fallback it names. The runner cannot see the other seats.
+        let expected = router::choose_seat(&front, &[self.provider.as_str()], None)
+            .ok_or("dispatch differs from definition")?;
         if u64::from(timeout) != self.timeout_seconds
-            || front.harness.as_deref().unwrap_or("claude") != self.harness
-            || front.provider.as_deref().unwrap_or("anthropic") != self.provider
-            || front.model != self.model
+            || expected.provider != self.provider
+            || expected.harness != self.harness
+            || expected.model != self.model
+            || expected.fallback != self.fallback
         {
             return Err("dispatch differs from definition");
         }
@@ -266,8 +282,9 @@ impl DispatchV1 {
     #[must_use]
     pub fn seat_secret_name(&self) -> String {
         format!(
-            "SEAT_{}__ANTHROPIC",
-            self.seat_login.to_ascii_uppercase().replace('-', "_")
+            "SEAT_{}__{}",
+            self.seat_login.to_ascii_uppercase().replace('-', "_"),
+            self.provider.to_ascii_uppercase().replace('-', "_")
         )
     }
 
@@ -279,20 +296,31 @@ impl DispatchV1 {
     #[must_use]
     pub fn summary(&self, outcome: &str, model: &str, run_id: &str) -> String {
         format!(
-            "outcome: {outcome}\nseat: {}/{}\nharness: {}\nmodel: {model}\nbudget: {}s\nlog: {}",
+            "outcome: {outcome}\nseat: {}/{}\nharness: {}\nmodel: {model}\nbudget: {}s\nlog: {}{}",
             self.seat_login,
             self.provider,
             self.harness,
             self.timeout_seconds,
-            self.log_url(run_id)
+            self.log_url(run_id),
+            self.fallback_line("\n")
         )
+    }
+
+    /// `fallback: <what was asked, used, why>` after `separator`, or nothing without fallback.
+    #[must_use]
+    pub fn fallback_line(&self, separator: &str) -> String {
+        self.fallback
+            .as_deref()
+            .map(|fallback| format!("{separator}fallback: {fallback}"))
+            .unwrap_or_default()
     }
 
     #[must_use]
     pub fn reply(&self, output: &str) -> String {
         format!(
-            "<!-- isp-golem-xiv kind=reply golem={} -->\n\n{output}",
-            self.golem
+            "<!-- isp-golem-xiv kind=reply golem={} -->\n\n{output}{}",
+            self.golem,
+            self.fallback_line("\n\n")
         )
     }
 }
@@ -631,6 +659,200 @@ fn completed_agent_result(
     })
 }
 
+/// Each harness's own writable protocol, after a normal exit or a timeout.
+#[must_use]
+pub fn writable_parser(
+    harness: &str,
+    timed_out: bool,
+) -> fn(&[u8], &[u8], &OutputGuard) -> Result<AgentOutput> {
+    match (harness, timed_out) {
+        ("pi", true) => pi_partial_result,
+        ("pi", false) => pi_writable_result,
+        (_, true) => partial_agent_result,
+        (_, false) => writable_agent_result,
+    }
+}
+
+/// The golem-owned Pi tool whose single successful call is the writable result.
+pub const PI_REPORT_TOOL: &str = "golem_report";
+
+/// Facts from the filtered Pi JSONL stream; prose never decides an outcome.
+#[derive(Default)]
+struct PiStream {
+    models: std::collections::BTreeSet<String>,
+    /// Arguments of each successful report, in order; failed calls were already refused by Pi.
+    reports: Vec<Option<serde_json::Value>>,
+    tools_after_report: bool,
+    settled: usize,
+    aborted: bool,
+    last_stop: Option<String>,
+    text: String,
+}
+
+impl PiStream {
+    fn parse(stdout: &[u8], partial: bool) -> Result<Self> {
+        let mut stream = Self::default();
+        let mut report_args = std::collections::BTreeMap::new();
+        for (index, value) in serde_json::Deserializer::from_slice(stdout)
+            .into_iter::<serde_json::Value>()
+            .enumerate()
+        {
+            if index >= 4096 {
+                return Err("too many harness records");
+            }
+            let value = match value {
+                Ok(value) => value,
+                Err(error) if partial && error.is_eof() => break,
+                Err(_) => return Err("invalid harness result"),
+            };
+            stream.record(&value, &mut report_args)?;
+            if (partial && stream.text.len() > 48_000) || stream.models.len() > 8 {
+                return Err("harness result exceeds limit");
+            }
+        }
+        Ok(stream)
+    }
+
+    fn record(
+        &mut self,
+        value: &serde_json::Value,
+        report_args: &mut std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Result<()> {
+        let text = |key: &str| value.get(key).and_then(serde_json::Value::as_str);
+        let report = text("toolName") == Some(PI_REPORT_TOOL);
+        match text("type") {
+            Some("message_end") => {
+                let Some(message) = value.get("message").filter(|message| {
+                    message.get("role").and_then(serde_json::Value::as_str) == Some("assistant")
+                }) else {
+                    return Ok(());
+                };
+                let field = |key: &str| message.get(key).and_then(serde_json::Value::as_str);
+                if let Some(model) = field("responseModel").or_else(|| field("model")) {
+                    self.models.insert(model.to_owned());
+                }
+                self.last_stop = field("stopReason").map(str::to_owned);
+                let answer: String = message
+                    .get("content")
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|block| {
+                        block.get("type").and_then(serde_json::Value::as_str) == Some("text")
+                    })
+                    .filter_map(|block| block.get("text").and_then(serde_json::Value::as_str))
+                    .collect();
+                if !answer.trim().is_empty() {
+                    self.text = answer;
+                }
+            }
+            Some("tool_execution_start") => {
+                self.tools_after_report |= !self.reports.is_empty();
+                let id = text("toolCallId").ok_or("invalid harness tool record")?;
+                if report
+                    && report_args
+                        .insert(
+                            id.to_owned(),
+                            value.get("args").cloned().unwrap_or_default(),
+                        )
+                        .is_some()
+                {
+                    return Err("duplicate writable result");
+                }
+            }
+            Some("tool_execution_end")
+                if report && value.get("isError") == Some(&serde_json::Value::Bool(false)) =>
+            {
+                let id = text("toolCallId").ok_or("invalid harness tool record")?;
+                self.reports.push(report_args.remove(id));
+            }
+            Some("agent_settled") => {
+                self.settled += 1;
+                self.aborted |= value.get("aborted") != Some(&serde_json::Value::Bool(false));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn observed_model(&self) -> Result<String> {
+        if self.models.iter().any(|model| !valid_model(model)) {
+            return Err("invalid observed model");
+        }
+        Ok(self.models.iter().cloned().collect::<Vec<_>>().join(","))
+    }
+
+    /// Exactly one settled, unaborted run whose last answer ended normally, and exactly one
+    /// successful, final, strictly typed report. Anything else fails closed.
+    fn completed(self, guard: &OutputGuard) -> Result<AgentOutput> {
+        if self.settled != 1
+            || self.aborted
+            || !matches!(self.last_stop.as_deref(), Some("toolUse" | "stop"))
+        {
+            return Err("harness did not complete successfully");
+        }
+        let answer: WritableAnswer = match self.reports.as_slice() {
+            [] => return Err("missing writable result"),
+            [Some(args)] if !self.tools_after_report => {
+                serde_json::from_value(args.clone()).map_err(|_| "invalid writable result")?
+            }
+            _ => return Err("invalid writable result"),
+        };
+        if answer.message.trim().is_empty() || answer.message.len() > 48_000 {
+            return Err("empty or oversized reply");
+        }
+        let model = self.observed_model()?;
+        if model.is_empty() {
+            return Err("missing or invalid observed model usage");
+        }
+        guard.check(&answer.message)?;
+        guard.check(&model)?;
+        Ok(AgentOutput {
+            text: answer.message,
+            model,
+            disposition: Some(answer.disposition),
+        })
+    }
+}
+
+/// # Errors
+/// Requires the strict Pi report protocol; never infers status from prose or exit codes,
+/// because Pi's JSON mode exits zero after a failed model response.
+pub fn pi_writable_result(
+    stdout: &[u8],
+    stderr: &[u8],
+    guard: &OutputGuard,
+) -> Result<AgentOutput> {
+    checked_output(stdout, stderr, guard)?;
+    PiStream::parse(stdout, false)?.completed(guard)
+}
+
+/// # Errors
+/// After a timeout: a settled run or a successful report must satisfy the full protocol;
+/// otherwise bounded partial text with only observed model attribution.
+pub fn pi_partial_result(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result<AgentOutput> {
+    checked_output(stdout, stderr, guard)?;
+    let stream = PiStream::parse(stdout, true)?;
+    if stream.settled > 0 || !stream.reports.is_empty() {
+        return stream.completed(guard);
+    }
+    let model = stream.observed_model()?;
+    let mut text = stream.text;
+    if text.trim().is_empty() {
+        text = "Budget exhausted before a final answer was observed.".into();
+    }
+    guard.check(&text)?;
+    Ok(AgentOutput {
+        text,
+        disposition: None,
+        model: if model.is_empty() {
+            "unobserved".into()
+        } else {
+            model
+        },
+    })
+}
+
 #[cfg(test)]
 // Test assertions deliberately panic on malformed fixtures.
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
@@ -870,6 +1092,264 @@ mod tests {
         assert!(parse(&value).is_err());
         assert!(agent_result(value.to_string().as_bytes(), b"", &guard).is_ok());
         assert!(writable_agent_result(&vec![b' '; OUTPUT_BYTES_MAX + 1], b"", &guard).is_err());
+    }
+
+    const FOREIGN: &str = "---\nharness: codex\nprovider: github-copilot\n---\nTask";
+
+    fn fallback_request() -> serde_json::Value {
+        let front = router::parse_golem("hello", FOREIGN).frontmatter;
+        let choice = router::choose_seat(&front, &["anthropic"], None).unwrap();
+        let mut value: serde_json::Value = serde_json::from_str(&request_json()).unwrap();
+        value["version"] = serde_json::json!(2);
+        value["trigger"] = serde_json::json!("mention");
+        value["branch"] = serde_json::json!("golems/hello");
+        value["queue_generation"] = serde_json::json!("12345678-1234-1234-1234-123456789abc");
+        value["harness"] = serde_json::json!(choice.harness);
+        value["fallback"] = serde_json::json!(choice.fallback);
+        value
+    }
+
+    #[test]
+    fn fallback_dispatch_binds_the_router_choice_and_says_so_in_check_and_reply() {
+        let value = fallback_request();
+        let request = parse(&value.to_string()).unwrap();
+        assert_eq!(request.harness, "pi");
+        assert_eq!(request.seat_secret_name(), "SEAT_TEST_MEMBER__ANTHROPIC");
+        assert!(request.validate_definition(FOREIGN).is_ok());
+        assert!(
+            request.validate_definition("---\n---\nTask").is_err(),
+            "a golem preferring anthropic never falls back"
+        );
+        let summary = request.summary("replied", "claude-opus-5-5", "99");
+        let fallback = summary
+            .lines()
+            .find_map(|line| line.strip_prefix("fallback: "))
+            .unwrap();
+        assert!(fallback.starts_with("asked for github-copilot/codex, used anthropic/pi"));
+        assert!(summary.contains("\nseat: test-member/anthropic\nharness: pi\n"));
+        assert!(!summary.contains("seat: test-member/github-copilot"));
+        assert!(request.reply("answer").starts_with(
+            "<!-- isp-golem-xiv kind=reply golem=hello -->\n\nanswer\n\nfallback: asked for"
+        ));
+        // The claimed choice must be exactly what the router derives for an anthropic seat.
+        for (field, bad) in [
+            ("fallback", serde_json::json!("asked for nothing")),
+            ("fallback", serde_json::Value::Null),
+            ("harness", serde_json::json!("claude")),
+            ("model", serde_json::json!("claude-opus-5-5")),
+        ] {
+            let mut modified = value.clone();
+            modified[field] = bad;
+            if let Ok(request) = parse(&modified.to_string()) {
+                assert!(request.validate_definition(FOREIGN).is_err(), "{field}");
+            }
+        }
+        for bad in ["", " ", "line\nbreak", &"x".repeat(513)] {
+            let mut modified = value.clone();
+            modified["fallback"] = serde_json::json!(bad);
+            assert!(parse(&modified.to_string()).is_err(), "{bad:?}");
+        }
+        let mut legacy: serde_json::Value = serde_json::from_str(&request_json()).unwrap();
+        legacy["harness"] = serde_json::json!("pi");
+        assert!(parse(&legacy.to_string()).is_err(), "pi is writable-only");
+        legacy["harness"] = serde_json::json!("claude");
+        legacy["fallback"] = serde_json::json!("text");
+        assert!(
+            parse(&legacy.to_string()).is_err(),
+            "version 1 has no fallback"
+        );
+        let plain = parse(&request_json()).unwrap();
+        assert!(!plain.summary("replied", "m", "1").contains("fallback"));
+        assert!(!plain.reply("answer").contains("fallback"));
+    }
+
+    fn pi_stream(records: &[serde_json::Value]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        for record in records {
+            bytes.extend_from_slice(record.to_string().as_bytes());
+            bytes.push(b'\n');
+        }
+        bytes
+    }
+
+    fn assistant(stop: &str, text: &str) -> serde_json::Value {
+        serde_json::json!({"type":"message_end","message":{"role":"assistant","model":"claude-opus-5-5",
+            "stopReason":stop,"content":[{"type":"text","text":text}]}})
+    }
+
+    fn report(id: &str, args: &serde_json::Value, is_error: bool) -> [serde_json::Value; 2] {
+        [
+            serde_json::json!({"type":"tool_execution_start","toolCallId":id,"toolName":PI_REPORT_TOOL,"args":args}),
+            serde_json::json!({"type":"tool_execution_end","toolCallId":id,"toolName":PI_REPORT_TOOL,"isError":is_error}),
+        ]
+    }
+
+    fn settled(aborted: bool) -> serde_json::Value {
+        serde_json::json!({"type":"agent_settled","aborted":aborted})
+    }
+
+    fn reported(args: &serde_json::Value) -> Vec<serde_json::Value> {
+        let mut records = vec![assistant("toolUse", "prose is never the answer")];
+        records.extend(report("call-1", args, false));
+        records.push(settled(false));
+        records
+    }
+
+    #[test]
+    fn pi_result_requires_one_successful_final_typed_report_and_observed_model() {
+        let guard = OutputGuard::default();
+        let parse =
+            |records: &[serde_json::Value]| pi_writable_result(&pi_stream(records), b"", &guard);
+        let completed = serde_json::json!({"disposition":"completed","message":"the answer"});
+        assert_eq!(
+            parse(&reported(&completed)).unwrap(),
+            AgentOutput {
+                text: "the answer".into(),
+                model: "claude-opus-5-5".into(),
+                disposition: Some(AgentDisposition::Completed),
+            }
+        );
+        let blocked = serde_json::json!({"disposition":"blocked","message":"cannot"});
+        assert_eq!(
+            parse(&reported(&blocked)).unwrap().disposition,
+            Some(AgentDisposition::Blocked)
+        );
+        let mut concrete = reported(&completed);
+        concrete[0]["message"]["responseModel"] = serde_json::json!("claude-opus-5-5-20261101");
+        assert_eq!(parse(&concrete).unwrap().model, "claude-opus-5-5-20261101");
+        // A call Pi refused for invalid arguments does not count; the corrected one does.
+        let mut retried = vec![assistant("toolUse", "")];
+        retried.extend(report(
+            "call-0",
+            &serde_json::json!({"disposition":"maybe"}),
+            true,
+        ));
+        retried.extend(reported(&completed));
+        assert!(parse(&retried).is_ok());
+        for invalid in [
+            serde_json::json!({"disposition":"unknown","message":"answer"}),
+            serde_json::json!({"disposition":"completed"}),
+            serde_json::json!({"message":"answer"}),
+            serde_json::json!({"disposition":"completed","message":" "}),
+            serde_json::json!({"disposition":"completed","message":"x".repeat(48_001)}),
+            serde_json::json!({"disposition":"completed","message":"answer","extra":true}),
+            serde_json::json!({"disposition":"completed","message":"ghp_leaked"}),
+            serde_json::Value::Null,
+        ] {
+            assert!(parse(&reported(&invalid)).is_err(), "{invalid}");
+        }
+        let missing = [assistant("stop", "I did it, trust me"), settled(false)];
+        assert_eq!(parse(&missing), Err("missing writable result"));
+        let mut duplicate = reported(&completed);
+        duplicate.splice(3..3, report("call-2", &completed, false));
+        assert_eq!(parse(&duplicate), Err("invalid writable result"));
+        let mut reused_id = reported(&completed);
+        reused_id.splice(1..1, report("call-1", &completed, true));
+        assert!(parse(&reused_id).is_err(), "one call identity, one report");
+        let mut after = reported(&completed);
+        after.insert(3, serde_json::json!({"type":"tool_execution_start","toolCallId":"call-3","toolName":"bash"}));
+        assert_eq!(
+            parse(&after),
+            Err("invalid writable result"),
+            "report must be final"
+        );
+        let unmatched = [
+            assistant("toolUse", ""),
+            report("call-1", &completed, false)[1].clone(),
+            settled(false),
+        ];
+        assert_eq!(parse(&unmatched), Err("invalid writable result"));
+    }
+
+    #[test]
+    fn pi_failed_unsettled_or_unattributed_runs_fail_closed() {
+        let guard = OutputGuard::default();
+        let parse =
+            |records: &[serde_json::Value]| pi_writable_result(&pi_stream(records), b"", &guard);
+        let completed = serde_json::json!({"disposition":"completed","message":"answer"});
+        // Authentication or provider failure: JSON mode exits zero, the event says error.
+        let auth = [assistant("error", ""), settled(false)];
+        assert_eq!(parse(&auth), Err("harness did not complete successfully"));
+        let mut late_error = reported(&completed);
+        late_error.insert(3, assistant("error", ""));
+        assert_eq!(
+            parse(&late_error),
+            Err("harness did not complete successfully")
+        );
+        for stop in ["length", "aborted", "pending"] {
+            let mut records = reported(&completed);
+            records[0] = assistant(stop, "");
+            assert!(parse(&records).is_err(), "{stop}");
+        }
+        let mut aborted = reported(&completed);
+        aborted[3] = settled(true);
+        assert!(parse(&aborted).is_err());
+        let mut unsettled = reported(&completed);
+        unsettled.pop();
+        assert!(parse(&unsettled).is_err());
+        let mut twice = reported(&completed);
+        twice.push(settled(false));
+        assert!(parse(&twice).is_err());
+        let mut unobserved = reported(&completed);
+        unobserved[0]["message"]
+            .as_object_mut()
+            .unwrap()
+            .remove("model");
+        assert_eq!(
+            parse(&unobserved),
+            Err("missing or invalid observed model usage")
+        );
+        let mut injected = reported(&completed);
+        injected[0]["message"]["model"] = serde_json::json!("bad\nmodel");
+        assert!(parse(&injected).is_err());
+        let mut stream = pi_stream(&reported(&completed));
+        stream.extend_from_slice(b"not json\n");
+        assert!(pi_writable_result(&stream, b"", &guard).is_err());
+        let stream = pi_stream(&reported(&completed));
+        assert!(pi_writable_result(&stream, b"ghp_secret", &guard).is_err());
+        assert!(pi_writable_result(&vec![b' '; OUTPUT_BYTES_MAX + 1], b"", &guard).is_err());
+        // A claude result record is not a Pi report.
+        let claude = br#"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"disposition":"completed","message":"done"},"modelUsage":{"m":{}}}"#;
+        assert!(pi_writable_result(claude, b"", &guard).is_err());
+    }
+
+    #[test]
+    fn pi_timeout_keeps_partial_text_and_only_observed_models() {
+        let guard = OutputGuard::default();
+        let partial = |bytes: &[u8]| pi_partial_result(bytes, b"", &guard);
+        let mut stream = pi_stream(&[assistant("toolUse", "partial work")]);
+        stream.extend_from_slice(br#"{"type":"tool_execution_start","toolCa"#);
+        assert_eq!(
+            partial(&stream).unwrap(),
+            AgentOutput {
+                text: "partial work".into(),
+                model: "claude-opus-5-5".into(),
+                disposition: None,
+            }
+        );
+        let empty = partial(b"").unwrap();
+        assert_eq!(empty.model, "unobserved");
+        assert_eq!(
+            empty.text,
+            "Budget exhausted before a final answer was observed."
+        );
+        let completed = serde_json::json!({"disposition":"completed","message":"answer"});
+        let finished = pi_stream(&reported(&completed));
+        assert_eq!(
+            partial(&finished).unwrap(),
+            pi_writable_result(&finished, b"", &guard).unwrap(),
+            "a settled run is judged by the full protocol"
+        );
+        let mut unsettled = reported(&completed);
+        unsettled.pop();
+        assert!(
+            partial(&pi_stream(&unsettled)).is_err(),
+            "a report requires the full protocol"
+        );
+        assert!(partial(&pi_stream(&[assistant("error", ""), settled(false)])).is_err());
+        assert!(partial(b"not json\n{}").is_err());
+        let long = pi_stream(&[assistant("stop", &"x".repeat(48_001))]);
+        assert!(partial(&long).is_err());
     }
 
     #[test]

@@ -773,6 +773,55 @@ pub struct SeatChoice {
     pub fallback: Option<String>,
 }
 
+impl SeatChoice {
+    /// Whether the released runner can execute this choice: Anthropic seats with `claude` or
+    /// `pi`, and a model identifier that is a single safe CLI argument.
+    #[must_use]
+    pub fn runnable(&self) -> bool {
+        runner_supports(&self.provider, &self.harness, self.model.as_deref())
+    }
+}
+
+/// Shared by router dispatch and the runner's credential-boundary validation.
+#[must_use]
+pub fn runner_supports(provider: &str, harness: &str, model: Option<&str>) -> bool {
+    provider == "anthropic"
+        && matches!(harness, "claude" | "pi")
+        && model.is_none_or(|model| {
+            !model.is_empty()
+                && model.len() <= 128
+                && !model.starts_with('-')
+                && model
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"-._".contains(&byte))
+        })
+}
+
+/// The provider a golem prefers: its own, else its harness's home provider.
+#[must_use]
+pub fn wanted_provider(frontmatter: &Frontmatter) -> &str {
+    frontmatter
+        .provider
+        .as_deref()
+        .unwrap_or_else(|| default_provider(frontmatter.harness.as_deref().unwrap_or("claude")))
+}
+
+/// Summary of the check run created at dispatch; a fallback always says so.
+#[must_use]
+pub fn queued_summary(seat_login: &str, choice: &SeatChoice, timeout_seconds: u32) -> String {
+    let fallback = choice
+        .fallback
+        .as_deref()
+        .map(|fallback| format!("\nfallback: {fallback}"))
+        .unwrap_or_default();
+    format!(
+        "outcome: queued\nseat: {seat_login}/{}\nharness: {}\nmodel: {}\nbudget: {timeout_seconds}s\nlog: https://github.com/{OPS}/actions{fallback}\nStop: @isp-golem-xiv stop",
+        choice.provider,
+        choice.harness,
+        choice.model.as_deref().unwrap_or("default"),
+    )
+}
+
 /// SPEC "Which seat and model": golem provider first, else the preferred seat, else the first
 /// registered seat; keep the harness if it works there, else `pi`, with the harness default model.
 #[must_use]
@@ -781,10 +830,7 @@ pub fn choose_seat(
     seats: &[&str],
     preferred: Option<&str>,
 ) -> Option<SeatChoice> {
-    let wanted = frontmatter
-        .provider
-        .as_deref()
-        .unwrap_or_else(|| default_provider(frontmatter.harness.as_deref().unwrap_or("claude")));
+    let wanted = wanted_provider(frontmatter);
     let harness = frontmatter
         .harness
         .as_deref()

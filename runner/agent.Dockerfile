@@ -1,10 +1,11 @@
 FROM node:22.22.0-bookworm-slim@sha256:dd9d21971ec4395903fa6143c2b9267d048ae01ca6d3ea96f16cb30df6187d94
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git build-essential curl unzip xz-utils pkg-config \
+    && apt-get install -y --no-install-recommends ca-certificates git build-essential curl unzip xz-utils pkg-config ripgrep fd-find \
     && rm -rf /var/lib/apt/lists/*
 COPY mise /usr/local/bin/mise
 COPY agent.mise.toml /opt/mise-config/config.toml
 COPY container.cjs /opt/golem/container.cjs
+COPY pi-report.js /opt/golem/pi-report.js
 ENV MISE_DATA_DIR=/opt/mise MISE_CONFIG_DIR=/opt/mise-config MISE_CACHE_DIR=/opt/mise-cache MISE_YES=1 CI=1 NPM_CONFIG_YES=true
 RUN mise --version | grep '^2026.10.21 ' \
     && mise install \
@@ -22,11 +23,18 @@ RUN mise --version | grep '^2026.10.21 ' \
     && grep -F -- '--allowedTools' /tmp/claude-help \
     && grep -F -- '--settings' /tmp/claude-help \
     && rm -f /tmp/claude-help \
+    && mise exec -- pi --version | grep -F '1.5.1' \
+    && PI_OFFLINE=1 mise exec -- pi --help >/tmp/pi-help \
+    && for flag in --mode --no-session --session-dir --offline --no-approve --no-extensions --extension \
+         --no-skills --no-prompt-templates --no-themes --no-context-files --no-mcp --tools \
+         --append-system-prompt --provider --model; do grep -F -- "$flag" /tmp/pi-help; done \
+    && rm -rf /tmp/pi-help /root/.pi \
     && mkdir -p /workspace /home/agent \
     && chmod -R a+rX /opt/mise /opt/mise-config \
     && chown 1000:1000 /home/agent \
     && ln -s "$(mise which claude)" /usr/local/bin/claude \
     && ln -s "$(readlink -f /usr/local/bin/claude)" /opt/golem/claude-entry \
+    && ln -s "$(readlink -f "$(mise which pi)")" /opt/golem/pi-entry \
     && rm -rf /opt/mise-cache /root/.npm
 # --max-turns is registered but hidden from --help in the pinned CLI.
 # Prove parsing through auth, not turn-limit enforcement (requires a live run).
@@ -57,6 +65,32 @@ RUN --network=none set -eu; \
       --max-turns 1 --print probe; \
     probe stream 'Not logged in · Please run /login' '' \
       --max-turns 1 --print --output-format stream-json --verbose probe
+# Pi through the real entry and stream filter, offline. Without a seat no model resolves and
+# startup exits 1. With a syntactically valid but unusable seat, flags, the report extension
+# and the tool allowlist load (a load failure exits 1); the request fails without network,
+# which JSON mode reports as an assistant error event while exiting 0. This proves startup and
+# filtered stream shape, not authentication, reporting, or tool use (those require a live run).
+RUN --network=none set -eu; \
+    root="$(mktemp -d)"; \
+    trap 'rm -rf "$root" /home/agent/.pi' EXIT; \
+    pi_probe() { \
+      name="$1"; token="$2"; code=0; \
+      printf 'probe' | env -i PATH=/usr/local/bin:/usr/bin:/bin GOLEM_HARNESS=pi GOLEM_WRITABLE=0 \
+        ${token:+ANTHROPIC_OAUTH_TOKEN="$token"} \
+        /usr/bin/timeout --signal=KILL 90 /usr/local/bin/node /opt/golem/container.cjs \
+        --mode json --no-session --session-dir /tmp/golem-pi-sessions --offline --no-approve \
+        --no-extensions --extension /opt/golem/pi-report.js --no-skills --no-prompt-templates \
+        --no-themes --no-context-files --no-mcp --tools read,bash,edit,write,grep,find,ls,golem_report \
+        >"$root/$name.out" 2>"$root/$name.err" || code=$?; \
+      cat "$root/$name.out" "$root/$name.err"; \
+      echo "$code" >"$root/$name.code"; \
+    }; \
+    pi_probe unseated ''; \
+    test "$(cat "$root/unseated.code")" -eq 1; \
+    test ! -s "$root/unseated.out"; \
+    pi_probe offline "sk-ant-oat01-$(printf 'x%.0s' $(seq 1 40))"; \
+    test "$(cat "$root/offline.code")" -eq 0; \
+    /usr/local/bin/node -e 'const fs = require("node:fs"); const records = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(JSON.parse); const allowed = ["message_end", "tool_execution_start", "tool_execution_end", "agent_settled"]; const ends = records.filter(r => r.type === "message_end"); if (records.some(r => !allowed.includes(r.type)) || ends.length === 0 || ends.at(-1).message.stopReason !== "error" || records.filter(r => r.type === "agent_settled").length !== 1 || records.some(r => r.toolName === "golem_report")) process.exit(1);' "$root/offline.out"
 RUN printf '%s\n' \
       '#!/bin/sh' \
       'set -eu' \

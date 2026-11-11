@@ -610,12 +610,13 @@ impl Github {
             .await?;
         }
         let body = format!(
-            "{}\n\n{}\n\nseat: {}/{}\nmodel: {}",
+            "{}\n\n{}\n\nseat: {}/{}\nmodel: {}{}",
             Self::ownership_marker(request),
             output.text,
             request.seat_login,
             request.provider,
-            output.model
+            output.model,
+            request.fallback_line("\n")
         );
         guard.check(&body)?;
         let published = if let Some(pull) = pull {

@@ -12,6 +12,10 @@ use tokio::{
 const IMAGE: &str = "isp-golem-xiv-agent:v0";
 const FORBIDDEN_READ_ROOTS: [&str; 6] = ["proc", "sys", "dev", "home", "tmp", "run"];
 const TARGET_TIMEOUT_SECONDS: u64 = 600;
+/// Built-in Pi tools a writable golem needs, plus the golem-owned report tool.
+const PI_TOOLS: &str = "read,bash,edit,write,grep,find,ls,golem_report";
+/// Pi treats an existing path as a file to read; over 255 bytes without `/` it cannot be one.
+const PI_INSTRUCTIONS: &str = "Finish by calling golem_report exactly once, as your last action, and do nothing after it. Set disposition to blocked if policy, permissions or another obstacle prevented fulfilling the task; otherwise completed, including ordinary answers or nothing to do. Put your complete final answer in message; text outside golem_report is never delivered.";
 
 pub struct Execution {
     pub stdout: Vec<u8>,
@@ -167,6 +171,7 @@ pub async fn prepare(mise: &Path) -> Result<()> {
         ("Dockerfile", include_str!("../agent.Dockerfile")),
         ("agent.mise.toml", include_str!("../agent.mise.toml")),
         ("container.cjs", include_str!("../container.cjs")),
+        ("pi-report.js", include_str!("../pi-report.js")),
     ] {
         std::fs::write(context.path().join(name), contents)
             .map_err(|_| "cannot stage trusted image source")?;
@@ -339,22 +344,79 @@ async fn lifecycle(
     Ok(result)
 }
 
+struct Agent<'a> {
+    seat: &'a str,
+    harness: &'a str,
+    model: Option<&'a str>,
+    writable: bool,
+}
+
 async fn agent(
     workspace: &Path,
     name: &str,
-    seat: &str,
-    model: Option<&str>,
+    settings: &Agent<'_>,
     prompt: &str,
     timeout_seconds: u64,
-    writable: bool,
 ) -> Result<Result<Execution>> {
+    let writable = settings.writable;
+    // Pi runs writable golems only; the read-only v1 protocol stays on claude.
+    if !matches!((settings.harness, writable), ("claude", _) | ("pi", true)) {
+        return Ok(Err("unsupported harness"));
+    }
     let mut create =
         match create_container(workspace, name, writable, writable, false, timeout_seconds) {
             Ok(create) => create,
             Err(error) => return Ok(Err(error)),
         };
-    configure_agent(&mut create, seat, model, writable);
+    if settings.harness == "pi" {
+        configure_pi(&mut create, settings.seat, settings.model);
+    } else {
+        configure_agent(&mut create, settings.seat, settings.model, writable);
+    }
     lifecycle(create, name, Some(prompt.as_bytes()), timeout_seconds).await
+}
+
+/// JSON events on stdout, the prompt on stdin, nothing loaded from the repository or home:
+/// no sessions, extensions, skills, templates, themes, MCP or context files except the
+/// golem-owned report extension; project trust declined; no automatic network activity.
+fn configure_pi(create: &mut Command, seat: &str, model: Option<&str>) {
+    create
+        .args([
+            "--env",
+            "ANTHROPIC_OAUTH_TOKEN",
+            "--env",
+            "GOLEM_WRITABLE",
+            "--env",
+            "GOLEM_HARNESS",
+        ])
+        .env("ANTHROPIC_OAUTH_TOKEN", seat)
+        .env("GOLEM_WRITABLE", "1")
+        .env("GOLEM_HARNESS", "pi")
+        .args([
+            IMAGE,
+            "--mode",
+            "json",
+            "--no-session",
+            "--session-dir",
+            "/tmp/golem-pi-sessions",
+            "--offline",
+            "--no-approve",
+            "--no-extensions",
+            "--extension",
+            "/opt/golem/pi-report.js",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-themes",
+            "--no-context-files",
+            "--no-mcp",
+            "--tools",
+            PI_TOOLS,
+            "--append-system-prompt",
+            PI_INSTRUCTIONS,
+        ]);
+    if let Some(model) = model {
+        create.args(["--provider", "anthropic", "--model", model]);
+    }
 }
 
 fn configure_agent(create: &mut Command, seat: &str, model: Option<&str>, writable: bool) {
@@ -374,9 +436,12 @@ fn configure_agent(create: &mut Command, seat: &str, model: Option<&str>, writab
             "CLAUDE_CODE_OAUTH_TOKEN",
             "--env",
             "GOLEM_WRITABLE",
+            "--env",
+            "GOLEM_HARNESS",
         ])
         .env("CLAUDE_CODE_OAUTH_TOKEN", seat)
         .env("GOLEM_WRITABLE", if writable { "1" } else { "0" })
+        .env("GOLEM_HARNESS", "claude")
         .args([
             IMAGE,
             "--safe-mode",
@@ -429,17 +494,21 @@ pub async fn run(
     prompt: &str,
     timeout_seconds: u64,
 ) -> Result<Result<(Vec<u8>, Vec<u8>)>> {
-    Ok(
-        agent(workspace, name, seat, model, prompt, timeout_seconds, false)
-            .await?
-            .and_then(|execution| {
-                if execution.timed_out {
-                    Err("agent wall-clock budget exhausted")
-                } else {
-                    Ok((execution.stdout, execution.stderr))
-                }
-            }),
-    )
+    let settings = Agent {
+        seat,
+        harness: "claude",
+        model,
+        writable: false,
+    };
+    Ok(agent(workspace, name, &settings, prompt, timeout_seconds)
+        .await?
+        .and_then(|execution| {
+            if execution.timed_out {
+                Err("agent wall-clock budget exhausted")
+            } else {
+                Ok((execution.stdout, execution.stderr))
+            }
+        }))
 }
 
 /// # Errors
@@ -450,11 +519,18 @@ pub async fn run_writable(
     workspace: &Path,
     name: &str,
     seat: &str,
+    harness: &str,
     model: Option<&str>,
     prompt: &str,
     timeout_seconds: u64,
 ) -> Result<Result<Execution>> {
-    agent(workspace, name, seat, model, prompt, timeout_seconds, true).await
+    let settings = Agent {
+        seat,
+        harness,
+        model,
+        writable: true,
+    };
+    agent(workspace, name, &settings, prompt, timeout_seconds).await
 }
 
 /// The sibling `<workspace>.golem-tools` must live in the supervisor's private
@@ -575,10 +651,94 @@ mod tests {
     }
 
     #[test]
+    fn pi_runs_json_events_with_only_the_report_extension_and_its_own_seat_variable() {
+        for model in [None, Some("claude-sonnet-5-5")] {
+            let mut command = docker();
+            configure_pi(&mut command, "sentinel", model);
+            let command = command.as_std();
+            let args: Vec<_> = command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            let image = args.iter().position(|arg| arg == IMAGE).unwrap();
+            let harness = &args[image + 1..];
+            let pair = |flag: &str, value: &str| {
+                harness
+                    .windows(2)
+                    .any(|pair| pair[0] == flag && pair[1] == value)
+            };
+            assert!(pair("--mode", "json"));
+            assert!(pair("--extension", "/opt/golem/pi-report.js"));
+            assert!(pair(
+                "--tools",
+                "read,bash,edit,write,grep,find,ls,golem_report"
+            ));
+            assert!(pair("--session-dir", "/tmp/golem-pi-sessions"));
+            assert!(pair("--append-system-prompt", PI_INSTRUCTIONS));
+            for flag in [
+                "--no-session",
+                "--offline",
+                "--no-approve",
+                "--no-extensions",
+                "--no-skills",
+                "--no-prompt-templates",
+                "--no-themes",
+                "--no-context-files",
+                "--no-mcp",
+            ] {
+                assert!(harness.iter().any(|arg| arg == flag), "{flag}");
+            }
+            assert_eq!(
+                harness.iter().filter(|arg| *arg == "--extension").count(),
+                1
+            );
+            assert_eq!(
+                model.is_some(),
+                pair("--provider", "anthropic") && pair("--model", model.unwrap_or_default())
+            );
+            assert!(
+                !harness.iter().any(|arg| arg == "sentinel"),
+                "seat never in argv"
+            );
+            let env: Vec<_> = command
+                .get_envs()
+                .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
+                .collect();
+            assert!(env.contains(&("ANTHROPIC_OAUTH_TOKEN", "sentinel")));
+            assert!(env.contains(&("GOLEM_HARNESS", "pi")));
+            assert!(env.contains(&("GOLEM_WRITABLE", "1")));
+            assert!(!env.iter().any(|(key, _)| *key == "CLAUDE_CODE_OAUTH_TOKEN"));
+        }
+        // Pi reads an existing path's contents instead of the text; this cannot name a file.
+        assert!(PI_INSTRUCTIONS.len() > 255 && !PI_INSTRUCTIONS.contains('/'));
+    }
+
+    #[tokio::test]
+    async fn pi_is_writable_only_and_unknown_harnesses_never_start_a_container() {
+        for (harness, writable) in [("pi", false), ("codex", true), ("", true)] {
+            let settings = Agent {
+                seat: "sentinel",
+                harness,
+                model: None,
+                writable,
+            };
+            let result = agent(Path::new("/unused"), "golem-test", &settings, "prompt", 60).await;
+            assert!(
+                matches!(result, Ok(Err("unsupported harness"))),
+                "{harness}"
+            );
+        }
+    }
+
+    #[test]
     fn harness_entrypoint_is_absolute_even_with_target_tool_paths() {
         let entrypoint = include_str!("../container.cjs");
-        assert!(entrypoint.contains("const entry = '/opt/golem/claude-entry'"));
+        assert!(entrypoint.contains("harnessEntry('/opt/golem/claude-entry'"));
+        assert!(entrypoint.contains("harnessEntry('/opt/golem/pi-entry'"));
         assert!(entrypoint.contains("javascript ? '/usr/local/bin/node' : entry"));
+        let dockerfile = include_str!("../agent.Dockerfile");
+        assert!(dockerfile.contains("COPY pi-report.js /opt/golem/pi-report.js"));
+        assert!(dockerfile.contains("/opt/golem/pi-entry"));
     }
 
     #[test]
@@ -784,6 +944,7 @@ mod tests {
             Path::new("/unused"),
             "golem-test",
             "sentinel",
+            "claude",
             None,
             "prompt",
             0,
