@@ -135,7 +135,7 @@ def preflight [c: record] {
     })
     (check app-oauth {||
       let client = gh-json api $"/apps/($c.app.slug)" | get client_id
-      let r = http post --full --allow-errors --headers [Accept application/json] --content-type application/x-www-form-urlencoded https://github.com/login/oauth/access_token ({client_id: $client, client_secret: (secret $c $c.secrets.app_client_secret), code: "accept-invalid"} | url build-query)
+      let r = http post --full --allow-errors --headers [Accept application/json] --content-type application/x-www-form-urlencoded https://github.com/login/oauth/access_token {client_id: $client, client_secret: (secret $c $c.secrets.app_client_secret), code: "accept-invalid"}
       let error = $r.body.error? | default ""
       if $error != bad_verification_code { $"client secret check answered ($error)" }
     })
