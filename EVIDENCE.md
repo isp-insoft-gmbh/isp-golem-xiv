@@ -168,3 +168,20 @@ Complete job log and downloaded full run-log archive had no request envelope or 
 Diagnostic archive scratch removed; no missing envelope was treated as equal, no run association or manual terminalization performed.
 Observer activity was stopped/exit1 with identities preserved; echo was not submitted, so neither continuation nor echo nor whole suite passed.
 Current authoritative continuation row retains its resource and seat with null run/attempt; recovery requires additional authoritative evidence or a separately proved cancellation protocol, not a blind rerun.
+
+## Stop fence live recovery and resumed continuation/echo
+
+Stop-fence coordinator PR #16 merged as `1b72c822c6e00c23fe5cde6770e5a1b969f67e45` after exact-head Linux CI `42937471264`; trunk CI `42938150932` and deploy `42938150832` succeeded and live health verified that version with coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0`.
+Stop mention `6784348560` on core issue 3 fenced continuation delivery `6271bc60-d92e-11f1-945a-0ee7d18bcfc8` at 2026-11-11T01:33:12Z with null run/attempt.
+After the 15-minute grace with no active same-title runner run, the row became terminal/stopped with null run/attempt, and check `127345695362` completed cancelled with `reason: stopped before runner admission; no agent execution was granted`.
+The next enqueue retired the row: `golem-terminal/6271bc60…` points to the original request tag `a06bf59d74ba8bb84500d754fc20363a8379832d` and the row left `queue.json`.
+No workflow run was associated, cancelled, or redispatched.
+
+Router versions differ across this proof: the first changer case (run `42056029957`) ran on router `15213da`, while the continuation and echo below ran on post-fence router `1b72c82`; the private runtime was `b0ceede` (native v5, no download retries) for all three.
+
+- Continuation: comment `6784687086`, check `130266801688`, delivery `de7efaf0-dd72-11f1-9219-ed3f0d9511ce`, run `42942341694`; same App PR #9 advanced to commit `fff1ac3e54c92c6715b726f968ee44791d9672a0` with parent `91719b5…`, golem.txt alone modified, mode 100644, original bytes preserved with both nonces, feedback, five ordered phases and terminal binding passed.
+- Echo: non-mention comment `6784714603` on events issue 1, check `130267437627` replied/success, delivery `913f1d37-ac72-6365-199e-87d6a211f24c`, run `42942532889`; audit (model, seat, phases, terminal row run/attempt) passed and the signed request instructions equal the exact triggering body under the event prefix.
+  After 207 seconds (≥ unchanged 3-minute loop watch) there was exactly one echo runner run and one App reply `6784735711`, marked and quoting the trigger, with no `golems/echo` branch or PR.
+  The driver itself exited 1 on its own wrong assumption that event requests carry a null branch (router assigns `golems/echo`); remaining checks were completed read-only without a new comment.
+
+This proves the previously failing changer, continuation and echo behaviours live on v5; unchanged full Slice 2 acceptance has not yet been rerun.
