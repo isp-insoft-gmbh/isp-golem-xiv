@@ -13,7 +13,10 @@
   Release v6 (run `42968967976`, tag `d9df5f1`, native asset `734356865`, SHA-256 `110c251b0476ddffd046b233716e3a4f686fb8c32f820a3049f9b4a3fb7741ad`) verified; ops PR #12 merged `5d435321fe2c75112100bcc5f456c5dec90073c2` (CI `42970183697`), live workflow byte-matches the template (SHA-256 `6e194f2d…`).
   Live fallback: `foreign` golem (`codex`/`github-copilot`) mentioned by anthropic-only `bugabinga` in the probe sandbox, issue 4 comment `6788505691`: check `130357161751` replied/success with `harness: pi`, observed `claude-opus-5-5`, `seat: bugabinga/anthropic` and the `fallback:` line; App reply carries the `foreign` marker; run `42970383464`.
   Open: seat registration page and OAuth callback (needs callback + browser session), seat-replace/refresh evidence (fresh Codex sign-in), fallback runs (runner `pi` harness and non-Anthropic providers), dashboard last outcome and run boxes.
-- **Current branch:** `fix/pin-v6-template`.
+- **Slice 3 acceptance (2026-11-11):** unchanged `--slice 3 --keep` ran after Oliver registered the callback: 41/44 gates ok, all live Slice 1–3 checks green; only evidence `seat-registration`, `seat-refresh`, `seat-replace` missing. Log `C:\Users\okr\AppData\Local\Temp\golem-slice3-uqzSFK\accept.log`.
+- **In progress:** PR #26 `feat/seat-registration-codex`: seat page (OAuth session, browser sealed box, replace, preferred) and Codex harness with refreshed-seat write-back; `APP_CLIENT_SECRET` set in the `production` environment; CI `43062181693` green incl. the agent image with Codex 0.167.1.
+  Router does not dispatch codex until a runner release with this change is pinned. Oliver provided Firefox profile `golem` (signed in to GitHub) and a fresh Codex sign-in in `~/.secrets/isp-golem-xiv/seat.openai-codex-2`.
+- **Current branch:** `feat/seat-registration-codex`.
 - **Deployed Worker:** PR #24 merge `ff5847bb94c7ebea6353c9cf98351022aa07fb3d` (CI `42967053433`, deploy `42967053554`); live health verified. Runtime pins native v6. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
