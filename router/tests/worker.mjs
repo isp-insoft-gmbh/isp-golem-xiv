@@ -30,7 +30,8 @@ const files = new Map([
   ['broken.md', '---\nschedule: someday\n---\nInvalid schedule.'],
   ['stop.md', '---\n---\nReserved name.'],
 ]);
-const state = {calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
+const onboardRepo = 'isp-insoft-gmbh/isp-golem-xiv-test-onboard';
+const state = {onboard: {golems: null, writes: [], branches: [], pulls: [], issues: [], pins: [], patches: 0}, calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
 let protocol2 = false;
 let installation = [{id:99, full_name:repository, default_branch:'trunk', topics:['isp-golem-xiv-test']}];
 const repository2 = 'isp-insoft-gmbh/isp-golem-xiv-test-second';
@@ -80,6 +81,28 @@ async function github(request) {
     return answer(previous ? 200 : 201, {content:{sha}});
   }
   if (path === `/repos/${ops}/contents/events-v2`) return answer(200, [...state.documents.keys()].filter(key => key.includes('/events-v2/')).sort().map(key => ({name:key.split('/').at(-1)})));
+  if (path === `/repos/${onboardRepo}` || path.startsWith(`/repos/${onboardRepo}/`)) {
+    const o = state.onboard;
+    const sub = path.slice(`/repos/${onboardRepo}`.length);
+    if (sub === '') return answer(200, {id:150, full_name:onboardRepo, default_branch:'trunk', private:true, topics:['isp-golem-xiv-test']});
+    if (sub === '/commits/trunk') return answer(200, {sha:head});
+    if (sub === '/contents/.golems') return o.golems ? answer(200, [...o.golems].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)}))) : answer(404, {});
+    if (sub.startsWith('/contents/.golems/') && method === 'GET') {
+      const content = o.golems?.get(sub.split('/').at(-1));
+      return content === undefined ? answer(404, {}) : answer(200, {type:'file',encoding:'base64',content:Buffer.from(content).toString('base64')});
+    }
+    if (sub === '/contents' && method === 'GET') return answer(200, [{name:'README.md'},{name:'mise.toml'}]);
+    if (sub.startsWith('/contents/') && method === 'PUT') {o.writes.push({path:sub.slice('/contents/'.length), branch:body.branch, content:Buffer.from(body.content,'base64').toString()}); return answer(201, {content:{sha:'d'.repeat(40)}});}
+    if (sub === '/git/refs' && method === 'POST') {o.branches.push(body); return answer(201, {ref:body.ref});}
+    if (sub === '/pulls' && method === 'POST') {o.pulls.push(body); return answer(201, {number:o.pulls.length});}
+    if (sub === '/issues' && method === 'GET') return answer(200, o.issues.filter(issue => issue.state === 'open'));
+    if (sub === '/issues' && method === 'POST') {const issue = {number:100+o.issues.length, node_id:`I_node${o.issues.length}`, state:'open', user:{login:'isp-golem-xiv[bot]'}, title:body.title, body:body.body}; o.issues.push(issue); return answer(201, issue);}
+    const patch = sub.match(/^\/issues\/(\d+)$/);
+    if (patch && method === 'PATCH') {const issue = o.issues.find(i => i.number === Number(patch[1])); const update = await request.json(); issue.body = update.body; o.patches++; return answer(200, issue);}
+  }
+  if (path === '/graphql' && method === 'POST') {state.onboard.pins.push(body.variables.id); return answer(200, {data:{pinIssue:{issue:{id:body.variables.id}}}});}
+  if (path === `/repos/${ops}/actions/secrets`) return answer(200, {total_count:3, secrets:[{name:'APP_PRIVATE_KEY'},{name:'SEAT_MEMBER__ANTHROPIC'},{name:'SEAT_GONE_PERSON__OPENAI_CODEX'}]});
+  if (path === '/orgs/isp-insoft-gmbh/members') return answer(200, [{login:'member'},{login:'other'}]);
   const target = [repository,repository2,repository3].find(name => path.startsWith(`/repos/${name}/`) || path === `/repos/${name}`);
   if (target) {
     if (path === `/repos/${target}`) return answer(200, metadata(target));
@@ -336,10 +359,49 @@ try {
   await eventually(() => validations().length === 2, 'validation check on synchronize');
   assert.equal(validations()[1].conclusion, 'success');
   files.set('broken.md', savedBroken); files.set('stop.md', savedStop);
+  // Onboarding: once per repository, exactly two files, then a pinned dashboard kept current.
+  const o = state.onboard;
+  const push = {sender:{id:42,login:'member',type:'User'}, repository:{id:150, full_name:onboardRepo}, installation:{id:153964219}};
+  assert.equal((await deliver('v2-onboard-push', push, true, false, 'push')).status, 200);
+  await eventually(() => o.pulls.length === 1, 'onboarding pull request');
+  assert.deepEqual(o.pulls[0].title, 'Enable golems');
+  assert.equal(o.pulls[0].head, 'golems/enable');
+  assert.equal(o.pulls[0].base, 'trunk');
+  assert.match(o.pulls[0].body, /`mise\.toml`/);
+  assert.match(o.pulls[0].body, /`@isp-golem-xiv seat`/);
+  assert.deepEqual(o.branches, [{ref:'refs/heads/golems/enable', sha:head}]);
+  assert.deepEqual(o.writes.map(w => w.path).sort(), ['.golems/_golems.md', '.golems/hello.md']);
+  assert.ok(o.writes.every(w => w.branch === 'golems/enable'), 'files only on the onboarding branch');
+  assert.equal(o.writes.find(w => w.path === '.golems/_golems.md').content.trim(), 'You are a golem working unattended in this repository.');
+  assert.ok(state.refs.has('refs/tags/golem-onboarding/150'), 'durable once-per-repository claim');
+  assert.equal((await deliver('v2-onboard-again', push, true, false, 'push')).status, 200);
+  await sleep(300);
+  assert.equal(o.pulls.length, 1, 'onboarding opens at most once');
+  o.golems = new Map(o.writes.map(w => [w.path.split('/').at(-1), w.content]));
+  assert.equal((await deliver('v2-onboard-merged', push, true, false, 'push')).status, 200);
+  await eventually(() => o.issues.length === 1 && o.pins.length === 1, 'dashboard created and pinned');
+  const board = o.issues[0];
+  assert.equal(board.title, 'Golems');
+  assert.equal(o.pins[0], board.node_id);
+  for (const heading of ['Golems', 'Disabled', 'Talk to golems', 'Seats']) assert.match(board.body, new RegExp(`^## ${heading}$`, 'm'));
+  assert.match(board.body, /^- `hello`: Look around this repository/m);
+  assert.match(board.body, /^- @member: `anthropic`$/m);
+  assert.match(board.body, /^- GONE_PERSON: `openai-codex`$/m, 'seats of people who left are reported');
+  assert.ok(!board.body.includes('APP_PRIVATE_KEY'), 'non-seat secret names never shown');
+  o.golems.set('broken.md', '---\nschedule: someday\n---\nInvalid on purpose.');
+  assert.equal((await deliver('v2-onboard-invalid', push, true, false, 'push')).status, 200);
+  await eventually(() => o.patches === 1, 'dashboard updated after .golems/ change');
+  assert.match(o.issues[0].body, /## Disabled\n\n- `broken`: .*schedule/);
+  assert.equal(o.issues.length, 1, 'dashboard updated, never duplicated');
+  assert.equal(o.pins.length, 1);
+  assert.equal((await deliver('v2-onboard-unchanged', push, true, false, 'push')).status, 200);
+  await sleep(300);
+  assert.equal(o.patches, 1, 'unchanged dashboard is not rewritten');
+  const queuedBeforeStop = state.queue.length;
   assert.equal((await deliver('v2-stop',payload('member','@isp-golem-xiv stop'))).status,202);
   await eventually(() => state.internal.some(body => body.action === 'stop'), 'thread stop handoff');
   assert.deepEqual(state.internal.find(body => body.action === 'stop'),{action:'stop',repository,issue_number:1});
-  assert.equal(state.queue.length,1,'stop never enqueues or prematurely releases');
+  assert.equal(state.queue.length,queuedBeforeStop,'stop never enqueues or prematurely releases');
   const queueEndpoint = `${base}/internal/queue`;
   async function callback(value, key = privateKey, suffix = '') {
     const body = JSON.stringify(value) + suffix;
@@ -574,5 +636,17 @@ try {
   assert.ok(!JSON.parse(Buffer.from(state.documents.get(indexPath).content,'base64')).ids.includes(oldEventId),'rejection frees event index capacity');
   assert.equal(state.checks.filter(c=>c.name==='golem/echo').length,echoChecksBeforeOld,'unprepared invalid context never creates a check');
   assert.ok(!state.queue.some(r=>r.delivery_id===deliveryId(`event-v2/${oldEventId}/echo`)),'invalid old work never admits a native request');
+  // At the golem limit in a private repository, upkeep must not exhaust the event golem's budget.
+  o.golems = new Map([['_golems.md', 'Rules.'], ...Array.from({length:19}, (_, i) => [`g${i}.md`, '---\n---\nTask.']), ['pusher.md', '---\ntriggers: [push]\nowner: member\n---\nOn push.']]);
+  const callsBeforeFull = state.calls;
+  assert.equal((await deliver('v2-onboard-full', push, true, false, 'push')).status, 200);
+  const enqueued = () => state.queue.some(r => r.repository === onboardRepo && r.golem === 'pusher' && r.trigger === 'event');
+  for (let attempt = 0; attempt < 6 && !enqueued(); attempt++) {
+    await sleep(300);
+    if (!enqueued()) await tick(Date.UTC(2026,10,8,12,attempt));
+  }
+  assert.ok(enqueued(), 'push-triggered golem admitted at the 20-golem limit');
+  await eventually(() => o.patches === 2, 'dashboard also updated at the limit');
+  assert.ok(state.calls > callsBeforeFull);
   console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context and bounded rejection/recovery, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
 } finally {await worker.dispose();}

@@ -1,11 +1,15 @@
 # Status
 
-- **Current slice:** 2, incomplete.
-  Slice 1 passed three consecutive deployed acceptance runs; later regression passed with released runner `v2`.
-- **Current branch:** `fix/pin-v5`; v5 first changer proof passed, continuation unbound/blocked, observer stopped and echo unexecuted; unchanged full Slice 2 remains failed.
-- **Deployed Worker:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`; final exact-head CI `42049159644` on `d9b557c`, trunk CI `42050838758` and deployment `42050838841` succeeded.
-  Separately verified live health matched this commit; reviewed Coordinator digest remains `c15e772b97c52c70f63e88b62fd58c0859c370a1dc70c395c19fb18893b69891`.
-  Prior journal/discovery corrections remain included.
+- **Current slice:** 3, in progress. Slice 2 passed unchanged full acceptance (32/32, see below); Slice 1 passed earlier.
+- **Slice 3 progress (live unless noted):**
+  PR #19 fixed the `app-oauth` probe; secret valid, blocked on Oliver registering callback `https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/auth/github/callback`.
+  PR #20 (`27e847f`): help and seat replies live-verified (core sandbox issue 10, comments `6786466094`, `6786465986`); `/seats` and `/admin` sign-in redirect; `seat-page` gate green.
+  PR #21 (`5e2222d`): `golems/validate` pull-request check (fixture-tested; live via Slice 3 acceptance).
+  Branch `feat/onboarding-dashboard`: onboarding PR and pinned dashboard on push, seats incl. people who left; upkeep reuses the delivery's head/index so 20-golem pushes keep the event budget.
+  Onboarding/dashboard workerd scenarios passed locally; the relocated 20-golem scenario and the scheduler-init scenario after it have not yet run green (Windows resets at the oversized-body test, line 243); awaiting Linux CI.
+  Open: seat registration page and OAuth callback (needs callback + browser session), seat-replace/refresh evidence (fresh Codex sign-in), fallback runs (runner `pi` harness and non-Anthropic providers), dashboard last outcome and run boxes.
+- **Current branch:** `feat/onboarding-dashboard`.
+- **Deployed Worker:** PR #21 merge `5e2222dadce72fcc8108dfad48ce740e2a63bb7f` (CI `42956246837`, deploy `42956246890`); live health verified. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.

@@ -63,6 +63,88 @@ fn seat_choice_prefers_golem_provider_then_preferred_then_order_and_names_fallba
 }
 
 #[test]
+fn seat_holders_map_secret_names_to_members_and_report_people_who_left() {
+    let names = [
+        "APP_PRIVATE_KEY",
+        "SEAT_MEMBER__ANTHROPIC",
+        "SEAT_MEMBER__OPENAI_CODEX",
+        "SEAT_JANE_DOE__GITHUB_COPILOT",
+        "SEAT_GONE_PERSON__OPENAI_CODEX",
+        "SEAT_BAD__UNKNOWN",
+        "SEAT___ANTHROPIC",
+    ];
+    let holders = router::seat_holders(&names, &["member", "jane-doe", "other"]);
+    assert_eq!(
+        holders.registered,
+        vec![
+            ("jane-doe".to_owned(), vec!["github-copilot"]),
+            ("member".to_owned(), vec!["anthropic", "openai-codex"]),
+        ]
+    );
+    assert_eq!(
+        holders.departed,
+        vec![("GONE_PERSON".to_owned(), vec!["openai-codex"])]
+    );
+}
+
+#[test]
+fn dashboard_lists_sections_golems_disabled_and_seats_privately_only() {
+    let golems = vec![
+        parse_golem("hello", "---\n---\n\n  Report what you see.\nMore."),
+        parse_golem(
+            "nightly",
+            "---\nschedule: daily\nowner: lead\ntriggers: [issues.opened]\n---\nTidy.",
+        ),
+        parse_golem("broken", "---\nschedule: someday\n---\nTask"),
+    ];
+    let holders = router::seat_holders(
+        &["SEAT_MEMBER__ANTHROPIC", "SEAT_GONE__ANTHROPIC"],
+        &["member"],
+    );
+    let private = router::dashboard_body(&golems, Some(&holders));
+    assert!(private.starts_with(router::DASHBOARD_MARKER));
+    for heading in ["## Golems", "## Disabled", "## Talk to golems", "## Seats"] {
+        assert!(private.lines().any(|line| line == heading), "{heading}");
+    }
+    assert!(private.contains("- `hello`: Report what you see. Wakes: mention. Pays: whoever mentions it. Start: comment `@isp-golem-xiv hello`."));
+    assert!(private.contains("- `nightly`: Tidy. Wakes: mention; events `issues.opened`; daily. Pays: whoever mentions it; unattended runs @lead."));
+    assert!(
+        private.contains("## Disabled\n\n- `broken`: ") && !private.contains("- `broken`: Task")
+    );
+    assert!(
+        private.contains("- @member: `anthropic`")
+            && private.contains("Seats of people who left the organization:\n- GONE: `anthropic`")
+    );
+    let public = router::dashboard_body(&golems, None);
+    assert!(
+        !public.contains("@member")
+            && !public.contains("GONE")
+            && public.contains("`@isp-golem-xiv seat`")
+    );
+    let empty = router::dashboard_body(&[], None);
+    assert!(empty.contains("## Golems\n\nNone yet") && empty.contains("## Disabled\n\nNone."));
+}
+
+#[test]
+fn onboarding_adds_exactly_house_rules_and_hello_and_explains_toolchain_and_seat() {
+    let files = router::onboarding_files();
+    assert_eq!(
+        files.each_ref().map(|(path, _)| *path),
+        [".golems/_golems.md", ".golems/hello.md"]
+    );
+    assert_eq!(files[0].1.trim(), router::HOUSE_RULES);
+    let hello = parse_golem("hello", &files[1].1);
+    assert!(hello.errors.is_empty(), "{:?}", hello.errors);
+    assert!(router::onboarding_body(Some("mise.toml")).contains("`mise.toml`"));
+    let none = router::onboarding_body(None);
+    assert!(
+        none.contains("No toolchain description found")
+            && none.contains("`@isp-golem-xiv seat`")
+            && none.contains(router::SEAT_URL)
+    );
+}
+
+#[test]
 fn validation_summary_fails_on_any_invalid_golem_and_names_reasons() {
     let valid = parse_golem("hello", "---\n---\nTask");
     let broken = parse_golem("broken", "---\nschedule: someday\n---\nTask");
