@@ -5,6 +5,9 @@ const indexPath = `${ops}/contents/queue.json`;
 const capacity = 32;
 const bodyLimit = 65536;
 const journalLimit = 131072;
+// A stopped, dispatched row with no persisted bind may retire only after its workflow
+// had time to appear and no matching runner run remains active to bind it.
+const fenceGraceMs = 15 * 60000;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const states = new Set(['pending', 'reserved', 'dispatching', 'bound', 'dispatch_uncertain', 'stop_requested', 'terminal']);
 const positive = value => Number.isSafeInteger(value) && value > 0;
@@ -199,6 +202,15 @@ export class Coordinator {
     }
     return false;
   }
+  async activeTitle(title) {
+    // Overflow or malformed listings fail closed as possibly active.
+    for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
+      const page = await this.api(`${ops}/actions/workflows/runner.yml/runs?status=${status}&per_page=100`);
+      if (!Array.isArray(page.workflow_runs) || page.workflow_runs.length > 100 || !Number.isSafeInteger(page.total_count) || page.total_count < 0 || page.total_count > 100 || page.total_count !== page.workflow_runs.length) return true;
+      if (page.workflow_runs.some(run => typeof run.display_title !== 'string' || run.display_title === title)) return true;
+    }
+    return false;
+  }
   async advance() {
     if (!this.queue.records.some(r => r.state === 'pending' || r.state === 'reserved')) return;
     if (await this.legacyActive()) return;
@@ -281,9 +293,28 @@ export class Coordinator {
     await this.advance();
     return {state: 'terminal'};
   }
-  async stoppedCheck(row) {
+  async stoppedCheck(row, reason = null, known = null) {
+    const request = known ?? await this.request(row);
+    await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'PATCH', {status: 'completed', conclusion: 'cancelled', output: {title: 'stopped', summary: `outcome: stopped\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: ${request.model ?? 'default'}\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id ?? ''}${reason ? `\nreason: ${reason}` : ''}`}});
+  }
+  // Every v2 grant follows a persisted bind on a non-terminal row, and a stopped row
+  // never grants. A durable stop fence with null run/attempt therefore proves no agent
+  // was admitted; terminal rows reject late binds. Unknown or active runs retain it.
+  async fenced(row) {
+    if (row.state !== 'stop_requested' || !row.dispatched || row.run_id !== null || row.attempt !== null) return false;
+    if (!Number.isSafeInteger(row.stop_requested_at) || row.stop_requested_at <= 0) {
+      row.stop_requested_at = Date.now();
+      return false;
+    }
+    if (Date.now() - row.stop_requested_at < fenceGraceMs) return false;
+    // Request, five listings and the check update must fit before the closing save.
+    if (this.calls > 36) return false;
     const request = await this.request(row);
-    await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'PATCH', {status: 'completed', conclusion: 'cancelled', output: {title: 'stopped', summary: `outcome: stopped\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: ${request.model ?? 'default'}\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id ?? ''}`}});
+    if (await this.activeTitle(`${request.repository} ${request.golem}`)) return false;
+    await this.stoppedCheck(row, 'stopped before runner admission; no agent execution was granted', request);
+    row.outcome = 'stopped';
+    row.reason = 'stopped before runner admission';
+    return true;
   }
   async stop(body) {
     if (typeof body.repository !== 'string' || !positive(body.issue_number)) throw new Failure(400);
@@ -301,6 +332,7 @@ export class Coordinator {
       }
     }
     if (selected) {
+      if (selected.state !== 'stop_requested' || !Number.isSafeInteger(selected.stop_requested_at)) selected.stop_requested_at = Date.now();
       selected.state = 'stop_requested';
       await this.save();
     }
@@ -359,7 +391,7 @@ export class Coordinator {
       const position = (start + offset) % rows.length;
       const row = rows[position];
       this.queue.cursor = (position + 1) % rows.length;
-      if (row.state === 'terminal' || (!row.run_id && !(row.state === 'stop_requested' && !row.dispatched))) continue;
+      if (row.state === 'terminal' || (!row.run_id && row.state !== 'stop_requested')) continue;
       checked++;
       // Commit scan progress before fallible I/O, so one irreparable check cannot starve others.
       await this.save();
@@ -367,6 +399,8 @@ export class Coordinator {
         if (!row.dispatched) {
           await this.stoppedCheck(row);
           row.state = 'terminal';
+        } else if (row.run_id === null) {
+          if (await this.fenced(row)) row.state = 'terminal';
         } else {
           const run = await this.run(row, row.run_id);
           if (!run || run.run_attempt !== row.attempt || run.status !== 'completed' || !['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral', 'skipped', 'startup_failure', 'stale'].includes(run.conclusion)) {

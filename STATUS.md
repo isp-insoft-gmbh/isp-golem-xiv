@@ -156,9 +156,14 @@
   Exact continuation-to-run linkage is NOT established: complete 4195-byte job log and full log archive contain zero request envelopes/delivery/check IDs; artifacts count0, REST attempt has no inputs field, inspected GraphQL WorkflowRun fields provide no inputs.
   Current repair helper accepts v2/v3 only; merely adding v5 provenance cannot replace missing full input/run evidence. No association, reset, check terminalization or reservation mutation performed.
   State lease `C:\Users\okr\AppData\Local\Temp\isp-golem-live-v5-b0ceede98f7495c86852baa88f4868eb40262aae.json` retains identities and prevents blind rerun.
-- **Recovery decision needed:** obtain authoritative run-linked full input evidence, or separately design/review a normal pre-admission cancellation fence. Conditional design advice is not implementation/approval and does not authorize clearing current state.
+- **Recovery path chosen:** pre-admission stop fence (DECISIONS 2026-11-06) on branch `fix/stop-fence`; not yet merged/deployed, current reservation untouched.
+  Local coordinator suite 70/70 PASS including two new fence scenarios; repair regressions pass with advanced coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0`.
+  Read-only check: stuck row trigger mention, issue 3, App check queued, sole non-terminal row, queue blob still `54b4194…`; a deployed fence plus `@isp-golem-xiv stop` on issue 3 would select it.
+  Fence retires only after 15-minute grace with no active same-title runner run; it neither associates run `42056406734` nor proves its inputs.
   Future bounded artifact GET retries and early request-identity evidence can prevent recurrence but cannot retrospectively prove this run's inputs.
-  Public template PR #15 head `767c29f` passed CI `42056160918`; live continuation/echo and full Slice 2 remain incomplete.
+  Public template PR #15 final head `4274bf7ec2f2c51a76c2e02b835798328588396c` passed required CI `42062344979`/job `127367177686`, all steps successful.
+  Protected merge produced `15213dad31ae5131e69b666eb7f36f7309f64caf`; its trunk CI/deployment are not yet observed, no runtime recovery implied.
+  Live continuation/echo and full Slice 2 remain incomplete.
   Public runner template advances to v4; maintenance tests reconstruct exact historical v2/v3 bytes and retain both fixed digest assertions, without broadening repair profiles.
   Only after compatibility passes: released-candidate real GitHub blocked/allowed publication and retained forbidden-task rerun.
   No production-fix claim until these pass; keep private response content out of public evidence.
