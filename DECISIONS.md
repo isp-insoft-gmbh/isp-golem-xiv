@@ -10,11 +10,14 @@ Each entry: date, decision, reason, and evidence where it exists.
   Null run/attempt in the authoritative journal therefore proves no agent admission; it does not claim no workflow activity.
 - Retirement waits 15 minutes after the durable stop timestamp and requires no active runner run with the request's display title.
   An active same-title run may still bind, receive `stop_requested`, and be cancelled through the existing path, preserving stop-cancels-runner behaviour.
+  Cancellation is best effort: a run appearing after retirement gets 409 on bind and self-denies without agent admission, while `legacyActive` pauses new dispatches until it ends.
   Malformed or overflowing run listings, missing timestamps, or inconsistent bind identity retain ownership; legacy stopped rows get a fresh grace.
-  The cancelled check states `reason: stopped before runner admission; no agent execution was granted`; no run URL, model or audit is invented.
+  The cancelled check states `reason: stopped before runner admission; no agent execution was granted`; its log line carries no run id, and no model or audit is invented.
 - Unstopped unbound dispatches are never retired by this path; repair association remains limited to unbound `dispatching` rows.
-  Same-title active runs consume up to five listing calls per affected row per tick, within the existing four-row reconcile budget.
-- Runner artifact GETs gain bounded curl retries for transient failures, per-attempt timeouts and a ten-minute step bound; checksum verification is unchanged.
+  Same-title active runs consume up to five listing calls per affected row per tick; the fence is skipped once an operation has used 36 of its 45 API calls.
+  Known gap, unchanged class: a stopped row whose target repository is gone keeps failing its check update and stays retained, blocking its seat.
+- Runner artifact GETs retry curl-transient failures (408/429/5xx/timeouts) for at most 180 seconds per file with 60-second attempts, inside a ten-minute step bound; checksum verification is unchanged.
+  Connection-refused, reset and DNS failures are not retried.
   Historical v2/v3 workflow digests stay pinned; tests reconstruct them by removing exactly these additions.
 - Repair helper's reviewed coordinator digest advances to the fenced coordinator; its association semantics for `dispatching` rows are unchanged.
 

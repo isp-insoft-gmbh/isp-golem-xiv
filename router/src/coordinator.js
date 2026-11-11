@@ -293,8 +293,8 @@ export class Coordinator {
     await this.advance();
     return {state: 'terminal'};
   }
-  async stoppedCheck(row, reason = null) {
-    const request = await this.request(row);
+  async stoppedCheck(row, reason = null, known = null) {
+    const request = known ?? await this.request(row);
     await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'PATCH', {status: 'completed', conclusion: 'cancelled', output: {title: 'stopped', summary: `outcome: stopped\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: ${request.model ?? 'default'}\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id ?? ''}${reason ? `\nreason: ${reason}` : ''}`}});
   }
   // Every v2 grant follows a persisted bind on a non-terminal row, and a stopped row
@@ -307,9 +307,11 @@ export class Coordinator {
       return false;
     }
     if (Date.now() - row.stop_requested_at < fenceGraceMs) return false;
+    // Request, five listings and the check update must fit before the closing save.
+    if (this.calls > 36) return false;
     const request = await this.request(row);
     if (await this.activeTitle(`${request.repository} ${request.golem}`)) return false;
-    await this.stoppedCheck(row, 'stopped before runner admission; no agent execution was granted');
+    await this.stoppedCheck(row, 'stopped before runner admission; no agent execution was granted', request);
     row.outcome = 'stopped';
     row.reason = 'stopped before runner admission';
     return true;

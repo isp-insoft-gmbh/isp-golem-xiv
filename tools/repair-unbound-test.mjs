@@ -15,8 +15,8 @@ const removeOnce = (text, fragment, count = 1) => {
 };
 let historicalText = currentWorkflow.toString('utf8');
 historicalText = removeOnce(historicalText, '        timeout-minutes: 10\n');
-historicalText = removeOnce(historicalText, '          # Idempotent GETs only: transient 408/429/5xx/timeouts retry, checksum still gates.\n');
-historicalText = removeOnce(historicalText, '            --retry 4 --retry-delay 5 --connect-timeout 20 --max-time 120 \\\n', 2);
+historicalText = removeOnce(historicalText, '          # Idempotent GETs only: 408/429/5xx/timeouts retry within a bounded window; checksum still gates.\n');
+historicalText = removeOnce(historicalText, '            --retry 4 --retry-delay 5 --retry-max-time 180 --connect-timeout 20 --max-time 60 \\\n', 2);
 const workflowV3 = Buffer.from(historicalText.replace(
   /(RUNNER_RELEASE_URL: https:\/\/github\.com\/isp-insoft-gmbh\/isp-golem-xiv\/releases\/download\/)v[0-9]+(?=\n)/,
   '$1v3',
