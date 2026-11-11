@@ -14,7 +14,8 @@ Each entry: date, decision, reason, and evidence where it exists.
   The model shown is the requested one or `default`; Codex's stream does not report it.
 - After confirmed container destruction and before target publication credentials, a refreshed `auth.json` (same account, newer `last_refresh`, valid tokens) is sealed with `dryoc` 2.0.0 and written back with an ops-only `secrets: write` token; failures are noted in summaries but never fail the run.
   `dryoc` avoids duplicate crates `crypto_box` would add; a libsodium ciphertext test anchors compatibility.
-- Known gaps: `golem_session` is not a `__Host-` cookie, so a sibling workers.dev subdomain could plant one (MAC still prevents forgery); the agent can read and alter the mounted `auth.json` like Claude's token; codex dispatch stays disabled in the router until a runner release with this change is pinned.
+- Known gaps: `golem_session` is not a `__Host-` cookie, so a sibling workers.dev subdomain could plant one (MAC still prevents forgery); the agent can read and alter the mounted `auth.json` like Claude's token.
+- Rollout: runner v7 (release `43067406314`) was pinned in ops PR #13 before the router began dispatching `openai-codex`/`codex` choices, respecting the ordering lesson from v6.
 
 ## 2026-11-11: Seat fallback runs on a `pi` harness
 

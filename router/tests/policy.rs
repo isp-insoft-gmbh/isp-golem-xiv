@@ -91,14 +91,18 @@ fn fallback_dispatch_runs_foreign_golems_on_an_anthropic_seat_with_pi_and_says_s
     let own = choose_seat(&plain.frontmatter, &["anthropic"], None).unwrap();
     assert!(own.runnable());
     assert!(!queued_summary("member", &own, 1800).contains("fallback"));
-    // The runner executes only Anthropic seats; other choices are refused, never rerouted.
-    for seats in [["openai-codex"], ["github-copilot"]] {
-        assert!(
-            !choose_seat(&foreign.frontmatter, &seats, None)
-                .unwrap()
-                .runnable()
-        );
-    }
+    // The runner executes Anthropic (claude, pi) and OpenAI Codex (codex) seats; Copilot is refused, never rerouted.
+    let codex = choose_seat(&foreign.frontmatter, &["openai-codex"], None).unwrap();
+    assert_eq!(
+        (codex.provider.as_str(), codex.harness.as_str()),
+        ("openai-codex", "codex")
+    );
+    assert!(codex.runnable());
+    assert!(
+        !choose_seat(&foreign.frontmatter, &["github-copilot"], None)
+            .unwrap()
+            .runnable()
+    );
     assert!(
         choose_seat(&foreign.frontmatter, &[], None).is_none(),
         "no seat, no run"

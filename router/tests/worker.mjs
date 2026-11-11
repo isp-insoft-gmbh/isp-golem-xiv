@@ -179,7 +179,7 @@ async function github(request) {
       return replaced ? answer(204, null) : answer(201, {});
     }
     state.secretReads.push(name);
-    return answer(['SEAT_MEMBER__ANTHROPIC', 'SEAT_CODEXONLY__OPENAI_CODEX'].includes(name) || state.seatSecrets.has(name) ? 200 : 404, {});
+    return answer(['SEAT_MEMBER__ANTHROPIC', 'SEAT_CODEXONLY__OPENAI_CODEX', 'SEAT_COPILOTONLY__GITHUB_COPILOT'].includes(name) || state.seatSecrets.has(name) ? 200 : 404, {});
   }
   if (path === `/repos/${ops}/actions/variables` && method === 'POST') {
     state.variableWrites.push({method, body});
@@ -390,7 +390,7 @@ try {
   assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a payer without any seat is still refused');
   assert.equal(state.queue.length, queuedBeforeForeign + 1, 'seatless mention never enqueues');
   const refusedBeforeCodex = state.comments.length;
-  assert.equal((await deliver('v2-fallback-unrunnable-seat', payload('codexonly', '@isp-golem-xiv foreign'))).status, 202);
+  assert.equal((await deliver('v2-fallback-unrunnable-seat', payload('copilotonly', '@isp-golem-xiv foreign'))).status, 202);
   await eventually(() => state.comments.length > refusedBeforeCodex, 'unrunnable seat refusal');
   assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a seat the runner cannot use is refused, never rerouted');
   assert.equal(state.queue.length, queuedBeforeForeign + 1, 'unrunnable seat never enqueues');
@@ -724,6 +724,18 @@ try {
   await eventually(() => o.patches === 2, 'dashboard also updated at the limit');
   assert.ok(state.calls > callsBeforeFull);
   await seatRegistration();
+  // With a runner that executes Codex, an OpenAI Codex seat runs codex: as fallback and natively.
+  files.set('foreign.md', '---\nharness: codex\nprovider: github-copilot\n---\nReply with one short greeting.');
+  files.set('codexer.md', '---\nharness: codex\nprovider: openai-codex\n---\nReply with one short greeting.');
+  for (const [id, golem, fallback] of [['v2-codex-fallback', 'foreign', true], ['v2-codex-native', 'codexer', false]]) {
+    assert.equal((await deliver(id, payload('codexonly', `@isp-golem-xiv ${golem}`))).status, 202);
+    await eventually(() => state.queue.some(r => r.golem === golem && r.seat_login === 'codexonly'), `${golem} on a codex seat`);
+    const request = state.queue.find(r => r.golem === golem && r.seat_login === 'codexonly');
+    assert.equal(request.provider, 'openai-codex');
+    assert.equal(request.harness, 'codex');
+    if (fallback) assert.match(request.fallback, /^asked for github-copilot\/codex, used openai-codex\/codex .*no github-copilot seat$/);
+    else assert.ok(!('fallback' in request), 'native codex choice carries no fallback');
+  }
   console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context and bounded rejection/recovery, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
 } finally {await worker.dispose();}
 
