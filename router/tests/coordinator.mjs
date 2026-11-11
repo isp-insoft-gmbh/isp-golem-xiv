@@ -201,6 +201,13 @@ class Fixture {
     if (run) Object.assign(run, {status: 'completed', conclusion: 'success'});
     return this.call('complete', {request_id: row.id, generation: row.generation, run_id: row.run_id, attempt: row.attempt, ...fields}, status);
   }
+  // Simulate elapsed fence time in the authoritative journal, never in the DO projection.
+  rewrite(id, mutate) {
+    const q = this.queue();
+    mutate(q.records.find(r => r.id === id));
+    this.index = {sha: this.sha(), content: Buffer.from(JSON.stringify(q)).toString('base64')};
+  }
+  age(id, ms = 16 * 60000) { this.rewrite(id, r => { r.stop_requested_at -= ms; }); }
   async restart() { await this.worker.dispose(); await this.start(); }
   async dispose() { await this.worker.dispose(); }
 }
@@ -573,6 +580,65 @@ await scenario('stop before bind records identity without granting; cancel ackno
   assert.equal(f.row(a.delivery_id).state, 'terminal');
   assert.equal(f.row(b.delivery_id).state, 'dispatching', 'untargeted pending mention advances');
   assert.ok(f.checks.some(c => c.output.summary.includes('outcome: stopped')));
+});
+
+await scenario('stop-fenced unbound dispatch retires only after grace and no active run; late bind never grants', async f => {
+  const a = request(), b = request('member', 'hello', {check_run_id: 11});
+  await f.enqueue(a); await f.enqueue(b);
+  await f.call('stop', {repository, issue_number: 1});
+  let row = f.row(a.delivery_id);
+  assert.equal(row.state, 'stop_requested');
+  assert.equal(row.run_id, null);
+  assert.ok(Number.isSafeInteger(row.stop_requested_at));
+  await f.restart(); await f.call('tick');
+  assert.equal(f.row(a.delivery_id).state, 'stop_requested', 'grace retains a possibly unlisted workflow');
+  f.age(a.delivery_id);
+  f.runs.set(5000, {id: 5000, run_attempt: 1, status: 'queued', event: 'workflow_dispatch', head_branch: 'trunk', path: '.github/workflows/runner.yml', display_title: `${repository} hello`});
+  await f.call('tick');
+  assert.equal(f.row(a.delivery_id).state, 'stop_requested', 'active matching workflow could still bind');
+  assert.equal(f.row(b.delivery_id).state, 'pending');
+  Object.assign(f.runs.get(5000), {status: 'completed', conclusion: 'failure'});
+  await f.call('tick');
+  row = f.row(a.delivery_id);
+  assert.equal(row.state, 'terminal');
+  assert.equal(row.run_id, null);
+  assert.equal(row.attempt, null);
+  assert.equal(row.outcome, 'stopped');
+  const check = f.checkState.get(a.check_run_id);
+  assert.equal(check.conclusion, 'cancelled');
+  assert.match(check.output.summary, /^outcome: stopped$/m);
+  assert.match(check.output.summary, /^reason: stopped before runner admission; no agent execution was granted$/m);
+  assert.equal(f.cancels.length, 0, 'no unidentified run is cancelled or associated');
+  assert.equal(f.row(b.delivery_id).state, 'dispatching', 'released resource advances the next request');
+  const late = await f.bind(a, 6000, {}, 409);
+  assert.equal(late.safeFailure, 'state');
+  assert.equal(f.row(a.delivery_id).run_id, null, 'terminal fence rejects late bind without recording it');
+});
+
+await scenario('unstopped, malformed-listing or unstamped unbound dispatches are never fenced early', async f => {
+  const a = request(); await f.enqueue(a);
+  f.rewrite(a.delivery_id, r => { r.stop_requested_at = 1; });
+  await f.call('tick');
+  assert.equal(f.row(a.delivery_id).state, 'dispatching', 'only an explicit stop fences an unbound dispatch');
+  await f.call('stop', {repository, issue_number: 1});
+  assert.ok(Date.now() - f.row(a.delivery_id).stop_requested_at < 60000, 'stop stamps a fresh fence');
+  f.age(a.delivery_id);
+  f.malformedList = true;
+  await f.call('tick');
+  assert.equal(f.row(a.delivery_id).state, 'stop_requested', 'malformed run listing fails closed');
+  f.malformedList = false;
+  f.rewrite(a.delivery_id, r => { delete r.stop_requested_at; });
+  await f.call('tick');
+  const stamped = f.row(a.delivery_id);
+  assert.equal(stamped.state, 'stop_requested', 'legacy fence without timestamp starts a fresh grace');
+  assert.ok(Date.now() - stamped.stop_requested_at < 60000);
+  f.rewrite(a.delivery_id, r => { r.attempt = 1; r.stop_requested_at -= 16 * 60000; });
+  await f.call('tick');
+  assert.equal(f.row(a.delivery_id).state, 'stop_requested', 'inconsistent bind identity is retained');
+  f.rewrite(a.delivery_id, r => { r.attempt = null; });
+  await f.call('tick');
+  assert.equal(f.row(a.delivery_id).state, 'terminal');
+  assert.equal(f.dispatches.length, 1, 'fenced request is never redispatched');
 });
 
 await scenario('separate pending stop intents survive interrupted persistence and check repair', async f => {

@@ -8,7 +8,16 @@ const input = {delivery, run: 41774622060, apply: false};
 const tagSHA = '7'.repeat(40), fileSHA = '8'.repeat(40), head = '9'.repeat(40);
 // Reconstruct historical bytes as the live pin advances; exact digests still gate both profiles.
 const currentWorkflow = await readFile(new URL('../ops/runner.yml', import.meta.url));
-const workflowV3 = Buffer.from(currentWorkflow.toString('utf8').replace(
+// Later bounded-download hardening is reverted exactly; each removal must occur once.
+const removeOnce = (text, fragment, count = 1) => {
+  assert.equal(text.split(fragment).length - 1, count, 'unexpected live workflow drift');
+  return text.replaceAll(fragment, '');
+};
+let historicalText = currentWorkflow.toString('utf8');
+historicalText = removeOnce(historicalText, '        timeout-minutes: 10\n');
+historicalText = removeOnce(historicalText, '          # Idempotent GETs only: transient 408/429/5xx/timeouts retry, checksum still gates.\n');
+historicalText = removeOnce(historicalText, '            --retry 4 --retry-delay 5 --connect-timeout 20 --max-time 120 \\\n', 2);
+const workflowV3 = Buffer.from(historicalText.replace(
   /(RUNNER_RELEASE_URL: https:\/\/github\.com\/isp-insoft-gmbh\/isp-golem-xiv\/releases\/download\/)v[0-9]+(?=\n)/,
   '$1v3',
 ));
