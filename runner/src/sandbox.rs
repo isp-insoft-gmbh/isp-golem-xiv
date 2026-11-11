@@ -15,6 +15,11 @@ const TARGET_TIMEOUT_SECONDS: u64 = 600;
 /// Built-in Pi tools a writable golem needs, plus the golem-owned report tool.
 const PI_TOOLS: &str = "read,bash,edit,write,grep,find,ls,golem_report";
 /// Pi treats an existing path as a file to read; over 255 bytes without `/` it cannot be one.
+/// Private per-run `CODEX_HOME`, outside /workspace; holds only the seat sign-in at start.
+const CODEX_HOME: &str = "/golem-codex";
+/// Strict output schema baked into the image; `OpenAI` strict mode supports no length bounds,
+/// so the runner enforces those itself.
+const CODEX_SCHEMA: &str = "/opt/golem/codex-result-schema.json";
 const PI_INSTRUCTIONS: &str = "Finish by calling golem_report exactly once, as your last action, and do nothing after it. Set disposition to blocked if policy, permissions or another obstacle prevented fulfilling the task; otherwise completed, including ordinary answers or nothing to do. Put your complete final answer in message; text outside golem_report is never delivered.";
 
 pub struct Execution {
@@ -172,6 +177,10 @@ pub async fn prepare(mise: &Path) -> Result<()> {
         ("agent.mise.toml", include_str!("../agent.mise.toml")),
         ("container.cjs", include_str!("../container.cjs")),
         ("pi-report.js", include_str!("../pi-report.js")),
+        (
+            "codex-result-schema.json",
+            include_str!("../codex-result-schema.json"),
+        ),
     ] {
         std::fs::write(context.path().join(name), contents)
             .map_err(|_| "cannot stage trusted image source")?;
@@ -344,8 +353,17 @@ async fn lifecycle(
     Ok(result)
 }
 
+/// The seat as the harness receives it.
+#[derive(Clone, Copy)]
+pub enum Credential<'a> {
+    /// A setup token, passed only as the harness's own environment variable.
+    Token(&'a str),
+    /// A private directory with the Codex sign-in, mounted writable so Codex can refresh it.
+    CodexHome(&'a Path),
+}
+
 struct Agent<'a> {
-    seat: &'a str,
+    credential: Credential<'a>,
     harness: &'a str,
     model: Option<&'a str>,
     writable: bool,
@@ -359,8 +377,13 @@ async fn agent(
     timeout_seconds: u64,
 ) -> Result<Result<Execution>> {
     let writable = settings.writable;
-    // Pi runs writable golems only; the read-only v1 protocol stays on claude.
-    if !matches!((settings.harness, writable), ("claude", _) | ("pi", true)) {
+    // Pi and Codex run writable golems only; the read-only v1 protocol stays on claude.
+    if !matches!(
+        (settings.harness, writable, settings.credential),
+        ("claude", _, Credential::Token(_))
+            | ("pi", true, Credential::Token(_))
+            | ("codex", true, Credential::CodexHome(_))
+    ) {
         return Ok(Err("unsupported harness"));
     }
     let mut create =
@@ -368,10 +391,16 @@ async fn agent(
             Ok(create) => create,
             Err(error) => return Ok(Err(error)),
         };
-    if settings.harness == "pi" {
-        configure_pi(&mut create, settings.seat, settings.model);
-    } else {
-        configure_agent(&mut create, settings.seat, settings.model, writable);
+    match settings.credential {
+        Credential::CodexHome(home) => {
+            if let Err(error) = configure_codex(&mut create, home, settings.model) {
+                return Ok(Err(error));
+            }
+        }
+        Credential::Token(seat) if settings.harness == "pi" => {
+            configure_pi(&mut create, seat, settings.model);
+        }
+        Credential::Token(seat) => configure_agent(&mut create, seat, settings.model, writable),
     }
     lifecycle(create, name, Some(prompt.as_bytes()), timeout_seconds).await
 }
@@ -418,6 +447,49 @@ fn configure_pi(create: &mut Command, seat: &str, model: Option<&str>) {
         create.args(["--provider", "anthropic", "--model", model]);
     }
 }
+
+/// JSONL events on stdout, the prompt on stdin, the container as the only sandbox, no user
+/// configuration, rules, sessions, history, web search, telemetry or repository AGENTS.md
+/// (the host prompt already carries it). No seat value in argv or environment.
+fn configure_codex(create: &mut Command, home: &Path, model: Option<&str>) -> Result<()> {
+    mount(create, home, CODEX_HOME, false)?;
+    create
+        .args(["--env", "GOLEM_WRITABLE", "--env", "GOLEM_HARNESS"])
+        .env("GOLEM_WRITABLE", "1")
+        .env("GOLEM_HARNESS", "codex")
+        .args([
+            IMAGE,
+            "exec",
+            "--json",
+            "--output-schema",
+            CODEX_SCHEMA,
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--color",
+            "never",
+        ]);
+    for setting in CODEX_SETTINGS {
+        create.args(["--config", setting]);
+    }
+    if let Some(model) = model {
+        create.args(["--model", model]);
+    }
+    create.arg("-");
+    Ok(())
+}
+
+/// Checked against codex-rs 0.167.1 `config_toml.rs`; unknown keys would be ignored silently.
+const CODEX_SETTINGS: [&str; 6] = [
+    "web_search=\"disabled\"",
+    "project_doc_max_bytes=0",
+    "check_for_update_on_startup=false",
+    "analytics.enabled=false",
+    "feedback.enabled=false",
+    "history.persistence=\"none\"",
+];
 
 fn configure_agent(create: &mut Command, seat: &str, model: Option<&str>, writable: bool) {
     let settings = if writable {
@@ -495,7 +567,7 @@ pub async fn run(
     timeout_seconds: u64,
 ) -> Result<Result<(Vec<u8>, Vec<u8>)>> {
     let settings = Agent {
-        seat,
+        credential: Credential::Token(seat),
         harness: "claude",
         model,
         writable: false,
@@ -518,14 +590,14 @@ pub async fn run(
 pub async fn run_writable(
     workspace: &Path,
     name: &str,
-    seat: &str,
+    credential: Credential<'_>,
     harness: &str,
     model: Option<&str>,
     prompt: &str,
     timeout_seconds: u64,
 ) -> Result<Result<Execution>> {
     let settings = Agent {
-        seat,
+        credential,
         harness,
         model,
         writable: true,
@@ -715,9 +787,17 @@ mod tests {
 
     #[tokio::test]
     async fn pi_is_writable_only_and_unknown_harnesses_never_start_a_container() {
-        for (harness, writable) in [("pi", false), ("codex", true), ("", true)] {
+        let home = Path::new("/unused-home");
+        for (harness, writable, credential) in [
+            ("pi", false, Credential::Token("sentinel")),
+            ("codex", true, Credential::Token("sentinel")),
+            ("codex", false, Credential::CodexHome(home)),
+            ("claude", true, Credential::CodexHome(home)),
+            ("pi", true, Credential::CodexHome(home)),
+            ("", true, Credential::Token("sentinel")),
+        ] {
             let settings = Agent {
-                seat: "sentinel",
+                credential,
                 harness,
                 model: None,
                 writable,
@@ -739,6 +819,93 @@ mod tests {
         let dockerfile = include_str!("../agent.Dockerfile");
         assert!(dockerfile.contains("COPY pi-report.js /opt/golem/pi-report.js"));
         assert!(dockerfile.contains("/opt/golem/pi-entry"));
+        assert!(entrypoint.contains("harnessEntry('/opt/golem/codex-entry'"));
+        assert!(entrypoint.contains(&format!("CODEX_HOME: '{CODEX_HOME}'")));
+        assert!(dockerfile.contains(&format!("COPY codex-result-schema.json {CODEX_SCHEMA}")));
+        assert!(dockerfile.contains("/opt/golem/codex-entry"));
+        assert!(
+            include_str!("../agent.mise.toml").contains("\"npm:@openai/codex\" = \"0.167.1\""),
+            "codex pinned exactly"
+        );
+    }
+
+    #[test]
+    fn codex_runs_json_exec_with_its_private_home_and_no_seat_in_argv_or_environment() {
+        for model in [None, Some("gpt-5.5")] {
+            let mut command = docker();
+            let home = std::env::temp_dir().join("golem-seat-fixture");
+            configure_codex(&mut command, &home, model).unwrap();
+            let command = command.as_std();
+            let args: Vec<_> = command
+                .get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect();
+            let image = args.iter().position(|arg| arg == IMAGE).unwrap();
+            let mounts: Vec<_> = args[..image]
+                .windows(2)
+                .filter(|pair| pair[0] == "--mount")
+                .map(|pair| pair[1].clone())
+                .collect();
+            assert_eq!(
+                mounts,
+                [format!(
+                    "type=bind,source={},target={CODEX_HOME},bind-propagation=rprivate",
+                    home.display()
+                )],
+                "writable, outside /workspace"
+            );
+            let harness = &args[image + 1..];
+            assert_eq!(harness[0], "exec");
+            assert_eq!(harness.last().unwrap(), "-", "prompt on stdin");
+            let pair = |flag: &str, value: &str| {
+                harness
+                    .windows(2)
+                    .any(|pair| pair[0] == flag && pair[1] == value)
+            };
+            assert!(pair("--output-schema", CODEX_SCHEMA));
+            assert!(pair("--color", "never"));
+            for flag in [
+                "--json",
+                "--skip-git-repo-check",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--ephemeral",
+                "--ignore-user-config",
+                "--ignore-rules",
+            ] {
+                assert!(harness.iter().any(|arg| arg == flag), "{flag}");
+            }
+            for setting in CODEX_SETTINGS {
+                assert!(pair("--config", setting), "{setting}");
+            }
+            assert_eq!(model.is_some(), pair("--model", model.unwrap_or_default()));
+            assert!(!harness.iter().any(|arg| arg == "--model") || model.is_some());
+            let env: Vec<_> = command
+                .get_envs()
+                .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
+                .collect();
+            assert!(env.contains(&("GOLEM_HARNESS", "codex")));
+            assert!(env.contains(&("GOLEM_WRITABLE", "1")));
+            assert!(
+                env.iter()
+                    .all(|(key, _)| !key.contains("TOKEN") && !key.contains("CODEX"))
+            );
+        }
+        let schema: serde_json::Value =
+            serde_json::from_str(include_str!("../codex-result-schema.json")).unwrap();
+        assert_eq!(
+            schema["required"],
+            serde_json::json!(["disposition", "message"])
+        );
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(
+            schema["properties"]["disposition"]["enum"],
+            serde_json::json!(["completed", "blocked"])
+        );
+        assert_eq!(schema["properties"].as_object().unwrap().len(), 2);
+        assert!(
+            !include_str!("../codex-result-schema.json").contains("Length"),
+            "strict mode"
+        );
     }
 
     #[test]
@@ -943,7 +1110,7 @@ mod tests {
         let result = run_writable(
             Path::new("/unused"),
             "golem-test",
-            "sentinel",
+            Credential::Token("sentinel"),
             "claude",
             None,
             "prompt",

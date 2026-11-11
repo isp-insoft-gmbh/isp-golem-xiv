@@ -550,3 +550,116 @@ fn queue_body_serializes_run_id_and_attempt_as_json_numbers_within_safe_integer(
         "run_id exceeding 2^53-1 must be rejected"
     );
 }
+
+#[test]
+fn seat_write_back_token_is_scoped_to_ops_secrets_only() {
+    assert_eq!(
+        seat_write_token_request(),
+        json!({"repositories":["isp-golem-xiv-ops"], "permissions":{"secrets":"write"}})
+    );
+    let request = request();
+    for publish in [false, true] {
+        let target = target_token_request(&request, publish);
+        assert_eq!(target["repository_ids"], json!([request.repository_id]));
+        assert!(target.get("repositories").is_none());
+        assert!(target["permissions"].get("secrets").is_none());
+    }
+}
+
+// libsodium 1.0.20 keypair from the 32-byte seed 0x07; an invented test key.
+const OPS_PUBLIC: &str = "dh2I7IMEE5Gd/p1NHVbxfmU8jJlAgt9bE3uQoK5u33Q=";
+const OPS_SECRET: &str = "L605/v1/o+IAqcYm7vWZ5hotBVxIqCiKTn5MS8o5KPg=";
+
+fn open_sealed(sealed: &str) -> Vec<u8> {
+    let key = |text: &str| -> [u8; 32] {
+        general_purpose::STANDARD
+            .decode(text)
+            .unwrap()
+            .try_into()
+            .unwrap()
+    };
+    let sealed = general_purpose::STANDARD.decode(sealed).unwrap();
+    let mut message = vec![0; sealed.len() - dryoc::constants::CRYPTO_BOX_SEALBYTES];
+    dryoc::classic::crypto_box::crypto_box_seal_open(
+        &mut message,
+        &sealed,
+        &key(OPS_PUBLIC),
+        &key(OPS_SECRET),
+    )
+    .unwrap();
+    message
+}
+
+#[tokio::test]
+async fn seat_write_back_puts_only_the_sealed_sign_in_to_the_named_ops_secret() {
+    let sign_in = r#"{"tokens":{"refresh_token":"rt_fixture-refreshed"}}"#;
+    for status in [201, 204] {
+        let (github, seen) = server(vec![
+            (
+                200,
+                json!({"key_id":"568250167242549743", "key":OPS_PUBLIC}),
+            ),
+            (status, json!({})),
+        ]);
+        github
+            .put_seat_secret("ops-secret-token", "SEAT_MEMBER__OPENAI_CODEX", sign_in)
+            .await
+            .unwrap();
+        let seen = seen.join().unwrap();
+        assert_eq!(
+            seen[0].0,
+            "GET /repos/isp-insoft-gmbh/isp-golem-xiv-ops/actions/secrets/public-key HTTP/1.1"
+        );
+        assert_eq!(
+            seen[1].0,
+            "PUT /repos/isp-insoft-gmbh/isp-golem-xiv-ops/actions/secrets/SEAT_MEMBER__OPENAI_CODEX HTTP/1.1"
+        );
+        assert_eq!(seen[1].1["key_id"], "568250167242549743");
+        assert_eq!(seen[1].1.as_object().unwrap().len(), 2);
+        assert!(!seen[1].1.to_string().contains("rt_fixture-refreshed"));
+        assert_eq!(
+            open_sealed(seen[1].1["encrypted_value"].as_str().unwrap()),
+            sign_in.as_bytes()
+        );
+    }
+    let (github, seen) = server(vec![
+        (200, json!({"key_id":"1", "key":OPS_PUBLIC})),
+        (422, json!({})),
+    ]);
+    assert_eq!(
+        github
+            .put_seat_secret("token", "SEAT_MEMBER__OPENAI_CODEX", sign_in)
+            .await,
+        Err("seat write-back rejected")
+    );
+    assert_eq!(seen.join().unwrap().len(), 2);
+    for key in [
+        json!({"key_id":"1", "key":"AAAA"}),
+        json!({"key":OPS_PUBLIC}),
+        json!({"key_id":"../x", "key":OPS_PUBLIC}),
+    ] {
+        let (github, seen) = server(vec![(200, key)]);
+        assert!(
+            github
+                .put_seat_secret("token", "SEAT_MEMBER__OPENAI_CODEX", sign_in)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            seen.join().unwrap().len(),
+            1,
+            "never PUT without a valid key"
+        );
+    }
+    let (github, seen) = server(vec![]);
+    assert_eq!(
+        github
+            .put_seat_secret("token", "APP_PRIVATE_KEY", sign_in)
+            .await,
+        Err("invalid seat secret name")
+    );
+    assert_eq!(
+        seen.join().unwrap(),
+        [] as [(std::string::String, serde_json::Value); 0]
+    );
+}

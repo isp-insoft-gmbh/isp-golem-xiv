@@ -7,6 +7,7 @@ rust-version = "1.99.1"
 
 [dependencies]
 base64 = "0.22"
+dryoc = { version = "=2.0.0", default-features = false, features = ["std"] }
 flate2 = "1"
 hmac = "0.13"
 jsonwebtoken = "9.3"

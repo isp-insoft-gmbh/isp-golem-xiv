@@ -81,6 +81,22 @@ function piRecord(line) {
   if (type === 'agent_settled') return JSON.stringify({ type, aborted: record.aborted });
   return undefined;
 }
+// Codex's JSONL repeats command output and file changes. Keep only what the runner judges:
+// thread and turn lifecycle, failures, agent messages and non-fatal notices. Unknown record
+// types and malformed lines pass unchanged so the runner fails closed.
+function codexRecord(line) {
+  let record;
+  try { record = JSON.parse(line); } catch { return line; }
+  if (record === null || typeof record !== 'object' || Array.isArray(record)) return line;
+  const { type, item } = record;
+  if (type === 'thread.started' || type === 'turn.started' || type === 'turn.completed') return JSON.stringify({ type });
+  if (type === 'turn.failed') return JSON.stringify({ type, error: { message: record.error?.message } });
+  if (type === 'error') return JSON.stringify({ type, message: record.message });
+  if (type === 'item.completed' && item?.type === 'agent_message') return JSON.stringify({ type, item: { id: item.id, type: item.type, text: item.text } });
+  if (type === 'item.completed' && item?.type === 'error') return JSON.stringify({ type, item: { id: item.id, type: item.type, message: item.message } });
+  if (type === 'item.started' || type === 'item.updated' || type === 'item.completed') return undefined;
+  return line;
+}
 function harnessEntry(entry, args, env, filter) {
   // npm may provide either a JS launcher or a native executable. Resolve once
   // at image build, never through the target's PATH or mise configuration.
@@ -118,6 +134,11 @@ if (args[0] === '--prepare-target') {
       PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0', JITI_FS_CACHE: 'false',
       ANTHROPIC_OAUTH_TOKEN: process.env.ANTHROPIC_OAUTH_TOKEN,
     }, piRecord);
+  } else if (harness === 'codex') {
+    // The seat is only the sign-in file in the private, writable CODEX_HOME mount.
+    harnessEntry('/opt/golem/codex-entry', args, {
+      ...base, CODEX_HOME: '/golem-codex', NO_COLOR: '1',
+    }, codexRecord);
   } else if (harness === 'claude') {
     harnessEntry('/opt/golem/claude-entry', args, {
       ...base, CLAUDE_CONFIG_DIR: '/home/agent/.claude', DISABLE_AUTOUPDATER: '1',

@@ -1,5 +1,7 @@
 use base64::{Engine as _, engine::general_purpose};
-use golem_runner::{APP_ID, AgentOutput, DispatchV1, INSTALLATION_ID, OutputGuard, Result};
+use golem_runner::{
+    APP_ID, AgentOutput, DispatchV1, INSTALLATION_ID, OPS_REPOSITORY, OutputGuard, Result,
+};
 use hmac::{Hmac, KeyInit, Mac};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use reqwest::{Client, Method, Response, StatusCode};
@@ -87,44 +89,23 @@ impl Github {
         publish: bool,
         guard: &mut OutputGuard,
     ) -> Result<String> {
-        #[derive(Serialize)]
-        struct Claims {
-            iat: u64,
-            exp: u64,
-            iss: String,
-        }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| "invalid clock")?
-            .as_secs();
-        let key = EncodingKey::from_rsa_pem(private_key.as_bytes())
-            .map_err(|_| "invalid App private key")?;
-        let jwt = encode(
-            &Header::new(Algorithm::RS256),
-            &Claims {
-                iat: now.saturating_sub(60),
-                exp: now + 540,
-                iss: APP_ID.to_string(),
-            },
-            &key,
-        )
-        .map_err(|_| "App authentication failed")?;
-        guard.add(&jwt);
-        let permissions = if publish && request.version == 2 {
-            json!({"contents":"write", "pull_requests":"write", "issues":"write", "checks":"write"})
-        } else if publish {
-            json!({"contents":"read", "issues":"write", "checks":"write"})
-        } else if request.version == 2 {
-            json!({"contents":"read", "checks":"write", "issues":"read", "members":"read", "pull_requests":"read"})
-        } else {
-            json!({"contents":"read", "checks":"write", "issues":"read", "members":"read"})
-        };
+        let jwt = app_jwt(private_key, guard)?;
+        self.installation_token(&jwt, &target_token_request(request, publish), guard)
+            .await
+    }
+
+    async fn installation_token(
+        &self,
+        jwt: &str,
+        body: &Value,
+        guard: &mut OutputGuard,
+    ) -> Result<String> {
         let response = self
             .json(
                 Method::POST,
                 &format!("/app/installations/{INSTALLATION_ID}/access_tokens"),
-                &jwt,
-                Some(json!({"repository_ids":[request.repository_id], "permissions":permissions})),
+                jwt,
+                Some(body.clone()),
             )
             .await?;
         let token = response
@@ -139,6 +120,117 @@ impl Github {
         Ok(token)
     }
 
+    /// Overwrite one seat secret in the ops repository with a token that can do nothing else.
+    pub async fn write_seat(
+        &self,
+        private_key: &str,
+        name: &str,
+        sign_in: &str,
+        guard: &mut OutputGuard,
+    ) -> Result<()> {
+        let jwt = app_jwt(private_key, guard)?;
+        let token = self
+            .installation_token(&jwt, &seat_write_token_request(), guard)
+            .await?;
+        self.put_seat_secret(&token, name, sign_in).await
+    }
+
+    async fn put_seat_secret(&self, token: &str, name: &str, sign_in: &str) -> Result<()> {
+        if !golem_runner::seat::writable_secret_name(name) {
+            return Err("invalid seat secret name");
+        }
+        let key = self
+            .json(
+                Method::GET,
+                &format!("/repos/{OPS_REPOSITORY}/actions/secrets/public-key"),
+                token,
+                None,
+            )
+            .await
+            .map_err(|_| "ops public key unavailable")?;
+        let key_id = key
+            .get("key_id")
+            .and_then(Value::as_str)
+            .filter(|id| {
+                !id.is_empty()
+                    && id.len() <= 128
+                    && id.bytes().all(|byte| byte.is_ascii_alphanumeric())
+            })
+            .ok_or("invalid ops public key")?;
+        let encrypted = golem_runner::seat::seal(
+            key.get("key")
+                .and_then(Value::as_str)
+                .ok_or("invalid ops public key")?,
+            sign_in.as_bytes(),
+        )?;
+        let response = self
+            .call(
+                Method::PUT,
+                &format!("/repos/{OPS_REPOSITORY}/actions/secrets/{name}"),
+                token,
+                Some(json!({"encrypted_value": encrypted, "key_id": key_id})),
+            )
+            .await?;
+        if !matches!(
+            response.status(),
+            StatusCode::CREATED | StatusCode::NO_CONTENT
+        ) {
+            return Err("seat write-back rejected");
+        }
+        Ok(())
+    }
+}
+
+fn app_jwt(private_key: &str, guard: &mut OutputGuard) -> Result<String> {
+    #[derive(Serialize)]
+    struct Claims {
+        iat: u64,
+        exp: u64,
+        iss: String,
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "invalid clock")?
+        .as_secs();
+    let key =
+        EncodingKey::from_rsa_pem(private_key.as_bytes()).map_err(|_| "invalid App private key")?;
+    let jwt = encode(
+        &Header::new(Algorithm::RS256),
+        &Claims {
+            iat: now.saturating_sub(60),
+            exp: now + 540,
+            iss: APP_ID.to_string(),
+        },
+        &key,
+    )
+    .map_err(|_| "App authentication failed")?;
+    guard.add(&jwt);
+    Ok(jwt)
+}
+
+/// Installation token request for the target repository only.
+fn target_token_request(request: &DispatchV1, publish: bool) -> Value {
+    let permissions = if publish && request.version == 2 {
+        json!({"contents":"write", "pull_requests":"write", "issues":"write", "checks":"write"})
+    } else if publish {
+        json!({"contents":"read", "issues":"write", "checks":"write"})
+    } else if request.version == 2 {
+        json!({"contents":"read", "checks":"write", "issues":"read", "members":"read", "pull_requests":"read"})
+    } else {
+        json!({"contents":"read", "checks":"write", "issues":"read", "members":"read"})
+    };
+    json!({"repository_ids":[request.repository_id], "permissions":permissions})
+}
+
+/// Installation token request for seat write-back: the ops repository, `secrets: write` only.
+fn seat_write_token_request() -> Value {
+    let (_, name) = OPS_REPOSITORY
+        .split_once('/')
+        .unwrap_or((OPS_REPOSITORY, OPS_REPOSITORY));
+    json!({"repositories":[name], "permissions":{"secrets":"write"}})
+}
+
+impl Github {
     async fn member(&self, login: &str, token: &str) -> Result<()> {
         let response = self
             .call(

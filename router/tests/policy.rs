@@ -236,6 +236,311 @@ fn sign_in_location_uses_public_client_encoded_callback_and_uuid_state() {
     }
 }
 
+mod registration {
+    use router::registration::{
+        SESSION_SECONDS, SeatRegistration, admin_page, base64_length, cookie, csrf_token,
+        csrf_valid, oauth_access_token, oauth_exchange_body, preferred_registration, public_key,
+        seat_registration, seats_page, session_cookie, session_key, session_login, session_value,
+        state_matches,
+    };
+    use serde_json::json;
+
+    const NOW: u64 = 1_800_000_000;
+
+    fn key() -> [u8; 32] {
+        session_key("fixture-client-secret").unwrap()
+    }
+
+    /// Reference encoder, independent of the validator under test.
+    fn base64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut text = String::new();
+        for chunk in bytes.chunks(3) {
+            let mut block = [0u8; 3];
+            block.get_mut(..chunk.len()).unwrap().copy_from_slice(chunk);
+            let n = (u32::from(block[0]) << 16) | (u32::from(block[1]) << 8) | u32::from(block[2]);
+            for index in 0..4 {
+                if index <= chunk.len() {
+                    let digit = (n >> (18 - 6 * index)) & 63;
+                    text.push(char::from(*ALPHABET.get(digit as usize).unwrap()));
+                } else {
+                    text.push('=');
+                }
+            }
+        }
+        text
+    }
+
+    #[test]
+    fn sessions_verify_only_untampered_unexpired_values_under_the_same_key() {
+        let key = key();
+        assert_ne!(key, session_key("other-client-secret").unwrap());
+        assert_eq!(session_key(""), None);
+        let value = session_value(&key, "some-member", NOW).unwrap();
+        assert!(value.starts_with(&format!("some-member.{}.", NOW + SESSION_SECONDS)));
+        assert_eq!(session_login(&key, &value, NOW), Some("some-member"));
+        assert_eq!(
+            session_login(&key, &value, NOW + SESSION_SECONDS - 1),
+            Some("some-member")
+        );
+        assert_eq!(
+            session_login(&key, &value, NOW + SESSION_SECONDS),
+            None,
+            "expired"
+        );
+        assert_eq!(
+            session_login(&key, &value, NOW - 30),
+            Some("some-member"),
+            "small skew"
+        );
+        assert_eq!(
+            session_login(&key, &value, NOW - 120),
+            None,
+            "expiry beyond a session length"
+        );
+        let other = session_key("other-client-secret").unwrap();
+        assert_eq!(session_login(&other, &value, NOW), None, "other key");
+        let (signed, tag) = value.rsplit_once('.').unwrap();
+        let (login, expires) = signed.split_once('.').unwrap();
+        let later = (expires.parse::<u64>().unwrap() + 1).to_string();
+        let flipped = if tag.starts_with('0') { "1" } else { "0" };
+        for tampered in [
+            format!("other-member.{expires}.{tag}"),
+            format!("{login}.{later}.{tag}"),
+            format!("{signed}.{flipped}{}", &tag[1..]),
+            format!("{signed}.{}", &tag[1..]),
+            format!("{value}.x"),
+            format!("{login}.{tag}"),
+            format!("{login}.-1.{tag}"),
+            format!("-bad.{expires}.{tag}"),
+            String::new(),
+            "x".repeat(200),
+        ] {
+            assert_eq!(session_login(&key, &tampered, NOW), None, "{tampered}");
+        }
+        assert_eq!(session_value(&key, "bad login", NOW), None);
+        assert_eq!(session_value(&key, "member", u64::MAX), None);
+        assert_eq!(
+            session_cookie(&value),
+            format!("golem_session={value}; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Lax")
+        );
+    }
+
+    #[test]
+    fn csrf_tokens_derive_from_the_exact_session_and_key() {
+        let key = key();
+        let session = session_value(&key, "member", NOW).unwrap();
+        let another = session_value(&key, "other", NOW).unwrap();
+        let token = csrf_token(&key, &session).unwrap();
+        assert_eq!(token.len(), 64);
+        assert_ne!(token, csrf_token(&key, &another).unwrap());
+        assert!(csrf_valid(&key, &session, &token));
+        assert!(csrf_valid(&key, &session, &token.to_ascii_uppercase()));
+        assert!(
+            !csrf_valid(&key, &another, &token),
+            "token of another session"
+        );
+        assert!(!csrf_valid(&session_key("x").unwrap(), &session, &token));
+        for bad in ["", "00", &token[1..], &format!("{token}0"), &"g".repeat(64)] {
+            assert!(!csrf_valid(&key, &session, bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn cookies_parse_exact_names_and_refuse_duplicates_and_oversized_headers() {
+        assert_eq!(cookie("golem_session=abc", "golem_session"), Some("abc"));
+        assert_eq!(
+            cookie("a=1; golem_session=abc; b=2", "golem_session"),
+            Some("abc")
+        );
+        assert_eq!(
+            cookie("xgolem_session=abc; golem_session_x=1", "golem_session"),
+            None
+        );
+        assert_eq!(
+            cookie("golem_session=a; golem_session=b", "golem_session"),
+            None,
+            "tossed duplicate"
+        );
+        assert_eq!(cookie("", "golem_session"), None);
+        let oversized = format!("golem_session=abc; pad={}", "x".repeat(8192));
+        assert_eq!(cookie(&oversized, "golem_session"), None);
+    }
+
+    #[test]
+    fn oauth_state_code_and_token_answers_are_validated() {
+        let state = "0f6e1c2a-1b2c-4d3e-8f90-123456789abc";
+        assert!(state_matches(state, state));
+        assert!(!state_matches(
+            state,
+            "0f6e1c2a-1b2c-4d3e-8f90-123456789abd"
+        ));
+        assert!(!state_matches("", state));
+        assert!(!state_matches("not-a-uuid", "not-a-uuid"));
+        assert_eq!(
+            oauth_exchange_body("s&cret=", "abc_DEF-123").as_deref(),
+            Some(
+                "client_id=Iv23liEnfLEVCSS2aUdR&client_secret=s%26cret%3D&code=abc_DEF-123&redirect_uri=https%3A%2F%2Fisp-golem-xiv.isp-insoft-gmbh.workers.dev%2Fauth%2Fgithub%2Fcallback"
+            )
+        );
+        for code in ["", "a&b=c", "a b", &"a".repeat(257)] {
+            assert_eq!(oauth_exchange_body("secret", code), None, "{code}");
+        }
+        assert_eq!(oauth_exchange_body("", "code"), None);
+        assert_eq!(
+            oauth_access_token(&json!({"access_token":"ghu_x","token_type":"bearer"})),
+            Some("ghu_x")
+        );
+        for answer in [
+            json!({"error":"bad_verification_code"}),
+            json!({"access_token":""}),
+            json!({"access_token":"a b"}),
+            json!({"access_token":7}),
+        ] {
+            assert_eq!(oauth_access_token(&answer), None, "{answer}");
+        }
+    }
+
+    #[test]
+    fn base64_length_matches_reference_encoding_and_rejects_other_shapes() {
+        for length in 1u8..200 {
+            let bytes: Vec<u8> = (0..length).map(|i| i.wrapping_mul(37)).collect();
+            assert_eq!(
+                base64_length(&base64(&bytes)),
+                Some(bytes.len()),
+                "{length}"
+            );
+        }
+        for bad in ["", "abc", "ab=c", "a===", "ab-_", "abc\n", "ab c", "===="] {
+            assert_eq!(base64_length(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn seat_registrations_accept_only_sealed_sized_values_for_known_providers() {
+        let sealed = base64(&[7; 49]);
+        let body = |provider: &str, key_id: &str, value: &str| {
+            json!({"provider":provider,"key_id":key_id,"encrypted_value":value}).to_string()
+        };
+        assert_eq!(
+            seat_registration(body("openai-codex", "568250167242549743", &sealed).as_bytes()),
+            Ok(SeatRegistration {
+                provider: "openai-codex",
+                key_id: "568250167242549743".into(),
+                encrypted_value: sealed.clone()
+            })
+        );
+        let largest = base64(&vec![1; 49_152 + 48]);
+        assert!(seat_registration(body("anthropic", "1", &largest).as_bytes()).is_ok());
+        let cases = [
+            (body("ANTHROPIC", "1", &sealed), "unknown provider"),
+            (body("anthropic", "", &sealed), "invalid key id"),
+            (body("anthropic", "1/../x", &sealed), "invalid key id"),
+            (
+                body("anthropic", "1", "not base64!"),
+                "encrypted value is not base64",
+            ),
+            (
+                body("anthropic", "1", &base64(&[7; 48])),
+                "encrypted value size is invalid",
+            ),
+            (
+                body("anthropic", "1", &base64(&vec![1; 49_152 + 49])),
+                "encrypted value size is invalid",
+            ),
+            (
+                json!({"provider":"anthropic","key_id":"1","encrypted_value":sealed,"value":"x"})
+                    .to_string(),
+                "invalid request",
+            ),
+            (
+                json!({"provider":"anthropic","key_id":"1"}).to_string(),
+                "invalid request",
+            ),
+            ("[]".into(), "invalid request"),
+            (" ".repeat(66_561), "request too large"),
+        ];
+        for (body, reason) in cases {
+            let refused = seat_registration(body.as_bytes()).unwrap_err();
+            assert_eq!(refused, reason);
+            assert!(!refused.contains(&sealed), "never echoes the value");
+        }
+        assert_eq!(
+            preferred_registration(br#"{"provider":"github-copilot"}"#),
+            Ok("github-copilot")
+        );
+        assert_eq!(
+            preferred_registration(br#"{"provider":"other"}"#),
+            Err("unknown provider")
+        );
+        assert_eq!(
+            preferred_registration(br#"{"provider":"anthropic","x":1}"#),
+            Err("invalid request")
+        );
+        assert_eq!(
+            preferred_registration(&[b' '; 1025]),
+            Err("request too large")
+        );
+        assert_eq!(
+            router::preferred_seat_variable("some-member").as_deref(),
+            Some("SEAT_PREFERRED_SOME_MEMBER")
+        );
+        assert_eq!(router::preferred_seat_variable("bad/login"), None);
+        let key = base64(&[9; 32]);
+        assert_eq!(
+            public_key(&json!({"key_id":"568","key":key})),
+            Some(("568", key.as_str()))
+        );
+        assert_eq!(
+            public_key(&json!({"key_id":"568","key":base64(&[9; 31])})),
+            None
+        );
+        assert_eq!(public_key(&json!({"key_id":"a/b","key":key})), None);
+    }
+
+    #[test]
+    fn seats_page_shows_only_given_seats_with_csrf_and_no_inline_script() {
+        let page = seats_page(
+            "member",
+            &["anthropic", "github-copilot"],
+            Some("github-copilot"),
+            "ab12",
+        );
+        assert!(page.contains("<meta name=\"golem-csrf\" content=\"ab12\">"));
+        assert!(page.contains("@member"));
+        assert!(
+            page.contains("<li data-seat=\"anthropic\">")
+                && page.contains("<li data-seat=\"github-copilot\">")
+        );
+        assert!(!page.contains("data-seat=\"openai-codex\""));
+        for provider in ["anthropic", "openai-codex", "github-copilot"] {
+            assert!(
+                page.contains(&format!(
+                    "<form class=\"seat\" data-provider=\"{provider}\">"
+                )),
+                "{provider}"
+            );
+        }
+        assert!(page.contains("claude setup-token"));
+        assert!(page.contains("<option value=\"github-copilot\" selected>"));
+        assert!(
+            !page.contains("<option value=\"openai-codex\""),
+            "preferred only among own seats"
+        );
+        assert_eq!(page.matches("<script").count(), 1);
+        assert!(page.contains("<script src=\"/seats.js\" defer></script>"));
+        assert!(
+            !page.contains("onclick") && !page.contains("onsubmit"),
+            "no inline handlers"
+        );
+        assert!(!page.contains("style"));
+        let empty = seats_page("member", &[], None, "ab12");
+        assert!(empty.contains("You have no seats yet.") && !empty.contains("id=\"preferred\""));
+        let admin = admin_page("member");
+        assert!(admin.contains("Slice 4") && !admin.contains("<script"));
+    }
+}
+
 #[test]
 fn help_and_seat_replies_carry_markers_choices_and_only_the_askers_seats() {
     let golems = vec![

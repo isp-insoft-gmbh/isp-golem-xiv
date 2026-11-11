@@ -1,0 +1,2 @@
+# Vendored upstream code stays byte-identical; typos would flag upstream identifiers such as `iy`.
+blake2b.js

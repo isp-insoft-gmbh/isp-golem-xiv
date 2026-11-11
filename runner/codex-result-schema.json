@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "disposition": {
+      "type": "string",
+      "enum": ["completed", "blocked"],
+      "description": "Use blocked if policy, permissions or another obstacle prevented fulfilling the task; otherwise completed, including ordinary answers or nothing to do."
+    },
+    "message": {
+      "type": "string",
+      "description": "Your complete final answer; nothing outside this message is delivered."
+    }
+  },
+  "required": ["disposition", "message"],
+  "additionalProperties": false
+}

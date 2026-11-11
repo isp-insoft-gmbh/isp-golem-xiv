@@ -6,7 +6,11 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
-use golem_runner::{AgentOutput, DispatchV1, OutputGuard, Result, agent_result};
+use golem_runner::{
+    AgentOutput, DispatchV1, OutputGuard, Result, agent_result,
+    codex::{self, CodexAuth, Refresh},
+    seat::Seat,
+};
 use std::{env, fs::OpenOptions, io::Write, path::Path, process::ExitCode};
 
 fn environment(name: &str, maximum: usize) -> Result<String> {
@@ -33,19 +37,15 @@ fn numeric_environment(name: &str) -> Result<String> {
     Ok(value)
 }
 
-fn selected_seat(request: &DispatchV1) -> Result<String> {
-    let seat = environment("GOLEM_SEAT", 4096)?;
-    let seat = seat.trim();
-    if !seat.starts_with("sk-ant-oat01-")
-        || seat.len() < 32
-        || seat.bytes().any(|byte| byte.is_ascii_whitespace())
-    {
-        return Err("selected seat is not a Claude subscription setup token");
-    }
+fn selected_seat(request: &DispatchV1) -> Result<Seat> {
+    let seat = Seat::parse(
+        &request.provider,
+        &environment("GOLEM_SEAT", codex::AUTH_BYTES_MAX)?,
+    )?;
     if environment("GOLEM_SEAT_SECRET_NAME", 100)? != request.seat_secret_name() {
         return Err("selected seat mapping mismatch");
     }
-    Ok(seat.to_owned())
+    Ok(seat)
 }
 
 async fn run() -> Result<()> {
@@ -82,7 +82,7 @@ async fn run() -> Result<()> {
     let mut guard = OutputGuard::default();
     guard.add(&private_key);
     if let Ok(seat) = &seat {
-        guard.add(seat);
+        seat.guard(&mut guard);
     }
     let github = github::Github::new()?;
     let token = github
@@ -107,7 +107,8 @@ async fn run() -> Result<()> {
     let name = format!("golem-{run_id}-{attempt}");
     let result = match started.and(seat) {
         Err(error) => Err(error),
-        Ok(seat) if env::var("GOLEM_PREPARATION").as_deref() == Ok("success") => {
+        Ok(Seat::Codex(_)) => Err("read-only runs need a setup token seat"),
+        Ok(Seat::Token(seat)) if env::var("GOLEM_PREPARATION").as_deref() == Ok("success") => {
             execute_agent(&github, &request, &token, &seat, &name, &guard).await?
         }
         Ok(_) => Err("trusted harness preparation failed"),
@@ -237,6 +238,18 @@ fn verified_changes(
     golem_runner::changes::diff(before, after_agent, guard)
 }
 
+/// What a Codex run left in its private `auth.json`, read after confirmed destruction.
+type SeatReadback = Option<Result<String>>;
+
+/// Private parent directory, workspace, base commit, prompt and baseline files.
+type Prepared = (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    String,
+    String,
+    golem_runner::changes::Files,
+);
+
 struct WritableResult {
     base_sha: String,
     changes: Result<Vec<golem_runner::changes::Change>>,
@@ -265,7 +278,7 @@ impl RunContext<'_> {
     async fn run_writable(
         &self,
         token: String,
-        seat: Result<String>,
+        seat: Result<Seat>,
         guard: &mut OutputGuard,
     ) -> Result<()> {
         github::queue(
@@ -290,20 +303,25 @@ impl RunContext<'_> {
             )
             .await;
         let execution = async {
-            let result = match started.and(seat) {
-                Err(error) => Ok(Err(error)),
+            let result = match started.and(seat.as_ref().map_err(|error| *error)) {
+                Err(error) => Ok((Err(error), None)),
                 Ok(seat) if env::var("GOLEM_PREPARATION").as_deref() == Ok("success") => {
-                    self.execute_writable(&token, &seat, &name, guard).await
+                    self.execute_writable(&token, seat, &name, guard).await
                 }
-                Ok(_) => Ok(Err("trusted harness preparation failed")),
+                Ok(_) => Ok((Err("trusted harness preparation failed"), None)),
             };
             drop(token);
             result
         };
         // Release the immutable guard borrow before minting adds new credentials.
         let result = execution.await;
-        after_destruction(std::future::ready(result), async |result| {
+        after_destruction(std::future::ready(result), async |(result, readback)| {
             println!("golem lifecycle: containers_destroyed");
+            // Before any target publication credential: a refreshed sign-in must survive
+            // whatever happens to publication, and its values must be guarded first.
+            if let Ok(Seat::Codex(original)) = &seat {
+                self.write_back_seat(original, readback, guard).await;
+            }
             let token = self
                 .github
                 .token(self.private_key, self.request, true, guard)
@@ -320,6 +338,44 @@ impl RunContext<'_> {
         .await
     }
 
+    /// Never fails the run: a failed write-back becomes a check summary note instead.
+    async fn write_back_seat(
+        &self,
+        original: &CodexAuth,
+        readback: SeatReadback,
+        guard: &mut OutputGuard,
+    ) {
+        if let Some(Ok(text)) = &readback {
+            codex::guard_text(text, guard);
+        }
+        let failure =
+            match readback.map_or(Refresh::Unchanged, |after| codex::refresh(original, after)) {
+                Refresh::Unchanged => {
+                    println!("golem seat: unchanged");
+                    return;
+                }
+                Refresh::Invalid(error) => error,
+                Refresh::Refreshed(refreshed) => match self
+                    .github
+                    .write_seat(
+                        self.private_key,
+                        &self.request.seat_secret_name(),
+                        refreshed.text(),
+                        guard,
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        println!("golem seat: refreshed");
+                        return;
+                    }
+                    Err(error) => error,
+                },
+            };
+        println!("golem seat: write-back failed");
+        self.request.seat_note.set(Some(failure));
+    }
+
     async fn complete(&self, containers_destroyed: bool, publication_complete: bool) -> Result<()> {
         if !containers_destroyed || !publication_complete {
             return Err("queue completion requires destruction and publication proofs");
@@ -334,48 +390,65 @@ impl RunContext<'_> {
         .await
     }
 
+    /// Private workspace, snapshot, prompt and baseline scan; no container yet.
+    async fn prepare_writable(&self, token: &str, guard: &OutputGuard) -> Result<Prepared> {
+        let base_sha = self.github.branch_snapshot(self.request, token).await?;
+        let temporary =
+            tempfile::tempdir().map_err(|_| "cannot create private runner workspace")?;
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir(&workspace).map_err(|_| "cannot create snapshot workspace")?;
+        snapshot::extract(
+            &self
+                .github
+                .snapshot_at(self.request, token, &base_sha)
+                .await?,
+            &workspace,
+        )?;
+        let configuration = temporary.path().join("configuration");
+        let configuration = if base_sha == self.request.head_sha {
+            workspace.clone()
+        } else {
+            std::fs::create_dir(&configuration)
+                .map_err(|_| "cannot create configuration workspace")?;
+            snapshot::extract(
+                &self.github.snapshot(self.request, token).await?,
+                &configuration,
+            )?;
+            configuration
+        };
+        let prompt =
+            snapshot::writable_prompt(&workspace, &configuration, self.request, &base_sha)?;
+        guard.check(&prompt)?;
+        let before = golem_runner::changes::scan(&workspace)?;
+        Ok((temporary, workspace, base_sha, prompt, before))
+    }
+
+    /// Outer error: destruction unconfirmed. The seat home is removed on every path.
     async fn execute_writable(
         &self,
         token: &str,
-        seat: &str,
+        seat: &Seat,
         name: &str,
         guard: &OutputGuard,
-    ) -> Result<Result<WritableResult>> {
-        let preparation = async {
-            let base_sha = self.github.branch_snapshot(self.request, token).await?;
-            let temporary =
-                tempfile::tempdir().map_err(|_| "cannot create private runner workspace")?;
-            let workspace = temporary.path().join("workspace");
-            std::fs::create_dir(&workspace).map_err(|_| "cannot create snapshot workspace")?;
-            snapshot::extract(
-                &self
-                    .github
-                    .snapshot_at(self.request, token, &base_sha)
-                    .await?,
-                &workspace,
-            )?;
-            let configuration = temporary.path().join("configuration");
-            let configuration = if base_sha == self.request.head_sha {
-                workspace.clone()
-            } else {
-                std::fs::create_dir(&configuration)
-                    .map_err(|_| "cannot create configuration workspace")?;
-                snapshot::extract(
-                    &self.github.snapshot(self.request, token).await?,
-                    &configuration,
-                )?;
-                configuration
-            };
-            let prompt =
-                snapshot::writable_prompt(&workspace, &configuration, self.request, &base_sha)?;
-            guard.check(&prompt)?;
-            let before = golem_runner::changes::scan(&workspace)?;
-            Ok::<_, &'static str>((temporary, workspace, base_sha, prompt, before))
-        }
-        .await;
-        let (temporary, workspace, base_sha, prompt, before) = match preparation {
+    ) -> Result<(Result<WritableResult>, SeatReadback)> {
+        let prepared = self
+            .prepare_writable(token, guard)
+            .await
+            .and_then(|prepared| {
+                let home = match seat {
+                    Seat::Codex(auth) => Some(codex::private_home(auth)?),
+                    Seat::Token(_) => None,
+                };
+                Ok((prepared, home))
+            });
+        let ((temporary, workspace, base_sha, prompt, before), home) = match prepared {
             Ok(prepared) => prepared,
-            Err(error) => return Ok(Err(error)),
+            Err(error) => return Ok((Err(error), None)),
+        };
+        let credential = match (seat, &home) {
+            (Seat::Codex(_), Some(home)) => sandbox::Credential::CodexHome(home.path()),
+            (Seat::Token(token), _) => sandbox::Credential::Token(token),
+            (Seat::Codex(_), None) => return Ok((Err("missing private seat home"), None)),
         };
         let operation = async {
             if let Err(error) =
@@ -386,7 +459,7 @@ impl RunContext<'_> {
             let execution = match sandbox::run_writable(
                 &workspace,
                 name,
-                seat,
+                credential,
                 &self.request.harness,
                 self.request.model.as_deref(),
                 &prompt,
@@ -397,8 +470,14 @@ impl RunContext<'_> {
                 Ok(execution) => execution,
                 Err(error) => return Ok(Err(error)),
             };
-            let parse = golem_runner::writable_parser(&self.request.harness, execution.timed_out);
-            let output = match parse(&execution.stdout, &execution.stderr, guard) {
+            let output = match golem_runner::writable_result(
+                &self.request.harness,
+                self.request.model.as_deref(),
+                execution.timed_out,
+                &execution.stdout,
+                &execution.stderr,
+                guard,
+            ) {
                 Ok(output) => output,
                 Err(error) => return Ok(Err(error)),
             };
@@ -426,18 +505,27 @@ impl RunContext<'_> {
             }))
         }
         .await;
-        // A failed destruction must not remove a possibly still-mounted workspace.
+        // A failed destruction must not remove a possibly still-mounted workspace, but a
+        // credential never outlives the run: dropping the seat home removes it either way.
         let result = match operation {
             Ok(result) => result,
             Err(error) => {
                 let _retained = temporary.keep();
+                drop(home);
                 return Err(error);
             }
         };
+        let readback = home.map(|home| {
+            let after = codex::read_auth(home.path());
+            if home.close().is_err() {
+                println!("golem seat: private home cleanup failed");
+            }
+            after
+        });
         temporary
             .close()
             .map_err(|_| "cannot remove private runner workspace; publication blocked")?;
-        Ok(result)
+        Ok((result, readback))
     }
 
     // Outer error: feedback/check incomplete. Inner error: safely reported blocked execution.

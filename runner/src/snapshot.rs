@@ -349,10 +349,10 @@ fn render_prompt(
     }
     let claude = text_file(root, "CLAUDE.md", 32_000, false)?;
     let agents = text_file(root, "AGENTS.md", 32_000, false)?;
-    let tools = if request.harness == "pi" {
-        "read, write, edit, bash, grep, find and ls"
-    } else {
-        "Read, Write, Edit, Bash, Glob and Grep"
+    let tools = match request.harness.as_str() {
+        "pi" => "read, write, edit, bash, grep, find and ls",
+        "codex" => "your shell and patch tools",
+        _ => "Read, Write, Edit, Bash, Glob and Grep",
     };
     let capabilities = if request.version == 2 {
         format!(

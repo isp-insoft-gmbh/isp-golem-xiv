@@ -35,6 +35,8 @@ extern "C" {
     fn random_state() -> String;
 }
 
+mod registration;
+
 type Result<T> = std::result::Result<T, worker::Error>;
 const BODY_BYTES_MAX: usize = 262_144;
 const RESPONSE_BYTES_MAX: usize = 524_288;
@@ -79,6 +81,15 @@ async fn read_stream(mut stream: worker::ByteStream, maximum: usize) -> Result<V
         bytes.extend_from_slice(&chunk);
     }
     Err(failure("body chunk limit exceeded"))
+}
+
+async fn response_bytes(response: &mut Response, maximum: usize) -> Result<Vec<u8>> {
+    match response.body() {
+        worker::ResponseBody::Empty => Ok(Vec::new()),
+        worker::ResponseBody::Body(bytes) if bytes.len() <= maximum => Ok(bytes.clone()),
+        worker::ResponseBody::Body(_) => Err(failure("response body limit exceeded")),
+        worker::ResponseBody::Stream(_) => read_stream(response.stream()?, maximum).await,
+    }
 }
 
 struct AbortOnDrop(Option<AbortController>);
@@ -133,18 +144,7 @@ impl Github {
             async {
                 let mut response = Fetch::Request(request).send_with_signal(&signal).await?;
                 let status = response.status_code();
-                let bytes = match response.body() {
-                    worker::ResponseBody::Empty => Vec::new(),
-                    worker::ResponseBody::Body(bytes) if bytes.len() <= RESPONSE_BYTES_MAX => {
-                        bytes.clone()
-                    }
-                    worker::ResponseBody::Body(_) => {
-                        return Err(failure("response body limit exceeded"));
-                    }
-                    worker::ResponseBody::Stream(_) => {
-                        read_stream(response.stream()?, RESPONSE_BYTES_MAX).await?
-                    }
-                };
+                let bytes = response_bytes(&mut response, RESPONSE_BYTES_MAX).await?;
                 // Error bodies can contain sensitive context; never forward or log them.
                 let value = if bytes.is_empty() {
                     Value::Null
@@ -719,13 +719,8 @@ async fn seat_choice(
 }
 
 async fn preferred_seat(github: &Github, login: &str) -> Result<Option<String>> {
-    if !crate::valid_login(login) {
-        return Err(failure("invalid seat login"));
-    }
-    let name = format!(
-        "SEAT_PREFERRED_{}",
-        login.replace('-', "_").to_ascii_uppercase()
-    );
+    let name =
+        crate::preferred_seat_variable(login).ok_or_else(|| failure("invalid seat login"))?;
     let (status, value) = github
         .call(
             Method::Get,
@@ -2263,20 +2258,8 @@ async fn fetch(mut request: Request, env: Env, ctx: Context) -> Result<Response>
             Response::error("Index temporarily unavailable", 502)
         };
     }
-    // Without a session every page sends the browser to GitHub sign-in; state binds the callback.
-    if request.method() == Method::Get && matches!(path.as_str(), "/seats" | "/admin") {
-        let state = random_state();
-        let Some(location) = crate::sign_in_location(&state) else {
-            return Response::error("Sign-in unavailable", 503);
-        };
-        let headers = Headers::new();
-        headers.set("Location", &location)?;
-        headers.set(
-            "Set-Cookie",
-            &format!("golem_oauth_state={state}; Path=/auth/github; Max-Age=600; HttpOnly; Secure; SameSite=Lax"),
-        )?;
-        headers.set("Cache-Control", "no-store")?;
-        return Ok(Response::empty()?.with_status(302).with_headers(headers));
+    if let Some(response) = registration::route(&mut request, &env, &path).await {
+        return response;
     }
     if request.method() == Method::Post && path == "/internal/queue" {
         return match bounded(internal_queue(&mut request, &env), 25_000).await {

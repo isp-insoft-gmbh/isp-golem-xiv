@@ -3,6 +3,19 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-11: Seat registration page and refreshing Codex seats
+
+- Sign-in uses the App's user authorization: the callback checks the state cookie in constant time, exchanges the code with `APP_CLIENT_SECRET` (Worker secret, from the `production` environment), reads `/user` once, requires active membership, and sets a one-hour `golem_session` cookie MAC'd with a key derived from the client secret.
+  Writes require an exact same-origin `Origin`, the session and an `X-Golem-Csrf` HMAC; membership is rechecked on every write.
+- The browser seals credentials with a libsodium-compatible sealed box against the ops repository's Actions public key; the router only relays `encrypted_value` to `SEAT_<LOGIN>__<PROVIDER>`, so it never sees a credential; GitHub replaces an existing secret, which is how registering again replaces a seat.
+  Vendored TweetNaCl.js 1.0.3 (Unlicense) and blakejs 1.2.1 (MIT) in `router/src/vendor/`, byte-identical to their npm tarballs; cargo-deny does not see them.
+  Strict CSP, no inline script; the preferred-seat variable only accepts a provider the person has.
+- OpenAI Codex seats run on the pinned Codex CLI (`codex exec --json --output-schema`, ephemeral, user config ignored) with a private per-run `CODEX_HOME` holding only the seat's `auth.json`, mounted outside `/workspace`.
+  The model shown is the requested one or `default`; Codex's stream does not report it.
+- After confirmed container destruction and before target publication credentials, a refreshed `auth.json` (same account, newer `last_refresh`, valid tokens) is sealed with `dryoc` 2.0.0 and written back with an ops-only `secrets: write` token; failures are noted in summaries but never fail the run.
+  `dryoc` avoids duplicate crates `crypto_box` would add; a libsodium ciphertext test anchors compatibility.
+- Known gaps: `golem_session` is not a `__Host-` cookie, so a sibling workers.dev subdomain could plant one (MAC still prevents forgery); the agent can read and alter the mounted `auth.json` like Claude's token; codex dispatch stays disabled in the router until a runner release with this change is pinned.
+
 ## 2026-11-11: Seat fallback runs on a `pi` harness
 
 - Dispatch uses `choose_seat` with the payer's seats and preferred seat; it dispatches only choices the runner can execute (Anthropic with `claude` or `pi`) and otherwise refuses mentions with no-seat or skips unattended work, never moving cost to another payer.

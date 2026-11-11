@@ -129,7 +129,7 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
             let before = golem_runner::changes::scan(&workspace)?;
             sandbox::prepare_target(&workspace, &names[0]).await.map_err(|_| "preparation destruction unconfirmed")?
                 .map_err(|_| "target preparation failed")?;
-            let execution = sandbox::run_writable(&workspace, &name, &token, "claude", None, &prompt, 180)
+            let execution = sandbox::run_writable(&workspace, &name, sandbox::Credential::Token(&token), "claude", None, &prompt, 180)
                 .await.map_err(|_| "agent destruction unconfirmed")?.map_err(|_| "agent execution failed")?;
             if execution.timed_out { return Err("agent exceeded case budget"); }
             let output = golem_runner::writable_agent_result(&execution.stdout, &execution.stderr, &guard)
@@ -1472,4 +1472,69 @@ async fn successful_agent_result_posts_real_answer_and_retries_idempotent_check_
         );
     }
     assert_eq!(observed[1].1, observed[2].1);
+}
+
+fn codex_sign_in(refresh_token: &str, last_refresh: &str) -> String {
+    serde_json::to_string_pretty(&json!({
+        "auth_mode": "chatgpt", "OPENAI_API_KEY": null,
+        "tokens": {"id_token": format!("eyJ.id-{refresh_token}-{}", "i".repeat(40)),
+            "access_token": format!("eyJ.access-{refresh_token}-{}", "a".repeat(40)),
+            "refresh_token": format!("rt_{refresh_token}-fixture-not-real"), "account_id": "acct-fixture"},
+        "last_refresh": last_refresh
+    }))
+    .unwrap()
+}
+
+#[tokio::test]
+async fn seat_write_back_failures_are_noted_guarded_and_never_fail_the_run() {
+    let original =
+        golem_runner::codex::CodexAuth::parse(&codex_sign_in("one", "2026-11-01T00:00:00Z"))
+            .unwrap();
+    let refreshed = codex_sign_in("two", "2026-11-11T00:00:00Z");
+    for (readback, note) in [
+        (None, None),
+        (Some(Ok(original.text().to_owned())), None),
+        (
+            Some(Err("refreshed sign-in missing")),
+            Some("refreshed sign-in missing"),
+        ),
+        (
+            Some(Ok("{\"tokens\":null}".to_owned())),
+            Some("refreshed sign-in is not a valid Codex sign-in"),
+        ),
+        // Refreshed, but minting the ops token fails before any request: noted, not fatal.
+        (Some(Ok(refreshed.clone())), Some("invalid App private key")),
+    ] {
+        let mut request = request();
+        request.provider = "openai-codex".into();
+        request.harness = "codex".into();
+        let (github, observed) = server(vec![]);
+        let context = RunContext {
+            github: &github,
+            request: &request,
+            private_key: "not a private key",
+            run_id: "99",
+            attempt: "1",
+        };
+        let mut guard = OutputGuard::default();
+        let refreshed_readback = matches!(&readback, Some(Ok(text)) if *text == refreshed);
+        context
+            .write_back_seat(&original, readback, &mut guard)
+            .await;
+        assert_eq!(request.seat_note.get(), note);
+        assert_eq!(observed.join().unwrap().unwrap().len(), 0, "no request");
+        if refreshed_readback {
+            let access = format!("eyJ.access-two-{}", "a".repeat(40));
+            assert!(
+                guard.check(&format!("leaked {access}")).is_err(),
+                "refreshed tokens are guarded"
+            );
+            assert!(guard.check("rt_two-fixture-not-real").is_err());
+        }
+        let summary = request.summary("replied", "default", "99");
+        assert_eq!(
+            summary.contains("seat refresh: not written back"),
+            note.is_some()
+        );
+    }
 }
