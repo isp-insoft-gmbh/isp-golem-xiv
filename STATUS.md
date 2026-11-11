@@ -5,11 +5,12 @@
   PR #19 fixed the `app-oauth` probe; secret valid, blocked on Oliver registering callback `https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/auth/github/callback`.
   PR #20 (`27e847f`): help and seat replies live-verified (core sandbox issue 10, comments `6786466094`, `6786465986`); `/seats` and `/admin` sign-in redirect; `seat-page` gate green.
   PR #21 (`5e2222d`): `golems/validate` pull-request check (fixture-tested; live via Slice 3 acceptance).
-  Branch `feat/onboarding-dashboard`: onboarding PR and pinned dashboard on push, seats incl. people who left; upkeep reuses the delivery's head/index so 20-golem pushes keep the event budget.
-  Full workerd suite including the 20-golem push scenario passed on Linux CI `42960377318` (`cd21ce1`); Windows still resets at the oversized-body test (line 243).
+  PR #22 (`333a816`, CI `42961537241`, deploy `42961537219`): onboarding PR and pinned dashboard on push, seats incl. people who left; upkeep reuses the delivery's head/index so 20-golem pushes keep the event budget (workerd suite green on Linux; Windows resets at the oversized-body test).
+  Live probe in kept sandbox `isp-insoft-gmbh/isp-golem-xiv-test-onboardprobe-20261111060243`: onboarding PR #1 with exactly the two files and house rules; after merge, dashboard #2 created and pinned with all four sections listing `hello`; invalid-golem PR got `golems/validate` check `130334409741` = failure, and after merge Disabled listed it.
+  Full Slice 3 acceptance cannot run live checks until the static `app-oauth` gate passes.
   Open: seat registration page and OAuth callback (needs callback + browser session), seat-replace/refresh evidence (fresh Codex sign-in), fallback runs (runner `pi` harness and non-Anthropic providers), dashboard last outcome and run boxes.
-- **Current branch:** `feat/onboarding-dashboard`.
-- **Deployed Worker:** PR #21 merge `5e2222dadce72fcc8108dfad48ce740e2a63bb7f` (CI `42956246837`, deploy `42956246890`); live health verified. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
+- **Current branch:** `docs/slice3-live-probes`.
+- **Deployed Worker:** PR #22 merge `333a81685849b5bd3ac3cb8d34c8a35cc6295b4c` (CI `42961537241`, deploy `42961537219`); live health verified. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.
