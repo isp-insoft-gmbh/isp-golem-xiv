@@ -502,6 +502,34 @@ pub fn refusal(reason: &str, golems: &[Golem]) -> String {
     format!("<!-- isp-golem-xiv kind=refused reason={reason} -->\n{explanation}")
 }
 
+/// Check run name for pull requests that change `.golems/`.
+pub const VALIDATION_CHECK: &str = "golems/validate";
+
+/// Validation outcome with the same parser the router uses: all golems valid, and a summary.
+#[must_use]
+pub fn validation_summary(golems: &[Golem]) -> (bool, String) {
+    if golems.is_empty() {
+        return (true, "No golems in `.golems/`.".into());
+    }
+    let lines: Vec<String> = golems
+        .iter()
+        .map(|golem| {
+            if golem.errors.is_empty() {
+                format!("- `{}`: valid", golem.name)
+            } else {
+                format!("- `{}`: {}", golem.name, golem.errors.join("; "))
+            }
+        })
+        .collect();
+    let ok = golems.iter().all(|golem| golem.errors.is_empty());
+    let head = if ok {
+        "All golems are valid."
+    } else {
+        "Invalid golems are disabled after merge until fixed."
+    };
+    (ok, format!("{head}\n\n{}", lines.join("\n")))
+}
+
 /// Providers in fallback order, matching `contract.nuon` providers.
 pub const PROVIDERS: [&str; 3] = ["anthropic", "openai-codex", "github-copilot"];
 

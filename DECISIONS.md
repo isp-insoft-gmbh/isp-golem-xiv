@@ -3,6 +3,11 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-11: Pull-request validation check
+
+- `pull_request` opened/synchronize/reopened events whose files touch `.golems/` (or fill a whole files page) get a completed `golems/validate` check at the head commit, built from the same index parser the router uses; any invalid golem fails it and the summary lists each golem's reasons.
+- Validation runs before trigger matching and its failure is logged, never allowed to drop matching event golems; App-authored events stay ignored, so the onboarding pull request is not validated by this path.
+
 ## 2026-11-11: Help and seat commands; harness/provider are preferences
 
 - A bare mention or `@isp-golem-xiv help` replies with the help marker, every enabled golem and the seat, harness and model it would use for the asker, disabled golems, the commands, and the asker's seats with the registration link.

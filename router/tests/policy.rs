@@ -63,6 +63,19 @@ fn seat_choice_prefers_golem_provider_then_preferred_then_order_and_names_fallba
 }
 
 #[test]
+fn validation_summary_fails_on_any_invalid_golem_and_names_reasons() {
+    let valid = parse_golem("hello", "---\n---\nTask");
+    let broken = parse_golem("broken", "---\nschedule: someday\n---\nTask");
+    assert!(router::validation_summary(&[]).0);
+    let (ok, summary) = router::validation_summary(std::slice::from_ref(&valid));
+    assert!(ok && summary.contains("- `hello`: valid"));
+    let (ok, summary) = router::validation_summary(&[valid, broken]);
+    assert!(!ok);
+    assert!(summary.starts_with("Invalid golems are disabled after merge until fixed."));
+    assert!(summary.contains("- `broken`: ") && summary.contains("schedule"));
+}
+
+#[test]
 fn sign_in_location_uses_public_client_encoded_callback_and_uuid_state() {
     let state = "0f6e1c2a-1b2c-4d3e-8f90-123456789abc";
     assert_eq!(
