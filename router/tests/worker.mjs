@@ -128,6 +128,7 @@ async function github(request) {
   if (path.startsWith(`/repos/${ops}/git/tags/`)) return answer(200, state.tags.get(path.split('/').at(-1)));
   if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) return path.endsWith('/outsider') ? answer(404, {}) : answer(200, {state:'active'});
   if (path.startsWith(`/repos/${ops}/actions/secrets/`)) return answer(path.endsWith('SEAT_MEMBER__ANTHROPIC') ? 200 : 404, {});
+  if (path.startsWith(`/repos/${ops}/actions/variables/`)) return answer(404, {});
   if (path.endsWith('/reactions')) {state.reactions.push({path, ...body}); return answer(201, {id:1});}
   if (path.endsWith('/check-runs')) {state.checks.push(body); return answer(201, {id:state.checks.length});}
   if (path === `/repos/${ops}/actions/workflows/runner.yml/dispatches`) {state.dispatches.push(body); return answer(dispatchStatus, dispatchStatus === 204 ? null : {});}
@@ -176,6 +177,21 @@ try {
   const health = await worker.dispatchFetch(`${base}/health`);
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), {app:'isp-golem-xiv', version:'fixture-version'});
+  const states = new Set();
+  for (const page of ['/seats', '/admin']) {
+    const signIn = await worker.dispatchFetch(`${base}${page}`, {redirect: 'manual'});
+    assert.equal(signIn.status, 302, `${page} without session redirects`);
+    const location = new URL(signIn.headers.get('Location'));
+    assert.equal(`${location.origin}${location.pathname}`, 'https://github.com/login/oauth/authorize');
+    assert.equal(location.searchParams.get('client_id'), 'Iv23liEnfLEVCSS2aUdR');
+    assert.equal(location.searchParams.get('redirect_uri'), 'https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/auth/github/callback');
+    const state = location.searchParams.get('state');
+    assert.match(state, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    assert.equal(signIn.headers.get('Set-Cookie'), `golem_oauth_state=${state}; Path=/auth/github; Max-Age=600; HttpOnly; Secure; SameSite=Lax`);
+    assert.match(signIn.headers.get('Cache-Control'), /no-store/);
+    states.add(state);
+  }
+  assert.equal(states.size, 2, 'every sign-in gets a fresh state');
   const index = `${base}/v1/repos/${repository}/golems`;
   assert.equal((await worker.dispatchFetch(index)).status, 401);
   assert.equal((await worker.dispatchFetch(index, {headers:{Authorization:'Bearer invalid-fixture-token'}})).status, 401);
@@ -224,7 +240,7 @@ try {
   const refusalCount = state.comments.length;
   assert.equal((await deliver('bare-first-line', payload('member', '@isp-golem-xiv\nhello say this'))).status, 202);
   await eventually(() => state.comments.length > refusalCount, 'bare first line remains a bare mention');
-  assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=unknown-golem -->'));
+  assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=unknown-golem -->'), 'legacy v1 keeps its refusal');
   assert.equal(state.dispatches.length, 0);
   const deliveries = await Promise.all([deliver('duplicate', payload()), deliver('duplicate', payload())]);
   assert.ok(deliveries.every(response => response.status === 202));
@@ -279,6 +295,22 @@ try {
   assert.equal(state.queue[0].head_sha,head);
   assert.equal(state.queue[0].instructions,request.instructions);
   assert.equal(state.reactions.filter(reaction => reaction.content === 'rocket').length,1,'coordinator owns v2 rockets');
+  const queuedBeforeHelp = state.queue.length;
+  const helpCount = state.comments.length;
+  assert.equal((await deliver('v2-bare-help', payload('member', '@isp-golem-xiv\nanything'))).status, 202);
+  await eventually(() => state.comments.length > helpCount, 'v2 bare mention answers help');
+  const help = state.comments.at(-1);
+  assert.ok(help.startsWith('<!-- isp-golem-xiv kind=help -->'), 'bare mention answers help');
+  assert.match(help, /^- `hello`: seat `member\/anthropic`, harness `claude`, model `default`$/m);
+  assert.ok(help.includes('Your seats: `anthropic`.') && help.includes('/seats'));
+  const seatCount = state.comments.length;
+  assert.equal((await deliver('v2-seat-command', payload('member', '@isp-golem-xiv seat'))).status, 202);
+  await eventually(() => state.comments.length > seatCount, 'seat command answers');
+  const seatReply = state.comments.at(-1);
+  assert.ok(seatReply.startsWith('<!-- isp-golem-xiv kind=seat -->\n@member, your seats: `anthropic`.'), 'seat reply names only the asker');
+  assert.ok(seatReply.includes('https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats'));
+  assert.equal(state.queue.length, queuedBeforeHelp, 'help and seat never enqueue');
+  assert.equal(state.dispatches.length, directDispatches, 'help and seat never dispatch');
   assert.equal((await deliver('v2-stop',payload('member','@isp-golem-xiv stop'))).status,202);
   await eventually(() => state.internal.some(body => body.action === 'stop'), 'thread stop handoff');
   assert.deepEqual(state.internal.find(body => body.action === 'stop'),{action:'stop',repository,issue_number:1});

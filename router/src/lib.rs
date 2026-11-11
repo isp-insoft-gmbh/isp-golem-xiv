@@ -12,6 +12,34 @@ pub const BOT: &str = "isp-golem-xiv[bot]";
 pub const OPS: &str = "isp-insoft-gmbh/isp-golem-xiv-ops";
 pub const TEST_TOPIC: &str = "isp-golem-xiv-test";
 pub const SEAT_URL: &str = "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats";
+pub const ROUTER_URL: &str = "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev";
+pub const OAUTH_CALLBACK: &str = "/auth/github/callback";
+/// Public client id of the App's user authorization; the client secret stays a Worker secret.
+pub const CLIENT_ID: &str = "Iv23liEnfLEVCSS2aUdR";
+
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                char::from(b).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect()
+}
+
+/// GitHub sign-in URL; `state` must be a UUID bound to the browser by cookie.
+#[must_use]
+pub fn sign_in_location(state: &str) -> Option<String> {
+    valid_delivery(state).then(|| {
+        format!(
+            "https://github.com/login/oauth/authorize?client_id={CLIENT_ID}&redirect_uri={}&state={state}",
+            percent_encode(&format!("{ROUTER_URL}{OAUTH_CALLBACK}"))
+        )
+    })
+}
 pub const FILE_BYTES_MAX: usize = 65_536;
 pub const COMMENT_BYTES_MAX: usize = 16_384;
 pub const GOLEMS_MAX: usize = 20;
@@ -260,18 +288,15 @@ fn validate_frontmatter(front: &Frontmatter) -> Vec<String> {
             errors.push("invalid schedule".into());
         }
     }
+    // Harness and provider are preferences (SPEC "Which seat and model"); an incompatible
+    // pair is resolved at run time by falling back to `pi`, so only unknown values are invalid.
     let harness = front.harness.as_deref().unwrap_or("claude");
-    let provider = front.provider.as_deref().unwrap_or(match harness {
-        "codex" => "openai-codex",
-        _ => "anthropic",
-    });
-    if !matches!(
-        (harness, provider),
-        ("claude" | "pi", "anthropic")
-            | ("codex" | "pi", "openai-codex")
-            | ("pi", "github-copilot")
-    ) {
-        errors.push("invalid or incompatible harness/provider".into());
+    let provider = front
+        .provider
+        .as_deref()
+        .unwrap_or_else(|| default_provider(harness));
+    if !matches!(harness, "claude" | "codex" | "pi") || !PROVIDERS.contains(&provider) {
+        errors.push("unknown harness or provider".into());
     }
     if harness == "claude"
         && front.model.as_deref().is_some_and(|model| {
@@ -475,6 +500,168 @@ pub fn refusal(reason: &str, golems: &[Golem]) -> String {
         ),
     };
     format!("<!-- isp-golem-xiv kind=refused reason={reason} -->\n{explanation}")
+}
+
+/// Providers in fallback order, matching `contract.nuon` providers.
+pub const PROVIDERS: [&str; 3] = ["anthropic", "openai-codex", "github-copilot"];
+
+#[must_use]
+pub fn harness_works(provider: &str, harness: &str) -> bool {
+    matches!(
+        (provider, harness),
+        ("anthropic", "claude" | "pi")
+            | ("openai-codex", "codex" | "pi")
+            | ("github-copilot", "pi")
+    )
+}
+
+fn default_provider(harness: &str) -> &'static str {
+    if harness == "codex" {
+        "openai-codex"
+    } else {
+        "anthropic"
+    }
+}
+
+fn default_harness(provider: &str) -> &'static str {
+    match provider {
+        "anthropic" => "claude",
+        "openai-codex" => "codex",
+        _ => "pi",
+    }
+}
+
+/// Seat, harness and model a run uses, and why it differs from the golem's preference.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeatChoice {
+    pub provider: String,
+    pub harness: String,
+    pub model: Option<String>,
+    pub fallback: Option<String>,
+}
+
+/// SPEC "Which seat and model": golem provider first, else the preferred seat, else the first
+/// registered seat; keep the harness if it works there, else `pi`, with the harness default model.
+#[must_use]
+pub fn choose_seat(
+    frontmatter: &Frontmatter,
+    seats: &[&str],
+    preferred: Option<&str>,
+) -> Option<SeatChoice> {
+    let wanted = frontmatter
+        .provider
+        .as_deref()
+        .unwrap_or_else(|| default_provider(frontmatter.harness.as_deref().unwrap_or("claude")));
+    let harness = frontmatter
+        .harness
+        .as_deref()
+        .unwrap_or_else(|| default_harness(wanted));
+    if seats.contains(&wanted) {
+        return Some(SeatChoice {
+            provider: wanted.into(),
+            harness: harness.into(),
+            model: frontmatter.model.clone(),
+            fallback: None,
+        });
+    }
+    let provider = preferred
+        .filter(|p| seats.contains(p))
+        .or_else(|| PROVIDERS.iter().copied().find(|p| seats.contains(p)))?;
+    let used = if harness_works(provider, harness) {
+        harness
+    } else {
+        "pi"
+    };
+    Some(SeatChoice {
+        provider: provider.into(),
+        harness: used.into(),
+        model: None,
+        fallback: Some(format!(
+            "asked for {wanted}/{harness}{}, used {provider}/{used} with its default model, because there is no {wanted} seat",
+            frontmatter
+                .model
+                .as_deref()
+                .map(|m| format!("/{m}"))
+                .unwrap_or_default()
+        )),
+    })
+}
+
+fn seat_list(seats: &[&str]) -> String {
+    if seats.is_empty() {
+        "none".into()
+    } else {
+        seats
+            .iter()
+            .map(|s| format!("`{s}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
+/// Reply to a bare mention: what can I do here, whose seat pays, what happens next.
+#[must_use]
+pub fn help_reply(
+    login: &str,
+    golems: &[Golem],
+    seats: &[&str],
+    preferred: Option<&str>,
+) -> String {
+    let mut lines = vec![
+        "<!-- isp-golem-xiv kind=help -->".to_owned(),
+        format!("Golems here and what each would use for @{login}:"),
+        String::new(),
+    ];
+    for golem in golems.iter().filter(|g| g.errors.is_empty()) {
+        let line = match choose_seat(&golem.frontmatter, seats, preferred) {
+            Some(choice) => format!(
+                "seat `{login}/{}`, harness `{}`, model `{}`{}",
+                choice.provider,
+                choice.harness,
+                choice.model.as_deref().unwrap_or("default"),
+                choice
+                    .fallback
+                    .map(|f| format!(" (fallback: {f})"))
+                    .unwrap_or_default()
+            ),
+            None => format!("no seat; register one at {SEAT_URL}"),
+        };
+        lines.push(format!("- `{}`: {line}", golem.name));
+    }
+    let disabled: Vec<_> = golems
+        .iter()
+        .filter(|g| !g.errors.is_empty())
+        .map(|g| format!("`{}`", g.name))
+        .collect();
+    if !disabled.is_empty() {
+        lines.push(String::new());
+        lines.push(format!("Disabled: {}.", disabled.join(", ")));
+    }
+    lines.push(String::new());
+    lines.push("Run one with `@isp-golem-xiv <golem> [instructions]`, stop it with `@isp-golem-xiv stop`, check your seats with `@isp-golem-xiv seat`.".into());
+    lines.push(format!(
+        "Your seats: {}. Register or replace a seat: {SEAT_URL}",
+        seat_list(seats)
+    ));
+    lines.join("\n") + "\n"
+}
+
+/// Reply to `@isp-golem-xiv seat`: only the asker's own seats, never anyone else's.
+#[must_use]
+pub fn seat_reply(login: &str, seats: &[&str], preferred: Option<&str>) -> String {
+    let mut lines = vec![
+        "<!-- isp-golem-xiv kind=seat -->".to_owned(),
+        format!("@{login}, your seats: {}.", seat_list(seats)),
+    ];
+    if let Some(preferred) = preferred.filter(|p| seats.contains(p)) {
+        lines.push(format!(
+            "Preferred seat when a golem's provider is missing: `{preferred}`."
+        ));
+    }
+    lines.push(format!(
+        "Register, replace, or choose your preferred seat: {SEAT_URL}"
+    ));
+    lines.join("\n") + "\n"
 }
 
 impl Golem {
