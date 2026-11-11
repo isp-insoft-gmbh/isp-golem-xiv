@@ -8,9 +8,13 @@
   PR #22 (`333a816`, CI `42961537241`, deploy `42961537219`): onboarding PR and pinned dashboard on push, seats incl. people who left; upkeep reuses the delivery's head/index so 20-golem pushes keep the event budget (workerd suite green on Linux; Windows resets at the oversized-body test).
   Live probe in kept sandbox `isp-insoft-gmbh/isp-golem-xiv-test-onboardprobe-20261111060243`: onboarding PR #1 with exactly the two files and house rules; after merge, dashboard #2 created and pinned with all four sections listing `hello`; invalid-golem PR got `golems/validate` check `130334409741` = failure, and after merge Disabled listed it.
   Full Slice 3 acceptance cannot run live checks until the static `app-oauth` gate passes.
+  PR #24 (`ff5847b`, CI `42967053433`, deploy `42967053554`): seat fallback on a `pi` harness; the agent image with pinned Pi 1.5.1 and the `golem_report` extension built and passed its offline probes in CI.
+  Between that deploy and the v6 pin, fallback dispatches would have failed closed at v5 `--validate`; none were observed.
+  Release v6 (run `42968967976`, tag `d9df5f1`, native asset `734356865`, SHA-256 `110c251b0476ddffd046b233716e3a4f686fb8c32f820a3049f9b4a3fb7741ad`) verified; ops PR #12 merged `5d435321fe2c75112100bcc5f456c5dec90073c2` (CI `42970183697`), live workflow byte-matches the template (SHA-256 `6e194f2d…`).
+  Live fallback: `foreign` golem (`codex`/`github-copilot`) mentioned by anthropic-only `bugabinga` in the probe sandbox, issue 4 comment `6788505691`: check `130357161751` replied/success with `harness: pi`, observed `claude-opus-5-5`, `seat: bugabinga/anthropic` and the `fallback:` line; App reply carries the `foreign` marker; run `42970383464`.
   Open: seat registration page and OAuth callback (needs callback + browser session), seat-replace/refresh evidence (fresh Codex sign-in), fallback runs (runner `pi` harness and non-Anthropic providers), dashboard last outcome and run boxes.
-- **Current branch:** `docs/slice3-live-probes`.
-- **Deployed Worker:** PR #22 merge `333a81685849b5bd3ac3cb8d34c8a35cc6295b4c` (CI `42961537241`, deploy `42961537219`); live health verified. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
+- **Current branch:** `fix/pin-v6-template`.
+- **Deployed Worker:** PR #24 merge `ff5847bb94c7ebea6353c9cf98351022aa07fb3d` (CI `42967053433`, deploy `42967053554`); live health verified. Runtime pins native v6. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.
