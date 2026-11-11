@@ -165,8 +165,12 @@
 - **Resumed proof policy:** script `C:\Users\okr\AppData\Local\Temp\isp-golem-live-continue-echo.mjs` resumes from the verified first changer (pre-fence router `15213da`); continuation ∧ echo run on post-fence router `1b72c82`, runtime unchanged v5 without download retries.
   Result: continuation verified (PR #9 → `fff1ac3…`, run `42942341694`) ∧ echo verified (run `42942532889`, single reply, exact context, loop watch 207 s); details in EVIDENCE.
   Driver exit 1 was its own null-branch assumption; echo checks completed read-only.
-- **Next step:** unchanged `mise run accept -- --preflight --slice 2`, then full `--slice 2 --keep`.
-  Private retry template still blocked on gh `workflow` scope.
+- **Scopes granted by Oliver;** private runtime PR #11 merged `abf9489eea62f5f7aac43b1185f048a89e05591e` after CI `42946847311`; live runner.yml byte-matches reviewed template (v5 + bounded download retries).
+- **Slice 2 acceptance passed:** unchanged `--slice 2 --keep`, activity `activity-d4ea3e67-2`, exit 0, 32/32 gates ok, log `C:\Users\okr\AppData\Local\Temp\golem-slice2-kaTx7M\accept.log` (private, untruncated).
+  Deployed version `3413531` (docs-only over fenced `1b72c82`); `accept.nu`/`contract.nuon` identical to trunk.
+  Kept sandboxes `isp-insoft-gmbh/isp-golem-xiv-test-core-20261111033454` and `…-events-20261111033454`; per-case check/run IDs in EVIDENCE.
+  Still open, not covered by gates: stopped rows with a gone target repository stay retained; Windows-only oversized-body Worker test reset.
+- **Next:** Slice 3. Planned human stops first: browser session for seat page, fresh `codex login` into a new folder, App client secret + OAuth callback (`app-oauth` prerequisite).
   Private runtime retry template blocked: gh token lacks `workflow` scope (branch `fix/download-retries` committed locally in ops checkout, push refused); runtime still v5 without retries.
 - **Recovery path chosen:** pre-admission stop fence (DECISIONS 2026-11-06).
   Local coordinator suite 70/70 PASS including two new fence scenarios; repair regressions pass with advanced coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0`.
