@@ -3,6 +3,16 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-11: Help and seat commands; harness/provider are preferences
+
+- A bare mention or `@isp-golem-xiv help` replies with the help marker, every enabled golem and the seat, harness and model it would use for the asker, disabled golems, the commands, and the asker's seats with the registration link.
+  `@isp-golem-xiv seat` replies with only the asker's own seats (secret names, never values), their preferred seat if set, and the registration link.
+  Neither dispatches anything; the earlier unknown-golem refusal for a bare mention is replaced by help as the Slice 3 `help` promise requires.
+- Seat choice is one pure function used by help now and by dispatch later: golem provider if the holder has that seat, else the preferred seat variable, else the first registered seat in contract provider order; the harness stays where it works, else becomes `pi`, with that harness's default model; a fallback names what was asked, what was used, and why.
+- Validation no longer disables incompatible harness/provider pairs such as `codex` with `github-copilot`: SPEC calls them preferences resolved at run time, and the contract's fallback scenario requires such a golem to run.
+  Unknown harness or provider values stay invalid.
+  Dispatch still refuses golems not on `anthropic`/`claude` until the runner supports `pi` and other providers.
+
 ## 2026-11-06: Stop fence for dispatched rows that never bound
 
 - An explicit stop on a dispatched row with null run/attempt now retires it, without associating any workflow run.
