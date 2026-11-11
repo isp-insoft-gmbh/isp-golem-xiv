@@ -6,6 +6,7 @@ COPY mise /usr/local/bin/mise
 COPY agent.mise.toml /opt/mise-config/config.toml
 COPY container.cjs /opt/golem/container.cjs
 COPY pi-report.js /opt/golem/pi-report.js
+COPY codex-result-schema.json /opt/golem/codex-result-schema.json
 ENV MISE_DATA_DIR=/opt/mise MISE_CONFIG_DIR=/opt/mise-config MISE_CACHE_DIR=/opt/mise-cache MISE_YES=1 CI=1 NPM_CONFIG_YES=true
 RUN mise --version | grep '^2026.10.21 ' \
     && mise install \
@@ -29,12 +30,18 @@ RUN mise --version | grep '^2026.10.21 ' \
          --no-skills --no-prompt-templates --no-themes --no-context-files --no-mcp --tools \
          --append-system-prompt --provider --model; do grep -F -- "$flag" /tmp/pi-help; done \
     && rm -rf /tmp/pi-help /root/.pi \
-    && mkdir -p /workspace /home/agent \
+    && mise exec -- codex --version | grep -F 'codex-cli 0.167.1' \
+    && mise exec -- codex exec --help >/tmp/codex-help \
+    && for flag in --json --output-schema --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
+         --ephemeral --ignore-user-config --ignore-rules --color --config --model; do grep -F -- "$flag" /tmp/codex-help; done \
+    && rm -rf /tmp/codex-help /root/.codex \
+    && mkdir -p /workspace /home/agent /golem-codex \
     && chmod -R a+rX /opt/mise /opt/mise-config \
     && chown 1000:1000 /home/agent \
     && ln -s "$(mise which claude)" /usr/local/bin/claude \
     && ln -s "$(readlink -f /usr/local/bin/claude)" /opt/golem/claude-entry \
     && ln -s "$(readlink -f "$(mise which pi)")" /opt/golem/pi-entry \
+    && ln -s "$(readlink -f "$(mise which codex)")" /opt/golem/codex-entry \
     && rm -rf /opt/mise-cache /root/.npm
 # --max-turns is registered but hidden from --help in the pinned CLI.
 # Prove parsing through auth, not turn-limit enforcement (requires a live run).
@@ -91,6 +98,27 @@ RUN --network=none set -eu; \
     pi_probe offline "sk-ant-oat01-$(printf 'x%.0s' $(seq 1 40))"; \
     test "$(cat "$root/offline.code")" -eq 0; \
     /usr/local/bin/node -e 'const fs = require("node:fs"); const records = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(JSON.parse); const allowed = ["message_end", "tool_execution_start", "tool_execution_end", "agent_settled"]; const ends = records.filter(r => r.type === "message_end"); if (records.some(r => !allowed.includes(r.type)) || ends.length === 0 || ends.at(-1).message.stopReason !== "error" || records.filter(r => r.type === "agent_settled").length !== 1 || records.some(r => r.toolName === "golem_report")) process.exit(1);' "$root/offline.out"
+# Codex through the real entry and stream filter, offline, with an invented sign-in. Startup,
+# flags and every --config override must load (a config error exits before any event, with
+# "Error loading config" on stderr) and the thread must start, which needs no network; the
+# turn cannot complete without network. This proves startup and filtered stream shape as
+# root without the runtime mount, not authentication, refresh or the result (live run).
+RUN --network=none set -eu; \
+    root="$(mktemp -d)"; \
+    trap 'rm -rf "$root"; rm -rf /golem-codex; mkdir -p /golem-codex' EXIT; \
+    /usr/local/bin/node -e 'const b = s => Buffer.from(s).toString("base64url"); const jwt = b(JSON.stringify({alg: "RS256", typ: "JWT"})) + "." + b(JSON.stringify({exp: 4102444800, "https://api.openai.com/auth": {chatgpt_plan_type: "plus", chatgpt_account_id: "acct-probe"}})) + "." + b("x".repeat(256)); require("node:fs").writeFileSync("/golem-codex/auth.json", JSON.stringify({auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: {id_token: jwt, access_token: jwt, refresh_token: "rt_probe-not-a-real-refresh-token", account_id: "acct-probe"}, last_refresh: new Date().toISOString()}));'; \
+    code=0; \
+    printf 'probe' | env -i PATH=/usr/local/bin:/usr/bin:/bin GOLEM_HARNESS=codex GOLEM_WRITABLE=0 HOME=/home/agent \
+      /usr/bin/timeout --signal=KILL 120 /usr/local/bin/node /opt/golem/container.cjs \
+      exec --json --output-schema /opt/golem/codex-result-schema.json --skip-git-repo-check \
+      --dangerously-bypass-approvals-and-sandbox --ephemeral --ignore-user-config --ignore-rules --color never \
+      --config 'web_search="disabled"' --config project_doc_max_bytes=0 --config check_for_update_on_startup=false \
+      --config analytics.enabled=false --config feedback.enabled=false --config 'history.persistence="none"' - \
+      >"$root/out" 2>"$root/err" || code=$?; \
+    cat "$root/out" "$root/err"; \
+    test "$code" -ne 0; \
+    if grep -F -e 'Error loading config' -e 'unexpected argument' "$root/err"; then exit 1; fi; \
+    /usr/local/bin/node -e 'const fs = require("node:fs"); const text = fs.readFileSync(process.argv[1], "utf8").trim(); const records = text ? text.split("\n").map(JSON.parse) : []; const allowed = ["thread.started", "turn.started", "turn.completed", "turn.failed", "error", "item.completed"]; if (!records.some(r => r.type === "thread.started") || records.some(r => !allowed.includes(r.type)) || records.some(r => r.type === "turn.completed") || records.some(r => r.type === "item.completed" && !["agent_message", "error"].includes(r.item?.type))) process.exit(1);' "$root/out"
 RUN printf '%s\n' \
       '#!/bin/sh' \
       'set -eu' \

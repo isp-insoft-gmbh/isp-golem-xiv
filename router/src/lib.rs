@@ -5,6 +5,7 @@ use sha2::{Digest, Sha256};
 
 #[cfg(target_arch = "wasm32")]
 mod edge;
+pub mod registration;
 
 pub const ORGANIZATION: &str = "isp-insoft-gmbh";
 pub const APP: &str = "isp-golem-xiv";
@@ -413,6 +414,17 @@ pub fn seat_secret(login: &str, provider: &str) -> Option<String> {
         login.replace('-', "_").to_ascii_uppercase(),
         provider.replace('-', "_").to_ascii_uppercase()
     ))
+}
+
+/// Ops repository variable holding a person's preferred seat provider.
+#[must_use]
+pub fn preferred_seat_variable(login: &str) -> Option<String> {
+    valid_login(login).then(|| {
+        format!(
+            "SEAT_PREFERRED_{}",
+            login.replace('-', "_").to_ascii_uppercase()
+        )
+    })
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

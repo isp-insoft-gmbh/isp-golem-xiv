@@ -74,6 +74,7 @@ const server = createServer(async (request, response) => {
     if (request.url === "/redeploy" && redeployments > 0) assert.ok(!("migrations" in metadata), "redeployment must not recreate SQLite namespace");
     else assert.deepEqual(metadata.migrations, {new_tag: "coordinator-sqlite-v1", steps: [{new_sqlite_classes: ["Coordinator"]}]});
     assert.deepEqual(metadata.bindings.find(binding => binding.name === "COORDINATOR"), {name: "COORDINATOR", type: "durable_object_namespace", class_name: "Coordinator"});
+    assert.deepEqual(metadata.bindings.find(binding => binding.name === "APP_CLIENT_SECRET"), {name: "APP_CLIENT_SECRET", type: "secret_text", text: "dummy-client"});
     const index = request.url === "/redeploy" ? (redeployments++, 0) : received++;
     response.statusCode = responses[index];
     response.end(JSON.stringify({ success: index === 0, errors: [{ message: "dummy-secret-must-not-leak" }] }));
@@ -106,10 +107,10 @@ try {
     });
     if (failure) throw failure;
     assert.equal(result.code === 0, success, result.output);
-    for (const secret of ["dummy-secret-must-not-leak", "dummy-token", "dummy-key", "dummy-hook"]) assert.ok(!result.output.includes(secret));
+    for (const secret of ["dummy-secret-must-not-leak", "dummy-token", "dummy-key", "dummy-hook", "dummy-client"]) assert.ok(!result.output.includes(secret));
     if (diagnostic) assert.ok(result.output.includes(diagnostic), result.output);
   }
-  const metadata = 'deployment-metadata "0123456789abcdef0123456789abcdef01234567" "dummy-key" "dummy-hook"';
+  const metadata = 'deployment-metadata "0123456789abcdef0123456789abcdef01234567" "dummy-key" "dummy-hook" "dummy-client"';
   const upload = `let metadata = ${metadata};
 let body = multipart-body $metadata (${JSON.stringify(javascript)} | into binary) 0x[0061736d01000000fffe000d0a] (${JSON.stringify(coordinator)} | into binary) (${JSON.stringify(runtime)} | into binary) "${boundary}";
 upload-worker "${base}/upload" "Bearer dummy-token" $body "${boundary}"`;

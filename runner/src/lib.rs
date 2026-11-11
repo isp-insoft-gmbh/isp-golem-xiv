@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 
 pub mod changes;
+pub mod codex;
+pub mod seat;
 
 use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,20 @@ pub fn initial_workflow_attempt(attempt: &str) -> Result<()> {
     } else {
         Err("workflow rerun refused before agent access")
     }
+}
+
+/// (provider, harness) pairs this runner executes; the router must dispatch only these.
+pub const RUNNER_PAIRS: [(&str, &str); 3] = [
+    ("anthropic", "claude"),
+    ("anthropic", "pi"),
+    ("openai-codex", "codex"),
+];
+
+/// Whether this runner executes the choice, with a model that is one safe CLI argument.
+#[must_use]
+pub fn runner_executes(provider: &str, harness: &str, model: Option<&str>) -> bool {
+    RUNNER_PAIRS.contains(&(provider, harness))
+        && model.is_none_or(|model| valid_model(model) && !model.starts_with('-'))
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -59,6 +75,9 @@ pub struct DispatchV1 {
     pub timeout_seconds: u64,
     pub instructions: String,
     pub check_run_id: u64,
+    /// Why a refreshed sign-in was not written back; set by the runner, never dispatched.
+    #[serde(skip)]
+    pub seat_note: std::cell::Cell<Option<&'static str>>,
 }
 
 fn identifier(value: &str, maximum: usize) -> bool {
@@ -139,12 +158,9 @@ impl DispatchV1 {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
             || !identifier(&request.seat_login, 39)
-            || !router::runner_supports(
-                &request.provider,
-                &request.harness,
-                request.model.as_deref(),
-            )
-            || (request.harness == "pi" && request.version != 2)
+            || !runner_executes(&request.provider, &request.harness, request.model.as_deref())
+            // pi and codex run writable golems only; the read-only v1 protocol stays on claude.
+            || (request.harness != "claude" && request.version != 2)
             || request.fallback.as_ref().is_some_and(|fallback| {
                 fallback.trim().is_empty()
                     || fallback.len() > 512
@@ -296,12 +312,18 @@ impl DispatchV1 {
     #[must_use]
     pub fn summary(&self, outcome: &str, model: &str, run_id: &str) -> String {
         format!(
-            "outcome: {outcome}\nseat: {}/{}\nharness: {}\nmodel: {model}\nbudget: {}s\nlog: {}{}",
+            "outcome: {outcome}\nseat: {}/{}\nharness: {}\nmodel: {model}\nbudget: {}s\nlog: {}{}{}",
             self.seat_login,
             self.provider,
             self.harness,
             self.timeout_seconds,
             self.log_url(run_id),
+            self.seat_note
+                .get()
+                .map(|note| format!(
+                    "\nseat refresh: not written back ({note}); the next run may need a new sign-in"
+                ))
+                .unwrap_or_default(),
             self.fallback_line("\n")
         )
     }
@@ -439,9 +461,9 @@ pub enum AgentDisposition {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WritableAnswer {
-    disposition: AgentDisposition,
-    message: String,
+pub(crate) struct WritableAnswer {
+    pub(crate) disposition: AgentDisposition,
+    pub(crate) message: String,
 }
 
 pub const WRITABLE_RESULT_SCHEMA: &str = r#"{"type":"object","properties":{"disposition":{"type":"string","enum":["completed","blocked"],"description":"Use blocked if policy, permissions or another obstacle prevented fulfilling the task; otherwise completed, including ordinary answers or nothing to do."},"message":{"type":"string","minLength":1,"maxLength":48000}},"required":["disposition","message"],"additionalProperties":false}"#;
@@ -496,7 +518,7 @@ fn parse_agent_result(
     completed_agent_result(value.to_string().as_bytes(), stderr, guard, writable)
 }
 
-fn checked_output(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result<()> {
+pub(crate) fn checked_output(stdout: &[u8], stderr: &[u8], guard: &OutputGuard) -> Result<()> {
     if stdout.len() > OUTPUT_BYTES_MAX || stderr.len() > OUTPUT_BYTES_MAX {
         return Err("harness output exceeds limit");
     }
@@ -603,7 +625,7 @@ pub fn partial_agent_result(
     })
 }
 
-fn valid_model(model: &str) -> bool {
+pub(crate) fn valid_model(model: &str) -> bool {
     !model.is_empty()
         && model != "unobserved"
         && model.len() <= 128
@@ -660,16 +682,24 @@ fn completed_agent_result(
 }
 
 /// Each harness's own writable protocol, after a normal exit or a timeout.
-#[must_use]
-pub fn writable_parser(
+///
+/// # Errors
+/// Whatever that harness's strict protocol rejects.
+pub fn writable_result(
     harness: &str,
+    requested_model: Option<&str>,
     timed_out: bool,
-) -> fn(&[u8], &[u8], &OutputGuard) -> Result<AgentOutput> {
+    stdout: &[u8],
+    stderr: &[u8],
+    guard: &OutputGuard,
+) -> Result<AgentOutput> {
     match (harness, timed_out) {
-        ("pi", true) => pi_partial_result,
-        ("pi", false) => pi_writable_result,
-        (_, true) => partial_agent_result,
-        (_, false) => writable_agent_result,
+        ("codex", true) => codex::partial_result(stdout, stderr, guard, requested_model),
+        ("codex", false) => codex::writable_result(stdout, stderr, guard, requested_model),
+        ("pi", true) => pi_partial_result(stdout, stderr, guard),
+        ("pi", false) => pi_writable_result(stdout, stderr, guard),
+        (_, true) => partial_agent_result(stdout, stderr, guard),
+        (_, false) => writable_agent_result(stdout, stderr, guard),
     }
 }
 
@@ -1161,6 +1191,112 @@ mod tests {
         let plain = parse(&request_json()).unwrap();
         assert!(!plain.summary("replied", "m", "1").contains("fallback"));
         assert!(!plain.reply("answer").contains("fallback"));
+    }
+
+    #[test]
+    fn runner_executes_exactly_its_pairs_with_safe_models() {
+        for provider in router::PROVIDERS {
+            for harness in ["claude", "codex", "pi"] {
+                assert_eq!(
+                    runner_executes(provider, harness, None),
+                    RUNNER_PAIRS.contains(&(provider, harness)),
+                    "{provider}/{harness}"
+                );
+                if runner_executes(provider, harness, None) {
+                    assert!(router::harness_works(provider, harness));
+                }
+            }
+        }
+        assert!(runner_executes("openai-codex", "codex", Some("gpt-5.5")));
+        for model in [
+            "",
+            "-c",
+            "--model",
+            "bad model",
+            "unobserved",
+            &"m".repeat(129),
+        ] {
+            assert!(
+                !runner_executes("openai-codex", "codex", Some(model)),
+                "{model}"
+            );
+        }
+    }
+
+    const CODEX: &str = "---\nharness: codex\n---\nTask";
+
+    fn codex_request() -> serde_json::Value {
+        let mut value: serde_json::Value = serde_json::from_str(&request_json()).unwrap();
+        value["version"] = serde_json::json!(2);
+        value["trigger"] = serde_json::json!("mention");
+        value["branch"] = serde_json::json!("golems/hello");
+        value["queue_generation"] = serde_json::json!("12345678-1234-1234-1234-123456789abc");
+        value["provider"] = serde_json::json!("openai-codex");
+        value["harness"] = serde_json::json!("codex");
+        value
+    }
+
+    #[test]
+    fn codex_dispatch_binds_the_openai_codex_seat_and_the_recomputed_choice() {
+        let value = codex_request();
+        let request = parse(&value.to_string()).unwrap();
+        assert_eq!(request.seat_secret_name(), "SEAT_TEST_MEMBER__OPENAI_CODEX");
+        assert!(request.validate_definition(CODEX).is_ok());
+        assert!(
+            request
+                .validate_definition("---\nharness: codex\nprovider: openai-codex\n---\nTask")
+                .is_ok()
+        );
+        // A claude golem on an openai-codex seat falls back to pi, which this runner cannot run.
+        assert!(request.validate_definition("---\n---\nTask").is_err());
+        let mut modelled = value.clone();
+        modelled["model"] = serde_json::json!("gpt-5.5");
+        let modelled = parse(&modelled.to_string()).unwrap();
+        assert!(
+            modelled.validate_definition(CODEX).is_err(),
+            "model must match"
+        );
+        assert!(
+            modelled
+                .validate_definition("---\nharness: codex\nmodel: gpt-5.5\n---\nTask")
+                .is_ok()
+        );
+        for (field, bad) in [
+            ("version", serde_json::json!(1)),
+            ("harness", serde_json::json!("pi")),
+            ("harness", serde_json::json!("claude")),
+            ("provider", serde_json::json!("github-copilot")),
+            ("model", serde_json::json!("-c")),
+        ] {
+            let mut modified = value.clone();
+            modified[field] = bad;
+            if field == "version" {
+                for v2 in ["trigger", "branch", "queue_generation"] {
+                    modified.as_object_mut().unwrap().remove(v2);
+                }
+            }
+            assert!(parse(&modified.to_string()).is_err(), "{field}");
+        }
+        // An anthropic seat never runs the codex harness; the router's choice there is pi.
+        let mut anthropic = value;
+        anthropic["provider"] = serde_json::json!("anthropic");
+        assert!(parse(&anthropic.to_string()).is_err());
+    }
+
+    #[test]
+    fn seat_refresh_failure_is_noted_in_every_check_summary() {
+        let request = parse(&codex_request().to_string()).unwrap();
+        assert!(
+            !request
+                .summary("replied", "default", "9")
+                .contains("seat refresh")
+        );
+        request.seat_note.set(Some("seat write-back rejected"));
+        for outcome in ["replied", "blocked", "changed"] {
+            let summary = request.summary(outcome, "default", "9");
+            assert!(summary.contains("\nseat refresh: not written back (seat write-back rejected); the next run may need a new sign-in"), "{summary}");
+            assert!(summary.starts_with(&format!("outcome: {outcome}\n")));
+        }
     }
 
     fn pi_stream(records: &[serde_json::Value]) -> Vec<u8> {

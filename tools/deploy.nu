@@ -1,9 +1,9 @@
 #!/usr/bin/env nu
 # Deliberately uses the Workers API: cf deploy consumes a different build format.
 # Upload is atomic with secrets, so first deployment has no unbound-secret window.
-export def deployment-metadata [version: string, private_key: string, webhook_secret: string, migration_tag: string = ""] {
+export def deployment-metadata [version: string, private_key: string, webhook_secret: string, client_secret: string, migration_tag: string = ""] {
   if $version !~ '^[a-f0-9]{40}$' { error make {msg: "VERSION must be a commit SHA"} }
-  if ($private_key | is-empty) or ($webhook_secret | is-empty) {
+  if ($private_key | is-empty) or ($webhook_secret | is-empty) or ($client_secret | is-empty) {
     error make {msg: "Worker secrets must not be empty"}
   }
   let migrations = match $migration_tag {
@@ -17,6 +17,7 @@ export def deployment-metadata [version: string, private_key: string, webhook_se
     bindings: [
       {name: APP_PRIVATE_KEY, type: secret_text, text: $private_key}
       {name: WEBHOOK_SECRET, type: secret_text, text: $webhook_secret}
+      {name: APP_CLIENT_SECRET, type: secret_text, text: $client_secret}
       {name: VERSION, type: plain_text, text: $version}
       {name: COORDINATOR, type: durable_object_namespace, class_name: Coordinator}
     ]
@@ -101,7 +102,7 @@ def main [] {
   let version = $env.GITHUB_SHA
   let authorization = $"Bearer ($env.CLOUDFLARE_API_TOKEN)"
   let migration_tag = current-migration $"https://api.cloudflare.com/client/v4/accounts/($account)/workers/services/isp-golem-xiv" $authorization
-  let metadata = deployment-metadata $version $env.APP_PRIVATE_KEY $env.WEBHOOK_SECRET $migration_tag
+  let metadata = deployment-metadata $version $env.APP_PRIVATE_KEY $env.WEBHOOK_SECRET $env.APP_CLIENT_SECRET $migration_tag
   let javascript = open --raw ($root | path join router build index.js) | into binary
   let wasm = open --raw ($root | path join router build index_bg.wasm)
   let coordinator = open --raw ($root | path join router build coordinator.js) | into binary

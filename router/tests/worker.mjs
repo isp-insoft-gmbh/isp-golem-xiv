@@ -31,7 +31,7 @@ const files = new Map([
   ['stop.md', '---\n---\nReserved name.'],
 ]);
 const onboardRepo = 'isp-insoft-gmbh/isp-golem-xiv-test-onboard';
-const state = {onboard: {golems: null, writes: [], branches: [], pulls: [], issues: [], pins: [], patches: 0}, calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
+const state = {onboard: {golems: null, writes: [], branches: [], pulls: [], issues: [], pins: [], patches: 0}, oauthExchanges: [], seatWrites: [], seatSecrets: new Set(), secretReads: [], variables: new Map(), variableWrites: [], removedMembers: new Set(), calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
 let protocol2 = false;
 let installation = [{id:99, full_name:repository, default_branch:'trunk', topics:['isp-golem-xiv-test']}];
 const repository2 = 'isp-insoft-gmbh/isp-golem-xiv-test-second';
@@ -40,6 +40,16 @@ const repositoryFiles = new Map([[repository, files]]);
 const metadata = name => ({id:name === repository ? 99 : name === repository2 ? 100 : 101, full_name:name, default_branch:'trunk', topics:allowed ? ['isp-golem-xiv-test'] : []});
 let allowed = true;
 let dispatchStatus = 204;
+// Invented X25519 secret keys are SHA-256 of these labels. `sealed` was produced by libsodium
+// (PyNaCl 1.6.2) as crypto_box_seal of `message` for the recipient with that ephemeral key, and
+// opened by libsodium's crypto_box_seal_open; `recipientPublic` is libsodium's derived public key.
+const sealedFixture = {
+  recipientSecret: 'isp-golem-xiv fixture recipient',
+  ephemeralSecret: 'isp-golem-xiv fixture ephemeral',
+  recipientPublic: '8Y6dzHa/TUrXLhsilriU0wZWao+8W28LRjg8kve/4TI=',
+  message: 'sk-ant-oat01-fixture-not-a-credential',
+  sealed: '7dLGTa59piM3xAIJnP0ZXl2Y5Czbt2NB/IbWELSN8DOJHCKQYI2Vrl5PnUhXpOkywAdElx2D9uJ+Yq8iu0dAnuiyjby9ABukJJW/PPy1RMrrKZ5bZA==',
+};
 const answer = (status, body) => new ResponseType(body === null ? null : JSON.stringify(body), {status, headers: {'Content-Type':'application/json'}});
 async function github(request) {
   state.calls++;
@@ -57,6 +67,13 @@ async function github(request) {
       if (body.action === 'tick') state.refs.set('refs/heads/golem-state', head);
     }
     return answer(200, {state:body.action === 'enqueue' ? 'pending' : 'granted', request_id:body.request?.delivery_id});
+  }
+  if (url.origin === 'https://github.com' && url.pathname === '/login/oauth/access_token' && request.method === 'POST') {
+    assert.equal(request.headers.get('Accept'), 'application/json');
+    const form = new URLSearchParams(await request.text());
+    state.oauthExchanges.push(Object.fromEntries(form));
+    const token = {'member-code':'oauth-member-token', 'outsider-code':'oauth-outsider-token'}[form.get('code')];
+    return answer(200, token && form.get('client_secret') === 'fixture-client-secret' ? {access_token:token, token_type:'bearer', scope:''} : {error:'bad_verification_code'});
   }
   assert.equal(url.origin, 'https://api.github.com');
   const path = url.pathname;
@@ -115,6 +132,8 @@ async function github(request) {
     }
   }
   if (path === '/user') {
+    const oauthLogin = {'Bearer oauth-member-token':'member', 'Bearer oauth-outsider-token':'outsider'}[request.headers.get('Authorization')];
+    if (oauthLogin) return answer(200, {login:oauthLogin});
     if (request.headers.get('Authorization') === 'Bearer redirect-fixture-token') return new ResponseType('{}', {status:302, headers:{Location:'https://must-not-receive-token.invalid/'}});
     return answer(request.headers.get('Authorization') === 'Bearer valid-fixture-token' ? 200 : 401, {login:'member'});
   }
@@ -149,9 +168,36 @@ async function github(request) {
     return sha ? answer(200, {ref, object:{sha, type:'tag'}}) : answer(404, {});
   }
   if (path.startsWith(`/repos/${ops}/git/tags/`)) return answer(200, state.tags.get(path.split('/').at(-1)));
-  if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) return path.endsWith('/outsider') ? answer(404, {}) : answer(200, {state:'active'});
-  if (path.startsWith(`/repos/${ops}/actions/secrets/`)) return answer(path.endsWith('SEAT_MEMBER__ANTHROPIC') || path.endsWith('SEAT_CODEXONLY__OPENAI_CODEX') ? 200 : 404, {});
-  if (path.startsWith(`/repos/${ops}/actions/variables/`)) return answer(404, {});
+  if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) return path.endsWith('/outsider') || state.removedMembers.has(path.split('/').at(-1)) ? answer(404, {}) : answer(200, {state:'active'});
+  if (path === `/repos/${ops}/actions/secrets/public-key`) return answer(200, {key_id:'568250167242549743', key:sealedFixture.recipientPublic});
+  if (path.startsWith(`/repos/${ops}/actions/secrets/`)) {
+    const name = path.split('/').at(-1);
+    if (method === 'PUT') {
+      state.seatWrites.push({name, body});
+      const replaced = state.seatSecrets.has(name);
+      state.seatSecrets.add(name);
+      return replaced ? answer(204, null) : answer(201, {});
+    }
+    state.secretReads.push(name);
+    return answer(['SEAT_MEMBER__ANTHROPIC', 'SEAT_CODEXONLY__OPENAI_CODEX'].includes(name) || state.seatSecrets.has(name) ? 200 : 404, {});
+  }
+  if (path === `/repos/${ops}/actions/variables` && method === 'POST') {
+    state.variableWrites.push({method, body});
+    if (state.variables.has(body.name)) return answer(409, {});
+    state.variables.set(body.name, body.value);
+    return answer(201, {});
+  }
+  if (path.startsWith(`/repos/${ops}/actions/variables/`)) {
+    const name = path.split('/').at(-1);
+    if (method === 'PATCH') {
+      const update = await request.json();
+      state.variableWrites.push({method, name, body:update});
+      if (!state.variables.has(name)) return answer(404, {});
+      state.variables.set(name, update.value);
+      return answer(204, null);
+    }
+    return state.variables.has(name) ? answer(200, {name, value:state.variables.get(name)}) : answer(404, {});
+  }
   if (path.endsWith('/reactions')) {state.reactions.push({path, ...body}); return answer(201, {id:1});}
   if (path.endsWith('/check-runs')) {state.checks.push(body); return answer(201, {id:state.checks.length});}
   if (path === `/repos/${ops}/actions/workflows/runner.yml/dispatches`) {state.dispatches.push(body); return answer(dispatchStatus, dispatchStatus === 204 ? null : {});}
@@ -169,6 +215,7 @@ const createWorker = () => new Miniflare({workers:[{
     VERSION:{type:'text', value:'fixture-version'},
     APP_PRIVATE_KEY:{type:'text', value:privateKey},
     WEBHOOK_SECRET:{type:'text', value:secret},
+    APP_CLIENT_SECRET:{type:'text', value:'fixture-client-secret'},
   }},
   dev:{outboundService:{type:'fetcher', handler:github}},
 }]});
@@ -676,5 +723,152 @@ try {
   assert.ok(enqueued(), 'push-triggered golem admitted at the 20-golem limit');
   await eventually(() => o.patches === 2, 'dashboard also updated at the limit');
   assert.ok(state.calls > callsBeforeFull);
+  await seatRegistration();
   console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context and bounded rejection/recovery, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
 } finally {await worker.dispose();}
+
+// Runs last: registering changes member's seats and preferred seat, which earlier scenarios pin.
+async function seatRegistration() {
+  const router = 'https://isp-golem-xiv.isp-insoft-gmbh.workers.dev';
+  const policy = "default-src 'none'; script-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+  const signIn = await worker.dispatchFetch(`${base}/seats`, {redirect:'manual'});
+  const oauthState = new URL(signIn.headers.get('Location')).searchParams.get('state');
+  const stateCookie = `golem_oauth_state=${oauthState}`;
+  const callback = (code, query, cookie) => worker.dispatchFetch(`${base}/auth/github/callback?code=${code}&state=${query}`, {redirect:'manual', headers:cookie === undefined ? {} : {Cookie:cookie}});
+  const exchangesBefore = state.oauthExchanges.length;
+  for (const [query, cookie, why] of [[crypto.randomUUID(), stateCookie, 'state mismatch'], [oauthState, undefined, 'no state cookie'], [oauthState, `${stateCookie}; ${stateCookie}`, 'duplicate state cookie'], [`${oauthState}&state=${oauthState}`, stateCookie, 'duplicate state']]) {
+    const refused = await callback('member-code', query, cookie);
+    assert.equal(refused.status, 400, why);
+    assert.equal(refused.headers.get('Set-Cookie'), null, why);
+  }
+  assert.equal(state.oauthExchanges.length, exchangesBefore, 'state is checked before any code exchange');
+  let response = await callback('forged-code', oauthState, stateCookie);
+  assert.equal(response.status, 403, 'GitHub rejected the code');
+  response = await callback('outsider-code', oauthState, stateCookie);
+  assert.equal(response.status, 403, 'non-member rejected');
+  assert.equal(response.headers.get('Set-Cookie'), null, 'non-member gets no session');
+  assert.ok(!(await response.text()).includes('oauth-outsider-token'));
+  response = await callback('member-code', oauthState, stateCookie);
+  assert.equal(response.status, 302, 'member signs in');
+  assert.equal(response.headers.get('Location'), '/seats');
+  assert.deepEqual(state.oauthExchanges.at(-1), {client_id:'Iv23liEnfLEVCSS2aUdR', client_secret:'fixture-client-secret', code:'member-code', redirect_uri:`${router}/auth/github/callback`});
+  const cookies = response.headers.getSetCookie();
+  assert.equal(cookies.length, 2);
+  const sessionCookie = cookies.find(cookie => cookie.startsWith('golem_session='));
+  assert.match(sessionCookie, /^golem_session=member\.\d+\.[0-9a-f]{64}; Path=\/; Max-Age=3600; HttpOnly; Secure; SameSite=Lax$/);
+  assert.ok(!sessionCookie.includes('oauth-member-token'), 'user token is never stored');
+  assert.ok(cookies.includes('golem_oauth_state=; Path=/auth/github; Max-Age=0; HttpOnly; Secure; SameSite=Lax'), 'state cookie cleared on its own path');
+  const session = sessionCookie.split(';')[0];
+  const tampered = session.replace('golem_session=member.', 'golem_session=other.');
+  response = await worker.dispatchFetch(`${base}/seats`, {redirect:'manual', headers:{Cookie:tampered}});
+  assert.equal(response.status, 302, 'tampered session signs in again');
+  assert.match(response.headers.get('Location'), /^https:\/\/github\.com\/login\/oauth\/authorize\?/);
+  const page = async () => {
+    const readsBefore = state.secretReads.length;
+    const seats = await worker.dispatchFetch(`${base}/seats`, {headers:{Cookie:session}});
+    assert.equal(seats.status, 200);
+    assert.equal(seats.headers.get('Content-Security-Policy'), policy);
+    assert.match(seats.headers.get('Cache-Control'), /no-store/);
+    assert.deepEqual(state.secretReads.slice(readsBefore), ['SEAT_MEMBER__ANTHROPIC', 'SEAT_MEMBER__OPENAI_CODEX', 'SEAT_MEMBER__GITHUB_COPILOT'], 'only own seat names are read');
+    return seats.text();
+  };
+  let html = await page();
+  assert.match(html, /<li data-seat="anthropic">/);
+  assert.ok(!html.includes('data-seat="openai-codex"') && !html.toLowerCase().includes('codexonly'), 'only own seats listed');
+  assert.ok(!/<script(?![^>]*src="\/seats\.js")/.test(html), 'no inline script');
+  const csrf = html.match(/<meta name="golem-csrf" content="([0-9a-f]{64})">/)[1];
+  response = await worker.dispatchFetch(`${base}/admin`, {headers:{Cookie:session}});
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Slice 4/);
+  assert.equal((await worker.dispatchFetch(`${base}/v1/seats/key`)).status, 401);
+  response = await worker.dispatchFetch(`${base}/v1/seats/key`, {headers:{Cookie:session}});
+  assert.equal(response.status, 200);
+  const key = await response.json();
+  assert.deepEqual(key, {key_id:'568250167242549743', key:sealedFixture.recipientPublic});
+  // The served script seals byte-identically to libsodium; it is evaluated as delivered, with a page-like self.
+  response = await worker.dispatchFetch(`${base}/seats.js`);
+  assert.match(response.headers.get('Content-Type'), /^text\/javascript/);
+  assert.equal(response.headers.get('Content-Security-Policy'), policy);
+  const script = await response.text();
+  assert.ok(script.includes('Permission is hereby granted') && script.includes('public domain'), 'vendored licenses ship with the code');
+  const browser = {crypto: globalThis.crypto};
+  new Function('self', script)(browser);
+  const {nacl, golemSeal: seal, golemBase64: base64} = browser;
+  const scalar = label => new Uint8Array(createHash('sha256').update(label).digest());
+  const recipient = nacl.box.keyPair.fromSecretKey(scalar(sealedFixture.recipientSecret));
+  assert.equal(Buffer.from(recipient.publicKey).toString('base64'), sealedFixture.recipientPublic);
+  const message = new TextEncoder().encode(sealedFixture.message);
+  const deterministic = seal(message, recipient.publicKey, nacl.box.keyPair.fromSecretKey(scalar(sealedFixture.ephemeralSecret)));
+  assert.equal(base64.toBase64(deterministic), sealedFixture.sealed, 'byte-identical to libsodium crypto_box_seal');
+  const open = text => {
+    const sealed = base64.fromBase64(text);
+    const ephemeral = sealed.subarray(0, 32);
+    const context = browser.golemBlake2b.blake2bInit(24);
+    browser.golemBlake2b.blake2bUpdate(context, Uint8Array.from([...ephemeral, ...recipient.publicKey]));
+    const opened = nacl.box.open(sealed.subarray(32), browser.golemBlake2b.blake2bFinal(context), ephemeral, recipient.secretKey);
+    return opened && new TextDecoder().decode(opened);
+  };
+  const first = base64.toBase64(seal(message, base64.fromBase64(key.key)));
+  const second = base64.toBase64(seal(new TextEncoder().encode('replacement-sign-in'), base64.fromBase64(key.key)));
+  assert.notEqual(first.slice(0, 44), second.slice(0, 44), 'fresh ephemeral key per seal');
+  assert.equal(open(first), sealedFixture.message);
+  // Writes: same origin, a session, its CSRF token, a valid request and the current key.
+  const post = (path, body, change = {}) => {
+    const headers = {'Content-Type':'application/json', Origin:router, Cookie:session, 'X-Golem-Csrf':csrf, ...change};
+    for (const name of Object.keys(headers)) if (headers[name] === undefined) delete headers[name];
+    return worker.dispatchFetch(`${base}${path}`, {method:'POST', body:typeof body === 'string' ? body : JSON.stringify(body), headers});
+  };
+  const registration = {provider:'openai-codex', key_id:key.key_id, encrypted_value:first};
+  const writesBefore = state.seatWrites.length;
+  for (const [path, body, change, status, why] of [
+    ['/v1/seats', registration, {'X-Golem-Csrf':undefined}, 403, 'missing CSRF token'],
+    ['/v1/seats', registration, {'X-Golem-Csrf':'0'.repeat(64)}, 403, 'wrong CSRF token'],
+    ['/v1/seats', registration, {Origin:'https://evil.invalid'}, 403, 'foreign origin'],
+    ['/v1/seats', registration, {Origin:undefined}, 403, 'missing origin'],
+    ['/v1/seats', registration, {Cookie:undefined}, 401, 'no session'],
+    ['/v1/seats', registration, {Cookie:tampered}, 401, 'tampered session'],
+    ['/v1/seats', {...registration, provider:'openai'}, {}, 400, 'bad provider'],
+    ['/v1/seats', {...registration, encrypted_value:'not base64!'}, {}, 400, 'not base64'],
+    ['/v1/seats', {...registration, extra:true}, {}, 400, 'unknown field'],
+    ['/v1/seats', {...registration, key_id:'1'}, {}, 409, 'stale key'],
+    ['/v1/seats', 'x'.repeat(70_000), {}, 413, 'oversized body'],
+  ]) {
+    response = await post(path, body, change);
+    assert.equal(response.status, status, why);
+    assert.ok(!(await response.text()).includes(first), `${why}: never echoes the value`);
+  }
+  state.removedMembers.add('member');
+  assert.equal((await post('/v1/seats', registration)).status, 403, 'a session outliving membership cannot write');
+  state.removedMembers.delete('member');
+  assert.equal(state.seatWrites.length, writesBefore, 'refused requests never write');
+  response = await post('/v1/seats', registration);
+  assert.equal(response.status, 200);
+  const registered = await response.text();
+  assert.deepEqual(JSON.parse(registered), {seat:'SEAT_MEMBER__OPENAI_CODEX', replaced:false});
+  assert.ok(!registered.includes(first));
+  assert.deepEqual(state.seatWrites.at(-1), {name:'SEAT_MEMBER__OPENAI_CODEX', body:{encrypted_value:first, key_id:key.key_id}}, 'exact ciphertext relayed');
+  assert.equal(open(state.seatWrites.at(-1).body.encrypted_value), sealedFixture.message);
+  response = await post('/v1/seats', {...registration, encrypted_value:second});
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {seat:'SEAT_MEMBER__OPENAI_CODEX', replaced:true}, 'registering again replaces');
+  assert.deepEqual(state.seatWrites.slice(writesBefore).map(write => write.name), ['SEAT_MEMBER__OPENAI_CODEX', 'SEAT_MEMBER__OPENAI_CODEX']);
+  assert.equal(open(state.seatWrites.at(-1).body.encrypted_value), 'replacement-sign-in');
+  html = await page();
+  assert.match(html, /<li data-seat="openai-codex">/);
+  // Preferred seat: only a provider the person has a seat at; created once, then updated.
+  const variableWrites = state.variableWrites.length;
+  assert.equal((await post('/v1/seats/preferred', {provider:'github-copilot'})).status, 409, 'no seat at that provider');
+  assert.equal((await post('/v1/seats/preferred', {provider:'other'})).status, 400);
+  assert.equal((await post('/v1/seats/preferred', {provider:'anthropic'}, {'X-Golem-Csrf':'0'.repeat(64)})).status, 403);
+  assert.equal(state.variableWrites.length, variableWrites, 'refused preferences never write');
+  response = await post('/v1/seats/preferred', {provider:'anthropic'});
+  assert.equal(response.status, 200);
+  assert.deepEqual(state.variableWrites.slice(variableWrites).map(write => write.method), ['PATCH', 'POST'], 'created when missing');
+  assert.deepEqual(state.variableWrites.at(-1).body, {name:'SEAT_PREFERRED_MEMBER', value:'anthropic'});
+  response = await post('/v1/seats/preferred', {provider:'openai-codex'});
+  assert.equal(response.status, 200);
+  assert.equal(state.variableWrites.at(-1).method, 'PATCH', 'updated when present');
+  assert.equal(state.variables.get('SEAT_PREFERRED_MEMBER'), 'openai-codex');
+  assert.match(await page(), /<option value="openai-codex" selected>/);
+  console.log('Seat registration: OAuth state/membership/session, own seats only, CSRF/origin, libsodium-identical sealing, exact relay, replacement and preferred seat passed.');
+}

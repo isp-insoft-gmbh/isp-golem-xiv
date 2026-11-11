@@ -4,18 +4,20 @@ use deploy.nu [deployment-metadata multipart-body]
 
 def main [] {
   let version = "0123456789abcdef0123456789abcdef01234567"
-  let metadata = deployment-metadata $version "dummy-private-key" "dummy-webhook-secret"
+  let metadata = deployment-metadata $version "dummy-private-key" "dummy-webhook-secret" "dummy-client-secret"
   assert equal $metadata.main_module "index.js"
   assert equal ($metadata.bindings | where name == VERSION | get 0.text) $version
-  assert equal ($metadata.bindings | where type == secret_text | get name) [APP_PRIVATE_KEY WEBHOOK_SECRET]
+  assert equal ($metadata.bindings | where type == secret_text | get name) [APP_PRIVATE_KEY WEBHOOK_SECRET APP_CLIENT_SECRET]
+  assert equal ($metadata.bindings | where name == APP_CLIENT_SECRET | get 0.text) "dummy-client-secret"
   assert equal ($metadata.bindings | where name == COORDINATOR | get 0) {name: COORDINATOR, type: durable_object_namespace, class_name: Coordinator}
   assert equal $metadata.migrations {new_tag: "coordinator-sqlite-v1", steps: [{new_sqlite_classes: [Coordinator]}]}
-  let redeployment = deployment-metadata $version key secret "coordinator-sqlite-v1"
+  let redeployment = deployment-metadata $version key secret client "coordinator-sqlite-v1"
   assert (not ("migrations" in $redeployment))
-  assert error { deployment-metadata $version key secret unknown }
-  assert error { deployment-metadata "bad-version" key secret }
-  assert error { deployment-metadata $version "" secret }
-  assert error { deployment-metadata $version key "" }
+  assert error { deployment-metadata $version key secret client unknown }
+  assert error { deployment-metadata "bad-version" key secret client }
+  assert error { deployment-metadata $version "" secret client }
+  assert error { deployment-metadata $version key "" client }
+  assert error { deployment-metadata $version key secret "" }
   let boundary = "golem-test-boundary-123456"
   let javascript = 'import wasm from "./index_bg.wasm"; export default {};' | into binary
   # Includes invalid UTF-8, NUL and newline bytes: text conversion would corrupt it.
