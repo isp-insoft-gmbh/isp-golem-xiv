@@ -82,7 +82,6 @@
   providers: {
     anthropic: {harnesses: [claude pi], refreshing: false}
     openai-codex: {harnesses: [codex pi], refreshing: true}
-    github-copilot: {harnesses: [pi], refreshing: true}
   }
 
   seat_secret: "SEAT_{login}__{provider}"
@@ -416,8 +415,8 @@
       id: fallback
       slice: 3
       kind: check
-      text: "A golem preferring a provider the tester has no seat at runs on another of the tester's seats and says so: its check run summary matches check_run.fallback."
-      guide: "Name what was asked for, what was used, and why, in the reply and the check run."
+      text: "A golem preferring a harness that does not work with the tester's provider runs on the tester's seat with pi and says so: its check run summary matches check_run.fallback."
+      guide: "Keep the seat at the golem's provider, switch the harness to pi with its default model, and name what was asked for, what was used, and why, in the reply and the check run."
     }
     {
       id: validation
