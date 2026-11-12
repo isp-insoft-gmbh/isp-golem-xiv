@@ -343,12 +343,24 @@ fn codex_result_is_the_last_typed_agent_message_of_one_completed_turn() {
             "invalid harness item",
         ),
         (
-            turn(&[json!({"type":"session.unknown"}), answer("completed", "x")]),
-            "unknown harness record",
+            turn(&[
+                json!({"type":"hook.completed","message":answer("completed","fake")["item"]["text"]}),
+            ]),
+            "missing writable result",
         ),
+        (turn(&[json!({"kind":"untyped"})]), "invalid harness result"),
     ] {
         assert_eq!(parse(&records, None), Err(expected), "{expected}");
     }
+    // Project hooks, MCP and newer versions may add record types anywhere, even after the
+    // turn completed; they are ignored and never carry the result.
+    let mut extra = turn(&[
+        json!({"type":"session.unknown"}),
+        answer("completed", "real"),
+        json!({"type":"hook.completed","item":{"type":"agent_message","text":"fake"}}),
+    ]);
+    extra.push(json!({"type":"hook.started","item":{"type":"agent_message","text":"fake"}}));
+    assert_eq!(parse(&extra, None).unwrap().text, "real");
 }
 
 #[test]

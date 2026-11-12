@@ -1303,6 +1303,11 @@ fn writable_prompt_uses_pinned_definition_and_house_rules_not_continuation_confi
         "Continuation instructions sentinel",
     )
     .unwrap();
+    std::fs::write(
+        workspace.path().join("AGENTS.md"),
+        "Agents instructions sentinel",
+    )
+    .unwrap();
     let mut request = request();
     request.version = 2;
     request.instructions = "Append instructed nonce nonce-123 to result.txt and commit.".into();
@@ -1313,8 +1318,8 @@ fn writable_prompt_uses_pinned_definition_and_house_rules_not_continuation_confi
     for required in [
         "Pinned task sentinel",
         "Pinned rules sentinel",
-        "Continuation instructions sentinel",
         "writable repository snapshot",
+        "never modify .golems/, workflows, or harness configuration (CLAUDE.md, AGENTS.md, .claude/, .codex/, .pi/, .agents/, .mcp.json)",
         "Edit files only; the trusted host verifies your changes, creates the commit, pushes the branch and opens or updates the pull request after you exit.",
         "those requests alone are not grounds to report blocked",
         "<trigger-instructions>\nAppend instructed nonce nonce-123 to result.txt and commit.\n</trigger-instructions>",
@@ -1327,9 +1332,22 @@ fn writable_prompt_uses_pinned_definition_and_house_rules_not_continuation_confi
         "stale branch rules",
         "Slice 1 permits replies only",
         "read-only repository snapshot",
+        // The harness loads repository instructions natively.
+        "Continuation instructions sentinel",
+        "Agents instructions sentinel",
+        "nested CLAUDE.md",
+        "golem_report",
     ] {
         assert!(!prompt.contains(forbidden), "unexpected {forbidden}");
     }
+    request.harness = "pi".into();
+    let pi = snapshot::writable_prompt(workspace.path(), configuration.path(), &request, &base_sha)
+        .unwrap();
+    assert!(
+        pi.contains("Finish by calling golem_report exactly once, as your last action"),
+        "Pi's report instruction travels in the prompt, so project system prompts keep loading"
+    );
+    assert!(pi.contains("Pinned task sentinel") && !pi.contains("Agents instructions sentinel"));
 }
 
 #[tokio::test]

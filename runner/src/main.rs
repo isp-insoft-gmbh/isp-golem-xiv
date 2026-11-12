@@ -225,7 +225,7 @@ fn verified_changes(
     after_agent: &golem_runner::changes::Files,
     guard: &OutputGuard,
 ) -> Result<Vec<golem_runner::changes::Change>> {
-    let after_verify = golem_runner::changes::scan(workspace)?;
+    let after_verify = golem_runner::changes::scan_after(workspace, before)?;
     if after_agent
         .iter()
         .any(|(path, file)| after_verify.get(path) != Some(file))
@@ -481,9 +481,10 @@ impl RunContext<'_> {
                 Ok(output) => output,
                 Err(error) => return Ok(Err(error)),
             };
-            let after_agent = golem_runner::changes::scan(&workspace).and_then(|after_agent| {
-                golem_runner::changes::diff(&before, &after_agent, guard).map(|_| after_agent)
-            });
+            let after_agent =
+                golem_runner::changes::scan_after(&workspace, &before).and_then(|after_agent| {
+                    golem_runner::changes::diff(&before, &after_agent, guard).map(|_| after_agent)
+                });
             let changes = match after_agent {
                 Err(error) => Err(error),
                 Ok(after_agent) => {

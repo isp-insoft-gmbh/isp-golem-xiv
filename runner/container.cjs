@@ -1,5 +1,7 @@
 'use strict';
-// Never activate repository configuration around the credentialed harness.
+// Repository toolchain environment (mise env, NODE_OPTIONS, LD_PRELOAD) is never imported
+// here. The repository's harness configuration loads natively inside each harness, so its
+// hooks, extensions and MCP servers run as children of the harness and inherit its seat.
 const fs = require('node:fs');
 const cp = require('node:child_process');
 const fixedPath = '/usr/local/bin:/usr/bin:/bin';
@@ -14,6 +16,8 @@ const targetEnv = {
   TMPDIR: '/tmp', XDG_CACHE_HOME: '/tmp/golem-cache',
   npm_config_cache: '/tmp/golem-npm-cache', PIP_CACHE_DIR: '/tmp/golem-pip-cache',
   GOCACHE: '/tmp/golem-go-cache',
+  // /home/agent is noexec: uv-managed interpreters and tools must live under /tmp.
+  UV_PYTHON_INSTALL_DIR: '/tmp/golem-uv-python', UV_TOOL_DIR: '/tmp/golem-uv-tools',
 };
 function toolEnvironment() {
   // Preparation is untrusted: never follow a link or read a device/FIFO here.
@@ -82,8 +86,9 @@ function piRecord(line) {
   return undefined;
 }
 // Codex's JSONL repeats command output and file changes. Keep only what the runner judges:
-// thread and turn lifecycle, failures, agent messages and non-fatal notices. Unknown record
-// types and malformed lines pass unchanged so the runner fails closed.
+// thread and turn lifecycle, failures, agent messages and non-fatal notices. Records of other
+// types (project hooks, MCP, newer versions) cannot carry the result and are dropped;
+// malformed lines pass unchanged so the runner fails closed.
 function codexRecord(line) {
   let record;
   try { record = JSON.parse(line); } catch { return line; }
@@ -94,8 +99,8 @@ function codexRecord(line) {
   if (type === 'error') return JSON.stringify({ type, message: record.message });
   if (type === 'item.completed' && item?.type === 'agent_message') return JSON.stringify({ type, item: { id: item.id, type: item.type, text: item.text } });
   if (type === 'item.completed' && item?.type === 'error') return JSON.stringify({ type, item: { id: item.id, type: item.type, message: item.message } });
-  if (type === 'item.started' || type === 'item.updated' || type === 'item.completed') return undefined;
-  return line;
+  if (typeof type !== 'string') return line;
+  return undefined;
 }
 function harnessEntry(entry, args, env, filter) {
   // npm may provide either a JS launcher or a native executable. Resolve once
@@ -130,7 +135,7 @@ if (args[0] === '--prepare-target') {
   // Each harness receives only its own seat variable, never the other's.
   if (harness === 'pi') {
     harnessEntry('/opt/golem/pi-entry', args, {
-      ...base, PI_CODING_AGENT_DIR: '/home/agent/.pi/agent', PI_OFFLINE: '1',
+      ...base, PI_CODING_AGENT_DIR: '/home/agent/.pi/agent',
       PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0', JITI_FS_CACHE: 'false',
       ANTHROPIC_OAUTH_TOKEN: process.env.ANTHROPIC_OAUTH_TOKEN,
     }, piRecord);
@@ -140,6 +145,12 @@ if (args[0] === '--prepare-target') {
       ...base, CODEX_HOME: '/golem-codex', NO_COLOR: '1',
     }, codexRecord);
   } else if (harness === 'claude') {
+    // `claude -p` never shows the workspace trust dialog; record its acceptance in the fresh
+    // config home so trust-gated project settings (allow rules, subagent hooks and MCP,
+    // headersHelper) apply like in an interactive session that trusted the folder.
+    fs.mkdirSync('/home/agent/.claude', { recursive: true, mode: 0o700 });
+    fs.writeFileSync('/home/agent/.claude/.claude.json',
+      JSON.stringify({ projects: { '/workspace': { hasTrustDialogAccepted: true } } }), { mode: 0o600 });
     harnessEntry('/opt/golem/claude-entry', args, {
       ...base, CLAUDE_CONFIG_DIR: '/home/agent/.claude', DISABLE_AUTOUPDATER: '1',
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
