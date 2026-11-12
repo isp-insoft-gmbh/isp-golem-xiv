@@ -12,15 +12,11 @@ use tokio::{
 const IMAGE: &str = "isp-golem-xiv-agent:v0";
 const FORBIDDEN_READ_ROOTS: [&str; 6] = ["proc", "sys", "dev", "home", "tmp", "run"];
 const TARGET_TIMEOUT_SECONDS: u64 = 600;
-/// Built-in Pi tools a writable golem needs, plus the golem-owned report tool.
-const PI_TOOLS: &str = "read,bash,edit,write,grep,find,ls,golem_report";
-/// Pi treats an existing path as a file to read; over 255 bytes without `/` it cannot be one.
 /// Private per-run `CODEX_HOME`, outside /workspace; holds only the seat sign-in at start.
 const CODEX_HOME: &str = "/golem-codex";
 /// Strict output schema baked into the image; `OpenAI` strict mode supports no length bounds,
 /// so the runner enforces those itself.
 const CODEX_SCHEMA: &str = "/opt/golem/codex-result-schema.json";
-const PI_INSTRUCTIONS: &str = "Finish by calling golem_report exactly once, as your last action, and do nothing after it. Set disposition to blocked if policy, permissions or another obstacle prevented fulfilling the task; otherwise completed, including ordinary answers or nothing to do. Put your complete final answer in message; text outside golem_report is never delivered.";
 
 pub struct Execution {
     pub stdout: Vec<u8>,
@@ -40,7 +36,6 @@ fn claude_settings() -> String {
         }
     }
     serde_json::json!({
-        "disableAllHooks": true,
         "permissions": {
             "allow": ["Read(//workspace/**)", "Glob(//workspace/**)", "Grep(//workspace/**)"],
             "deny": deny
@@ -49,11 +44,11 @@ fn claude_settings() -> String {
     .to_string()
 }
 
+/// Golem policy on top of the repository's own settings: deny rules from every source
+/// combine, so project denies still apply; project hooks, skills and MCP stay untouched.
 fn writable_settings() -> String {
     serde_json::json!({
-        "disableAllHooks": true,
         "permissions": {
-            "allow": ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
             "deny": ["WebFetch", "WebSearch"]
         }
     })
@@ -405,9 +400,11 @@ async fn agent(
     lifecycle(create, name, Some(prompt.as_bytes()), timeout_seconds).await
 }
 
-/// JSON events on stdout, the prompt on stdin, nothing loaded from the repository or home:
-/// no sessions, extensions, skills, templates, themes, MCP or context files except the
-/// golem-owned report extension; project trust declined; no automatic network activity.
+/// JSON events on stdout, the prompt on stdin, no session. The repository's own Pi setup
+/// loads natively: `--approve` trusts the project for this process (`.pi/` settings,
+/// extensions, skills, prompts, MCP, packages); context files load anyway. The golem-owned
+/// report extension is loaded first, so a project tool with its name is a startup conflict
+/// and Pi exits 1 before any event. Themes are interface-only and stay off.
 fn configure_pi(create: &mut Command, seat: &str, model: Option<&str>) {
     create
         .args([
@@ -428,20 +425,10 @@ fn configure_pi(create: &mut Command, seat: &str, model: Option<&str>) {
             "--no-session",
             "--session-dir",
             "/tmp/golem-pi-sessions",
-            "--offline",
-            "--no-approve",
-            "--no-extensions",
+            "--approve",
             "--extension",
             "/opt/golem/pi-report.js",
-            "--no-skills",
-            "--no-prompt-templates",
             "--no-themes",
-            "--no-context-files",
-            "--no-mcp",
-            "--tools",
-            PI_TOOLS,
-            "--append-system-prompt",
-            PI_INSTRUCTIONS,
         ]);
     if let Some(model) = model {
         create.args(["--provider", "anthropic", "--model", model]);
@@ -449,8 +436,10 @@ fn configure_pi(create: &mut Command, seat: &str, model: Option<&str>) {
 }
 
 /// JSONL events on stdout, the prompt on stdin, the container as the only sandbox, no user
-/// configuration, rules, sessions, history, web search, telemetry or repository AGENTS.md
-/// (the host prompt already carries it). No seat value in argv or environment.
+/// configuration (`CODEX_HOME` holds only the sign-in), sessions, history, web search or
+/// telemetry. The repository's own `.codex/` layer, rules, hooks and AGENTS.md load
+/// natively: `/workspace` is trusted for this run and hook review is bypassed, since
+/// nobody can review hooks unattended. No seat value in argv or environment.
 fn configure_codex(create: &mut Command, home: &Path, model: Option<&str>) -> Result<()> {
     mount(create, home, CODEX_HOME, false)?;
     create
@@ -467,7 +456,7 @@ fn configure_codex(create: &mut Command, home: &Path, model: Option<&str>) -> Re
             "--dangerously-bypass-approvals-and-sandbox",
             "--ephemeral",
             "--ignore-user-config",
-            "--ignore-rules",
+            "--dangerously-bypass-hook-trust",
             "--color",
             "never",
         ]);
@@ -482,9 +471,13 @@ fn configure_codex(create: &mut Command, home: &Path, model: Option<&str>) -> Re
 }
 
 /// Checked against codex-rs 0.167.1 `config_toml.rs`; unknown keys would be ignored silently.
+/// `--config` layers sit above project layers, so these few keys win over `.codex/config.toml`.
+/// Trust is an inline table on purpose: `overrides.rs` splits dotted keys on every `.` without
+/// honoring quotes, so `projects."/workspace".trust_level` would name a key with literal quotes
+/// and never match. The loader merges `--config` before resolving trust (`loader/mod.rs`).
 const CODEX_SETTINGS: [&str; 6] = [
+    "projects={\"/workspace\"={trust_level=\"trusted\"}}",
     "web_search=\"disabled\"",
-    "project_doc_max_bytes=0",
     "check_for_update_on_startup=false",
     "analytics.enabled=false",
     "feedback.enabled=false",
@@ -496,11 +489,6 @@ fn configure_agent(create: &mut Command, seat: &str, model: Option<&str>, writab
         writable_settings()
     } else {
         claude_settings()
-    };
-    let tools = if writable {
-        "Read,Write,Edit,Bash,Glob,Grep"
-    } else {
-        "Read,Glob,Grep"
     };
     create
         .args([
@@ -516,7 +504,6 @@ fn configure_agent(create: &mut Command, seat: &str, model: Option<&str>, writab
         .env("GOLEM_HARNESS", "claude")
         .args([
             IMAGE,
-            "--safe-mode",
             "--print",
             "--output-format",
             if writable { "stream-json" } else { "json" },
@@ -528,22 +515,24 @@ fn configure_agent(create: &mut Command, seat: &str, model: Option<&str>, writab
             golem_runner::WRITABLE_RESULT_SCHEMA,
         ]);
     }
+    // Project and local settings, hooks, skills, commands, agents and `.mcp.json` load
+    // natively; the user source is a fresh, empty directory anyway.
     create.args([
         "--no-session-persistence",
         "--setting-sources",
-        "",
-        "--strict-mcp-config",
-        "--mcp-config",
-        "{\"mcpServers\":{}}",
-        "--disable-slash-commands",
-        "--tools",
-        tools,
-        "--allowedTools",
+        "project,local",
     ]);
     if writable {
-        create.args(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
+        // Nobody can answer a prompt: every tool, including project skills and MCP, runs
+        // inside the container, limited only by deny rules.
+        create.args(["--permission-mode", "bypassPermissions"]);
     } else {
+        // The read-only reply protocol's own tools inspect files only; project hooks and
+        // MCP servers still run natively, against a read-only workspace mount.
         create.args([
+            "--tools",
+            "Read,Glob,Grep",
+            "--allowedTools",
             "Read(//workspace/**)",
             "Glob(//workspace/**)",
             "Grep(//workspace/**)",
@@ -722,8 +711,83 @@ mod tests {
         }
     }
 
+    fn harness_args(command: &Command) -> Vec<String> {
+        let args: Vec<_> = command
+            .as_std()
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect();
+        let image = args.iter().position(|arg| arg == IMAGE).unwrap();
+        args[image + 1..].to_vec()
+    }
+
+    // Flags that kept repository harness configuration from loading; none may return.
+    const DISABLING_FLAGS: [&str; 16] = [
+        "--safe-mode",
+        "--strict-mcp-config",
+        "--mcp-config",
+        "--disable-slash-commands",
+        "--bare",
+        "--offline",
+        "--no-approve",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-context-files",
+        "--no-mcp",
+        "--append-system-prompt",
+        "--ignore-rules",
+        "project_doc_max_bytes=0",
+        "--disable-hooks",
+    ];
+
     #[test]
-    fn pi_runs_json_events_with_only_the_report_extension_and_its_own_seat_variable() {
+    fn claude_loads_project_configuration_and_keeps_the_result_channel() {
+        for writable in [true, false] {
+            let mut command = docker();
+            configure_agent(
+                &mut command,
+                "sentinel",
+                Some("claude-sonnet-5-5"),
+                writable,
+            );
+            let harness = harness_args(&command);
+            let pair = |flag: &str, value: &str| {
+                harness
+                    .windows(2)
+                    .any(|pair| pair[0] == flag && pair[1] == value)
+            };
+            for flag in DISABLING_FLAGS {
+                assert!(!harness.iter().any(|arg| arg == flag), "{flag}");
+            }
+            assert!(pair("--setting-sources", "project,local"));
+            assert!(pair("--max-turns", "32"));
+            assert!(pair("--model", "claude-sonnet-5-5"));
+            for flag in ["--print", "--no-session-persistence", "--settings"] {
+                assert!(harness.iter().any(|arg| arg == flag), "{flag}");
+            }
+            let settings =
+                harness[harness.iter().position(|arg| arg == "--settings").unwrap() + 1].clone();
+            assert!(!settings.contains("Hooks"), "project hooks stay enabled");
+            assert_eq!(
+                pair("--permission-mode", "bypassPermissions"),
+                writable,
+                "unattended writable runs never wait for a prompt"
+            );
+            assert_eq!(
+                harness.iter().any(|arg| arg == "--tools"),
+                !writable,
+                "writable runs keep every tool, including project skills and MCP"
+            );
+            assert!(
+                !harness.iter().any(|arg| arg == "sentinel"),
+                "seat never in argv"
+            );
+        }
+    }
+
+    #[test]
+    fn pi_runs_json_events_with_project_trust_the_report_extension_and_its_own_seat_variable() {
         for model in [None, Some("claude-sonnet-5-5")] {
             let mut command = docker();
             configure_pi(&mut command, "sentinel", model);
@@ -741,24 +805,12 @@ mod tests {
             };
             assert!(pair("--mode", "json"));
             assert!(pair("--extension", "/opt/golem/pi-report.js"));
-            assert!(pair(
-                "--tools",
-                "read,bash,edit,write,grep,find,ls,golem_report"
-            ));
             assert!(pair("--session-dir", "/tmp/golem-pi-sessions"));
-            assert!(pair("--append-system-prompt", PI_INSTRUCTIONS));
-            for flag in [
-                "--no-session",
-                "--offline",
-                "--no-approve",
-                "--no-extensions",
-                "--no-skills",
-                "--no-prompt-templates",
-                "--no-themes",
-                "--no-context-files",
-                "--no-mcp",
-            ] {
+            for flag in ["--no-session", "--approve", "--no-themes"] {
                 assert!(harness.iter().any(|arg| arg == flag), "{flag}");
+            }
+            for flag in DISABLING_FLAGS.iter().chain(&["--tools"]) {
+                assert!(!harness.iter().any(|arg| arg == flag), "{flag}");
             }
             assert_eq!(
                 harness.iter().filter(|arg| *arg == "--extension").count(),
@@ -781,8 +833,6 @@ mod tests {
             assert!(env.contains(&("GOLEM_WRITABLE", "1")));
             assert!(!env.iter().any(|(key, _)| *key == "CLAUDE_CODE_OAUTH_TOKEN"));
         }
-        // Pi reads an existing path's contents instead of the text; this cannot name a file.
-        assert!(PI_INSTRUCTIONS.len() > 255 && !PI_INSTRUCTIONS.contains('/'));
     }
 
     #[tokio::test]
@@ -870,13 +920,27 @@ mod tests {
                 "--dangerously-bypass-approvals-and-sandbox",
                 "--ephemeral",
                 "--ignore-user-config",
-                "--ignore-rules",
+                "--dangerously-bypass-hook-trust",
             ] {
                 assert!(harness.iter().any(|arg| arg == flag), "{flag}");
+            }
+            for flag in DISABLING_FLAGS {
+                assert!(!harness.iter().any(|arg| arg == flag), "{flag}");
             }
             for setting in CODEX_SETTINGS {
                 assert!(pair("--config", setting), "{setting}");
             }
+            // An inline table: a quoted dotted key would keep its quotes and never match.
+            assert!(pair(
+                "--config",
+                r#"projects={"/workspace"={trust_level="trusted"}}"#
+            ));
+            assert!(
+                !harness
+                    .iter()
+                    .any(|arg| arg.starts_with("projects.") || arg.contains("project_doc")),
+                "project documentation and trust are not overridden away"
+            );
             assert_eq!(model.is_some(), pair("--model", model.unwrap_or_default()));
             assert!(!harness.iter().any(|arg| arg == "--model") || model.is_some());
             let env: Vec<_> = command
@@ -916,12 +980,14 @@ mod tests {
     }
 
     #[test]
-    fn writable_permissions_include_all_requested_tools_without_repository_settings() {
-        let settings: serde_json::Value = serde_json::from_str(&writable_settings()).unwrap();
-        assert_eq!(settings["disableAllHooks"], true);
-        let allow = settings["permissions"]["allow"].as_array().unwrap();
-        for tool in ["Read", "Write", "Edit", "Bash", "Glob", "Grep"] {
-            assert!(allow.iter().any(|rule| rule == tool));
+    fn golem_settings_only_deny_and_never_disable_project_hooks() {
+        for settings in [writable_settings(), claude_settings()] {
+            let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
+            assert_eq!(settings.as_object().unwrap().len(), 1, "{settings}");
+            let deny = settings["permissions"]["deny"].as_array().unwrap();
+            for tool in ["WebFetch", "WebSearch"] {
+                assert!(deny.iter().any(|rule| rule == tool));
+            }
         }
     }
 

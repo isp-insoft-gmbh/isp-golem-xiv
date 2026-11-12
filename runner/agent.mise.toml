@@ -2,3 +2,5 @@
 "npm:@anthropic-ai/claude-code" = { version = "2.1.317", allow_builds = ["@anthropic-ai/claude-code"] }
 "npm:@earendil-works/pi-coding-agent" = "1.5.1"
 "npm:@openai/codex" = "0.167.1"
+# Not a harness: project MCP servers and skills commonly start with `uvx`.
+uv = "0.13.7"

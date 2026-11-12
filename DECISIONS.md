@@ -3,6 +3,45 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-12: Harnesses run the repository's own configuration
+
+- Oliver decided that a golem runs each harness the way the target repository configured it: project settings, hooks, skills, commands, agents, extensions, rules, MCP servers and context files load natively, and the runner reimplements none of them.
+- The prompt keeps only golem-owned content: capabilities and boundaries, house rules, golem task, trigger context and instructions.
+  `CLAUDE.md`/`AGENTS.md` are no longer injected, and the sentence telling the agent to read nested ones is gone, because every harness loads them itself; injecting them now would duplicate them.
+- Claude (`claude -p`): dropped `--safe-mode`, empty `--setting-sources`, `--strict-mcp-config` with an empty `--mcp-config`, `--disable-slash-commands`, and `disableAllHooks` in our `--settings`; now `--setting-sources project,local` (the user directory is fresh and empty).
+  `-p` loads `.mcp.json` servers without asking and runs project hooks without trust; the entry also writes `projects["/workspace"].hasTrustDialogAccepted` into the fresh `$CLAUDE_CONFIG_DIR/.claude.json`, so trust-gated items (project `permissions.allow`, subagent frontmatter hooks and MCP, `headersHelper`) apply as after accepting the trust dialog (permissions docs, "Project allow rules and workspace trust").
+  Writable runs use `--permission-mode bypassPermissions` instead of `--tools`/`--allowedTools` lists, so project skills, subagents and MCP tools are callable unattended; our `--settings` only adds `deny` for `WebFetch`/`WebSearch`.
+  Deny rules from every source combine and apply even in bypass mode, so project denies still bind; project allows add nothing under bypass.
+  The read-only (v1) reply protocol keeps its own `Read`/`Glob`/`Grep` tools and denies; project hooks run and `.mcp.json` servers start there too, against the read-only mount, but MCP tool calls are refused because only those three tools are offered.
+- Pi: dropped `--offline`/`PI_OFFLINE` (offline skips installing project packages), `--no-extensions`, `--no-skills`, `--no-prompt-templates`, `--no-context-files`, `--no-mcp`, the `--tools` allowlist and `--append-system-prompt`; `PI_SKIP_VERSION_CHECK=1` and `PI_TELEMETRY=0` stay; `--no-themes` stays because themes only affect the interface.
+  Deviation from the instruction "keep `--no-approve`": in Pi 1.5.1 `--no-approve` declines project trust (`cli/args.js` sets `projectTrustOverride=false`; docs `cli.md`, `security.md`), and Pi never asks before tool calls, so there is nothing unattended about it.
+  Runs pass `--approve` instead, the documented one-process trust override that applies before extensions, saved decisions and `defaultProjectTrust`.
+  `--append-system-prompt` would hide a project `.pi/APPEND_SYSTEM.md` (it is only discovered without a CLI append, `resource-loader.js`), while a project `.pi/SYSTEM.md` drops the section carrying the tool's guidelines; so the `golem_report` instruction now travels in the prompt for `pi` runs.
+  `/opt/golem/pi-report.js` still loads via `--extension`; CLI extensions load before project ones, so a project extension registering `golem_report` is a load-time tool conflict, which Pi reports as an extension error and exits 1 before any event in non-interactive modes (`resource-loader.js` `detectExtensionConflicts`, `main.js`): fail closed.
+  The same rule means any project extension that fails to load fails the run.
+- Codex (`codex exec`): dropped `--ignore-rules` and `project_doc_max_bytes=0`; added `--dangerously-bypass-hook-trust`, because project hooks otherwise wait for an interactive review, and `--config 'projects={"/workspace"={trust_level="trusted"}}'`.
+  The loader merges `--config` before resolving project trust (`config/src/loader/mod.rs` 0.167.1); the inline table is deliberate, because `overrides.rs` splits dotted keys on every `.` without honoring quotes, so `projects."/workspace".trust_level` would never match.
+  `--ignore-user-config` stays: it only blanks the user layer (`loader/mod.rs` `load_user_config_layer`), never the project one, and keeps anything Codex writes into the private home out.
+  Our `--config` keys (web search off, no history, analytics, feedback or update check) sit above project layers and win over `.codex/config.toml` for those keys only.
+- Streams stay strict: exactly one typed result per harness.
+  Records of unknown types, which hooks, MCP or extensions may add, are ignored by the parsers and dropped by the stream filters (Codex unknown types used to fail the run); malformed lines still fail closed.
+  An in-process Pi extension could write anything to stdout, so the name conflict is a guard against accidental clashes, not a boundary; trusting project configuration means trusting the repository's committed harness code like its build scripts.
+- Agent image: `python3` (Debian) and pinned `uv` 0.13.7 with `uv`/`uvx` on the fixed PATH, because project MCP servers and skills commonly start with `uvx`; `node`/`npx` were already there.
+  The home is `noexec`, so the entry points uv's interpreter and tool directories at `/tmp` (its cache already lives there); that `/tmp` is executable only in writable runs, and no `uvx` server has run in a golem yet.
+  Network stays as before.
+- Protected paths are unchanged (`runner/src/changes.rs`): golems may read but never change `.golems/`, workflows or harness configuration (`.claude`, `.codex`, `.pi`, `.agents`, `.mcp.json`, `.claude.json`, `CLAUDE.md`, `AGENTS.md`), as SPEC Security requires; configuration that could rewrite itself would let a golem change how every later golem runs.
+- Credential exposure changed: repository-defined hooks, extensions and MCP servers run as children of the harness and inherit its seat (`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_OAUTH_TOKEN`, Codex `auth.json` under `/golem-codex`), deterministically, not only when the model is talked into it.
+  Anyone who can push harness configuration to a repository can therefore read the seat of whoever runs a golem there; output scanning still blocks publishing it, not exfiltrating it over the network.
+- Harness state: after the agent, the workspace is scanned against the snapshot (`changes::scan_after`); paths inside `.claude`, `.codex`, `.pi` or `.agents` that did not exist in the snapshot (package installs, caches, symlinks) are skipped entirely: not counted against limits, not link-checked, never published.
+  Files present in the snapshot are still compared, so changing or deleting project configuration still blocks; new files under `.golems/`, workflows, `CLAUDE.md`, `AGENTS.md` and `.mcp.json` still block.
+- Known gaps: Claude plugins install into the `noexec` home and may not run; read-only runs have a `noexec` `/tmp`, so `npx`/`uvx` MCP servers fail there.
+  Whether Codex 0.167.1 also needs `[features].hooks = true` for project hooks is unverified; a repository can set it in its own `.codex/config.toml`.
+  Larger streams from hooks and MCP count against the 1 MiB output bound.
+- Evidence: native unit tests (absent disabling flags, required flags, prompt without repository instructions, parser cases for extra records and the duplicate-name exit).
+  Image probes, run by CI only, each with a negative control: Pi loads a project extension (marker) under `--approve` and not under `--no-approve`, and the `golem_report` conflict exits 1; Codex starts a project `.codex/config.toml` MCP server (marker) with the inline-table trust override and not without it.
+  Claude's probe proves startup with the production read-only flags, project settings and the trust file; it proves the trust effect only if Claude prints its untrusted-workspace warning before stopping at sign-in, which the untrusted control run checks and the build log reports.
+  No live run with project configuration yet.
+
 ## 2026-11-12: No Copilot provider; harness-only fallback
 
 - Oliver removed `github-copilot`: nobody uses it. Providers are `anthropic` and `openai-codex`; a golem naming `github-copilot` is now invalid like any unknown provider, and the seats page, help, dashboard and coordinator no longer offer or accept it.

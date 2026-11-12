@@ -259,6 +259,20 @@ impl Stream {
                 .map(str::to_owned)
         };
         let kind = text(value, "type").ok_or("invalid harness result")?;
+        // Records of other types (project hooks, MCP, newer versions) never carry the result.
+        if !matches!(
+            kind.as_str(),
+            "thread.started"
+                | "turn.started"
+                | "turn.completed"
+                | "turn.failed"
+                | "error"
+                | "item.started"
+                | "item.updated"
+                | "item.completed"
+        ) {
+            return Ok(());
+        }
         self.after_completion |= self.completed > 0;
         match kind.as_str() {
             "thread.started" => self.threads += 1,
@@ -300,7 +314,7 @@ impl Stream {
                     None => return Err("invalid harness item"),
                 }
             }
-            _ => return Err("unknown harness record"),
+            _ => {}
         }
         Ok(())
     }

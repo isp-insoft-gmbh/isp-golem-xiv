@@ -84,10 +84,44 @@ fn forbidden(path: &str) -> bool {
         .any(|pair| pair == [".github", "workflows"])
 }
 
+/// Directories a harness owns for project configuration and its own state.
+fn harness_area(path: &str) -> bool {
+    path.to_ascii_lowercase()
+        .split('/')
+        .any(|part| matches!(part, ".claude" | ".codex" | ".pi" | ".agents"))
+}
+
+/// True when `path` is inside a harness directory and the snapshot had nothing at or below it:
+/// state a harness created during the run (package installs, caches), never published.
+fn new_harness_state(path: &str, baseline: &Files) -> bool {
+    if !harness_area(path) || baseline.contains_key(path) {
+        return false;
+    }
+    let prefix = format!("{path}/");
+    !baseline
+        .range(prefix.clone()..)
+        .next()
+        .is_some_and(|(existing, _)| existing.starts_with(&prefix))
+}
+
 /// # Errors
 /// Rejects links, special files, nonportable paths, or snapshots exceeding explicit limits.
 /// Existing forbidden files are retained so changes, including deletion, can be detected.
 pub fn scan(root: &Path) -> Result<Files> {
+    scan_with(root, None)
+}
+
+/// Scans after the agent against the snapshot: harness-created state under `.claude`, `.codex`,
+/// `.pi` or `.agents` that did not exist before is skipped entirely (not counted, not published,
+/// links allowed), while every file present in the snapshot is still compared.
+///
+/// # Errors
+/// As [`scan`] for everything outside skipped harness state.
+pub fn scan_after(root: &Path, baseline: &Files) -> Result<Files> {
+    scan_with(root, Some(baseline))
+}
+
+fn scan_with(root: &Path, baseline: Option<&Files>) -> Result<Files> {
     if !fs::symlink_metadata(root)
         .map_err(|_| "cannot inspect snapshot root")?
         .file_type()
@@ -118,6 +152,10 @@ pub fn scan(root: &Path) -> Result<Files> {
             } else {
                 format!("{directory}/{name}")
             };
+            if baseline.is_some_and(|baseline| new_harness_state(&path, baseline)) {
+                entries -= 1;
+                continue;
+            }
             if !valid_path(&path) || !names.insert(path.to_ascii_lowercase()) {
                 return Err("invalid or colliding snapshot path");
             }
@@ -277,6 +315,92 @@ mod tests {
                 diff(&before, &modified, &OutputGuard::default()).is_err(),
                 "{path}"
             );
+        }
+    }
+
+    #[test]
+    fn new_harness_state_is_skipped_but_snapshot_config_and_other_forbidden_paths_stay_guarded() {
+        let root = tempfile::tempdir().unwrap();
+        let write = |path: &str, bytes: &[u8]| {
+            let full = root.path().join(path);
+            fs::create_dir_all(full.parent().unwrap()).unwrap();
+            fs::write(full, bytes).unwrap();
+        };
+        write(".pi/settings.json", b"{}");
+        write(".claude/skills/a/SKILL.md", b"skill");
+        write("src.txt", b"code");
+        let before = scan(root.path()).unwrap();
+        // Harness installs and caches in new subtrees: many files, ignored without limits.
+        for i in 0..50 {
+            write(&format!(".pi/npm/node_modules/pkg{i}/index.js"), b"x");
+        }
+        write(".claude/cache/state.json", b"{}");
+        write("nested/.agents/tmp/x", b"y");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(
+            "index.js",
+            root.path().join(".pi/npm/node_modules/pkg0/link"),
+        )
+        .unwrap();
+        write("src.txt", b"changed");
+        let after = scan_after(root.path(), &before).unwrap();
+        assert!(after.keys().all(|path| !path.starts_with(".pi/npm")
+            && !path.starts_with(".claude/cache")
+            && !path.starts_with("nested/.agents")));
+        let changes = diff(&before, &after, &OutputGuard::default()).unwrap();
+        assert_eq!(
+            changes.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+            ["src.txt"]
+        );
+        // New files beside existing config are harness state too: skipped, never published.
+        write(".claude/skills/a/extra.md", b"new");
+        let after = scan_after(root.path(), &before).unwrap();
+        assert!(!after.contains_key(".claude/skills/a/extra.md"));
+        assert!(
+            after.contains_key(".claude/skills/a/SKILL.md"),
+            "existing config is still compared"
+        );
+        // Existing project config still may not change or disappear.
+        write(".pi/settings.json", b"{\"x\":1}");
+        assert!(
+            diff(
+                &before,
+                &scan_after(root.path(), &before).unwrap(),
+                &OutputGuard::default()
+            )
+            .is_err(),
+            "changed project setting"
+        );
+        write(".pi/settings.json", b"{}");
+        fs::remove_file(root.path().join(".claude/skills/a/SKILL.md")).unwrap();
+        assert!(
+            diff(
+                &before,
+                &scan_after(root.path(), &before).unwrap(),
+                &OutputGuard::default()
+            )
+            .is_err(),
+            "deleted project skill"
+        );
+        write(".claude/skills/a/SKILL.md", b"skill");
+        // New files outside harness directories that are forbidden still block.
+        for path in [
+            ".golems/new.md",
+            ".github/workflows/x.yml",
+            "AGENTS.md",
+            ".mcp.json",
+        ] {
+            write(path, b"new");
+            assert!(
+                diff(
+                    &before,
+                    &scan_after(root.path(), &before).unwrap(),
+                    &OutputGuard::default()
+                )
+                .is_err(),
+                "{path}"
+            );
+            fs::remove_file(root.path().join(path)).unwrap();
         }
     }
 
