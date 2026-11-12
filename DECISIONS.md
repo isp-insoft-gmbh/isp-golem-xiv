@@ -3,6 +3,19 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-12: No Copilot provider; harness-only fallback
+
+- Oliver removed `github-copilot`: nobody uses it. Providers are `anthropic` and `openai-codex`; a golem naming `github-copilot` is now invalid like any unknown provider, and the seats page, help, dashboard and coordinator no longer offer or accept it.
+- A payer with a seat at the golem's provider whose harness does not work there (e.g. `codex` on `anthropic`) now keeps that seat and runs `pi` with its default model, saying `asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic`.
+  Before, `choose_seat` returned the unrunnable pair unchanged and dispatch refused it as `no-seat` (red: probe issue 8 comment `6822171957` got `kind=refused reason=no-seat`).
+  A runner built from this change recomputes the same choice from the pinned definition and accepts exactly this fallback text.
+  The pinned v7 runner still derives `anthropic/codex` without fallback and would reject such a dispatch after it started, so a runner release must be pinned in ops before the router deploys (same ordering lesson as v6).
+  SPEC "Which seat and model" gained this rule; provider fallback is unchanged.
+- The coordinator's provider allowlist shrank, so the reviewed coordinator digest in `tools/repair-unbound.mjs` advanced to `7f40de7c…f45a`; the repair helper refuses the deployed Worker until this change is deployed.
+- Oliver-authorized judge change: the `fallback` promise now covers this case (`codex` golem at the tester's provider runs with `pi` on the tester's seat), because without Copilot no provider is left that the tester has no seat at and the scenario could still target; `accept.nu` additionally asserts `harness: pi` and `seat: <login>/<tester provider>`.
+  It lands as its own `fix(accept)` commit with the red evidence above; the live check stays red until the new runner is pinned and the router deployed.
+- Remaining gap: `pi` on `openai-codex` is not runnable yet, so a `claude` or `pi` golem paid by a Codex-only person is still refused with `no-seat`.
+
 ## 2026-11-11: Seat registration page and refreshing Codex seats
 
 - Sign-in uses the App's user authorization: the callback checks the state cookie in constant time, exchanges the code with `APP_CLIENT_SECRET` (Worker secret, from the `production` environment), reads `/user` once, requires active membership, and sets a one-hour `golem_session` cookie MAC'd with a key derived from the client secret.

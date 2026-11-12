@@ -13,7 +13,7 @@ fn seat_choice_prefers_golem_provider_then_preferred_then_order_and_names_fallba
     let plain = parse_golem("hello", "---\n---\nTask");
     let foreign = parse_golem(
         "foreign",
-        "---\nharness: codex\nprovider: github-copilot\nmodel: gpt-x\n---\nTask",
+        "---\nharness: codex\nprovider: openai-codex\nmodel: gpt-x\n---\nTask",
     );
     assert_eq!(
         choose_seat(&plain.frontmatter, &["anthropic"], None),
@@ -29,22 +29,60 @@ fn seat_choice_prefers_golem_provider_then_preferred_then_order_and_names_fallba
         (fell.provider.as_str(), fell.harness.as_str(), fell.model),
         ("anthropic", "pi", None)
     );
-    let reason = fell.fallback.unwrap();
-    assert!(
-        reason.contains("asked for github-copilot/codex/gpt-x")
-            && reason.contains("used anthropic/pi")
-            && reason.contains("no github-copilot seat")
+    assert_eq!(
+        fell.fallback.as_deref(),
+        Some(
+            "asked for openai-codex/codex/gpt-x, used anthropic/pi with its default model, because there is no openai-codex seat"
+        )
     );
-    let codex = choose_seat(
-        &foreign.frontmatter,
+    // Harness-only fallback: the seat at the golem's provider stays, the harness becomes pi.
+    let mismatched = parse_golem(
+        "mismatched",
+        "---\nharness: codex\nprovider: anthropic\nmodel: gpt-x\n---\nTask",
+    );
+    assert_eq!(
+        choose_seat(
+            &mismatched.frontmatter,
+            &["anthropic", "openai-codex"],
+            Some("openai-codex")
+        ),
+        Some(SeatChoice {
+            provider: "anthropic".into(),
+            harness: "pi".into(),
+            model: None,
+            fallback: Some(
+                "asked for anthropic/codex/gpt-x, used anthropic/pi with its default model, because codex does not work with anthropic".into()
+            ),
+        }),
+        "provider kept, never moved to a seat the golem did not ask for"
+    );
+    let roaming = parse_golem(
+        "roaming",
+        "---\nharness: pi\nprovider: openai-codex\n---\nTask",
+    );
+    let kept = choose_seat(&roaming.frontmatter, &["anthropic"], None).unwrap();
+    assert_eq!(
+        (kept.provider.as_str(), kept.harness.as_str()),
+        ("anthropic", "pi"),
+        "harness kept where it works"
+    );
+    assert!(
+        kept.fallback
+            .unwrap()
+            .ends_with("because there is no openai-codex seat")
+    );
+    // With two providers a valid golem's missing provider leaves one seat; an unknown provider
+    // still shows that the preferred seat wins over provider order.
+    let unknown = parse_golem("unknown", "---\nharness: codex\nprovider: other\n---\nTask");
+    let preferred = choose_seat(
+        &unknown.frontmatter,
         &["anthropic", "openai-codex"],
         Some("openai-codex"),
     )
     .unwrap();
     assert_eq!(
-        (codex.provider.as_str(), codex.harness.as_str()),
-        ("openai-codex", "codex"),
-        "harness kept where it works"
+        (preferred.provider.as_str(), preferred.harness.as_str()),
+        ("openai-codex", "codex")
     );
     let ignored = choose_seat(&foreign.frontmatter, &["anthropic"], Some("openai-codex")).unwrap();
     assert_eq!(
@@ -56,9 +94,10 @@ fn seat_choice_prefers_golem_provider_then_preferred_then_order_and_names_fallba
         None
     );
     assert!(
-        harness_works("github-copilot", "pi")
-            && !harness_works("github-copilot", "codex")
+        harness_works("openai-codex", "pi")
+            && !harness_works("openai-codex", "claude")
             && !harness_works("anthropic", "codex")
+            && !harness_works("other", "pi")
     );
 }
 
@@ -67,7 +106,7 @@ fn fallback_dispatch_runs_foreign_golems_on_an_anthropic_seat_with_pi_and_says_s
     use router::{choose_seat, queued_summary, runner_supports};
     let foreign = parse_golem(
         "foreign",
-        "---\nharness: codex\nprovider: github-copilot\n---\nReply with one short greeting.",
+        "---\nharness: codex\nprovider: anthropic\n---\nReply with one short greeting.",
     );
     assert!(foreign.errors.is_empty(), "{:?}", foreign.errors);
     let choice = choose_seat(&foreign.frontmatter, &["anthropic"], None).unwrap();
@@ -83,23 +122,25 @@ fn fallback_dispatch_runs_foreign_golems_on_an_anthropic_seat_with_pi_and_says_s
         .find_map(|line| line.strip_prefix("fallback: "))
         .unwrap();
     assert!(fallback.starts_with(|c: char| !c.is_whitespace()));
-    assert!(
-        !summary.contains("/github-copilot\n") && !summary.contains("seat: member/github-copilot")
+    assert_eq!(
+        fallback,
+        "asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic"
     );
     assert!(summary.ends_with("\nStop: @isp-golem-xiv stop"));
     let plain = parse_golem("hello", "---\n---\nTask");
     let own = choose_seat(&plain.frontmatter, &["anthropic"], None).unwrap();
     assert!(own.runnable());
     assert!(!queued_summary("member", &own, 1800).contains("fallback"));
-    // The runner executes Anthropic (claude, pi) and OpenAI Codex (codex) seats; Copilot is refused, never rerouted.
+    // The runner executes Anthropic (claude, pi) and OpenAI Codex (codex) seats; other choices are refused, never rerouted.
     let codex = choose_seat(&foreign.frontmatter, &["openai-codex"], None).unwrap();
     assert_eq!(
         (codex.provider.as_str(), codex.harness.as_str()),
         ("openai-codex", "codex")
     );
     assert!(codex.runnable());
+    let roaming = parse_golem("roaming", "---\nharness: pi\n---\nTask");
     assert!(
-        !choose_seat(&foreign.frontmatter, &["github-copilot"], None)
+        !choose_seat(&roaming.frontmatter, &["openai-codex"], None)
             .unwrap()
             .runnable()
     );
@@ -133,7 +174,7 @@ fn seat_holders_map_secret_names_to_members_and_report_people_who_left() {
         "APP_PRIVATE_KEY",
         "SEAT_MEMBER__ANTHROPIC",
         "SEAT_MEMBER__OPENAI_CODEX",
-        "SEAT_JANE_DOE__GITHUB_COPILOT",
+        "SEAT_JANE_DOE__ANTHROPIC",
         "SEAT_GONE_PERSON__OPENAI_CODEX",
         "SEAT_BAD__UNKNOWN",
         "SEAT___ANTHROPIC",
@@ -142,7 +183,7 @@ fn seat_holders_map_secret_names_to_members_and_report_people_who_left() {
     assert_eq!(
         holders.registered,
         vec![
-            ("jane-doe".to_owned(), vec!["github-copilot"]),
+            ("jane-doe".to_owned(), vec!["anthropic"]),
             ("member".to_owned(), vec!["anthropic", "openai-codex"]),
         ]
     );
@@ -470,8 +511,8 @@ mod registration {
             assert!(!refused.contains(&sealed), "never echoes the value");
         }
         assert_eq!(
-            preferred_registration(br#"{"provider":"github-copilot"}"#),
-            Ok("github-copilot")
+            preferred_registration(br#"{"provider":"openai-codex"}"#),
+            Ok("openai-codex")
         );
         assert_eq!(
             preferred_registration(br#"{"provider":"other"}"#),
@@ -504,20 +545,13 @@ mod registration {
 
     #[test]
     fn seats_page_shows_only_given_seats_with_csrf_and_no_inline_script() {
-        let page = seats_page(
-            "member",
-            &["anthropic", "github-copilot"],
-            Some("github-copilot"),
-            "ab12",
-        );
+        let page = seats_page("member", &["openai-codex"], Some("openai-codex"), "ab12");
         assert!(page.contains("<meta name=\"golem-csrf\" content=\"ab12\">"));
         assert!(page.contains("@member"));
-        assert!(
-            page.contains("<li data-seat=\"anthropic\">")
-                && page.contains("<li data-seat=\"github-copilot\">")
-        );
-        assert!(!page.contains("data-seat=\"openai-codex\""));
-        for provider in ["anthropic", "openai-codex", "github-copilot"] {
+        assert!(page.contains("<li data-seat=\"openai-codex\">"));
+        assert!(!page.contains("data-seat=\"anthropic\""));
+        assert_eq!(page.matches("<form class=\"seat\"").count(), 2);
+        for provider in ["anthropic", "openai-codex"] {
             assert!(
                 page.contains(&format!(
                     "<form class=\"seat\" data-provider=\"{provider}\">"
@@ -526,9 +560,9 @@ mod registration {
             );
         }
         assert!(page.contains("claude setup-token"));
-        assert!(page.contains("<option value=\"github-copilot\" selected>"));
+        assert!(page.contains("<option value=\"openai-codex\" selected>"));
         assert!(
-            !page.contains("<option value=\"openai-codex\""),
+            !page.contains("<option value=\"anthropic\""),
             "preferred only among own seats"
         );
         assert_eq!(page.matches("<script").count(), 1);
@@ -564,7 +598,7 @@ fn help_and_seat_replies_carry_markers_choices_and_only_the_askers_seats() {
         parse_golem("hello", "---\n---\nTask"),
         parse_golem(
             "foreign",
-            "---\nharness: codex\nprovider: github-copilot\n---\nTask",
+            "---\nharness: codex\nprovider: anthropic\n---\nTask",
         ),
         parse_golem("broken", "---\nschedule: someday\n---\nTask"),
     ];
@@ -573,7 +607,7 @@ fn help_and_seat_replies_carry_markers_choices_and_only_the_askers_seats() {
     assert!(
         help.contains("- `hello`: seat `member/anthropic`, harness `claude`, model `default`\n")
     );
-    assert!(help.contains("- `foreign`: seat `member/anthropic`, harness `pi`, model `default` (fallback: asked for github-copilot/codex"));
+    assert!(help.contains("- `foreign`: seat `member/anthropic`, harness `pi`, model `default` (fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic)\n"));
     assert!(help.contains("Disabled: `broken`.") && !help.contains("- `broken`"));
     assert!(help.contains("Your seats: `anthropic`.") && help.contains(router::SEAT_URL));
     let none = router::help_reply("newbie", &golems, &[], None);
@@ -965,7 +999,7 @@ fn strict_frontmatter_preserves_valid_metadata_and_reports_disabled_entries() {
     // Incompatible pairs are preferences resolved at run time by falling back to pi.
     for fields in [
         "harness: codex\nprovider: anthropic\n",
-        "harness: codex\nprovider: github-copilot\n",
+        "harness: claude\nprovider: openai-codex\n",
         "harness: codex\n",
     ] {
         let preference = parse_golem("preference", &document(fields));

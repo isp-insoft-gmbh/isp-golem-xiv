@@ -160,7 +160,7 @@ mod tests {
         );
         assert!(Seat::parse("openai-codex", &token).is_err());
         assert!(Seat::parse("anthropic", "{}").is_err());
-        assert!(Seat::parse("github-copilot", &token).is_err());
+        assert!(Seat::parse("unknown-provider", &token).is_err());
         let auth = crate::codex::tests::auth_json("refresh-token-one", "2026-11-01T00:00:00Z");
         assert!(
             auth.len() > 4096,

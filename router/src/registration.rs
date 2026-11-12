@@ -316,7 +316,7 @@ fn sign_in_help(provider: &str) -> &'static str {
         "anthropic" => {
             "Run <code>claude setup-token</code> and paste the token. It is valid for a year."
         }
-        "openai-codex" => concat!(
+        _ => concat!(
             "Create a <strong>fresh sign-in used only by golems</strong>. Never paste the sign-in you use yourself ",
             "(for example <code>~/.codex/auth.json</code>): sign-ins refresh and rotate, so two users of one sign-in log each other out.</p>\n",
             "<p>macOS or Linux (bash, zsh):</p>\n<pre><code>export CODEX_HOME=\"$(mktemp -d)\"\ncodex login\ncat \"$CODEX_HOME/auth.json\"\n</code></pre>\n",
@@ -325,9 +325,6 @@ fn sign_in_help(provider: &str) -> &'static str {
             "(bash, zsh: <code>rm -rf \"$CODEX_HOME\"</code>; PowerShell: <code>Remove-Item -Recurse $env:CODEX_HOME</code>), ",
             "so golems hold the only copy. Runs refresh it and write it back."
         ),
-        _ => {
-            "Sign in to GitHub Copilot in a separate session used only for golems, then paste the content of the sign-in file. Runs refresh and write it back."
-        }
     }
 }
 

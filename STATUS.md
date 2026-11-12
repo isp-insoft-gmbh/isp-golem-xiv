@@ -17,8 +17,12 @@
 - **Seat page and Codex runner:** PR #26 merged `4cb24cf` and deployed (seat page live; `APP_CLIENT_SECRET` in the `production` environment); CI `43062181693` built the image with Codex 0.167.1.
   Release v7 (run `43067406314`, native asset `736322171`, SHA-256 `870495496bc268792cbfee4daed8bdc3afcc5b39f90b32062c09627096d3f09d`) verified and pinned by ops PR #13 (`0475bb6`, CI `43068676169`, byte-matched).
   Branch `feat/codex-dispatch`: router dispatches `openai-codex`/`codex` choices; template pin v7. Oliver provided Firefox profile `golem` (signed in to GitHub) and a fresh Codex sign-in in `~/.secrets/isp-golem-xiv/seat.openai-codex-2`.
-- **Current branch:** `feat/codex-dispatch`.
-- **Deployed Worker:** PR #24 merge `ff5847bb94c7ebea6353c9cf98351022aa07fb3d` (CI `42967053433`, deploy `42967053554`); live health verified. Runtime pins native v6. Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
+- **Copilot removal and harness-only fallback (2026-11-12, uncommitted):** on branch `fix/fresh-signin-instructions` (one unpushed commit `1547861` on top of `origin/trunk` `e045e8c`, PR #27 = codex dispatch + v7 pin).
+  Working tree: providers are `anthropic`/`openai-codex` only; `choose_seat` keeps the golem's provider and switches to `pi` when its harness does not work there (fixes live red `no-seat`, probe issue 8 comment `6822171957`); contract `fallback` promise reworded with Oliver's authorization; coordinator digest advanced. See DECISIONS 2026-11-12.
+  Verified locally: fmt, clippy native + wasm, `cargo test -p router -p golem-runner` 119 passed, repair-unbound and deploy tests, `nu-check accept.nu`; worker suites pass only with the oversized-body line removed (Windows ECONNRESET), Linux CI is the full run.
+  Next: commit split (1) code+tests+SPEC+DECISIONS, (2) `fix(accept)` for `accept.nu`+`contract.nuon`; `EVIDENCE.md` changes are from the seat evidence work, not this change. Release a runner and pin it in ops before the router deploys, else pinned v7 rejects harness-only fallbacks after start.
+- **Current branch:** `fix/fresh-signin-instructions`.
+- **Deployed Worker:** PR #24 merge `ff5847bb94c7ebea6353c9cf98351022aa07fb3d` (CI `42967053433`, deploy `42967053554`); live health verified. Runtime now pins native v7 (ops PR #13). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.

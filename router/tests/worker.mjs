@@ -179,7 +179,7 @@ async function github(request) {
       return replaced ? answer(204, null) : answer(201, {});
     }
     state.secretReads.push(name);
-    return answer(['SEAT_MEMBER__ANTHROPIC', 'SEAT_CODEXONLY__OPENAI_CODEX', 'SEAT_COPILOTONLY__GITHUB_COPILOT'].includes(name) || state.seatSecrets.has(name) ? 200 : 404, {});
+    return answer(['SEAT_MEMBER__ANTHROPIC', 'SEAT_CODEXONLY__OPENAI_CODEX'].includes(name) || state.seatSecrets.has(name) ? 200 : 404, {});
   }
   if (path === `/repos/${ops}/actions/variables` && method === 'POST') {
     state.variableWrites.push({method, body});
@@ -367,8 +367,8 @@ try {
   assert.equal(state.queue[0].head_sha,head);
   assert.equal(state.queue[0].instructions,request.instructions);
   assert.equal(state.reactions.filter(reaction => reaction.content === 'rocket').length,1,'coordinator owns v2 rockets');
-  // A golem preferring a provider the payer has no seat at runs on the payer's anthropic seat with pi.
-  files.set('foreign.md', '---\nharness: codex\nprovider: github-copilot\n---\nReply with one short greeting.');
+  // A golem whose harness does not work with the payer's seat at its provider runs there with pi.
+  files.set('foreign.md', '---\nharness: codex\nprovider: anthropic\n---\nReply with one short greeting.');
   const queuedBeforeForeign = state.queue.length;
   assert.equal((await deliver('v2-fallback-mention', payload('member', '@isp-golem-xiv foreign'))).status, 202);
   await eventually(() => state.queue.length === queuedBeforeForeign + 1, 'fallback mention admission');
@@ -378,23 +378,25 @@ try {
   assert.equal(foreign.provider, 'anthropic');
   assert.equal(foreign.harness, 'pi');
   assert.equal(foreign.model, null);
-  assert.match(foreign.fallback, /^asked for github-copilot\/codex, used anthropic\/pi .*no github-copilot seat$/);
+  assert.equal(foreign.fallback, 'asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic');
   const foreignCheck = state.checks.at(-1);
   assert.equal(foreignCheck.name, 'golem/foreign');
   assert.match(foreignCheck.output.summary, /^seat: member\/anthropic\nharness: pi\nmodel: default$/m);
-  assert.match(foreignCheck.output.summary, /^fallback: \S/m, 'queued check names the fallback');
-  assert.ok(!/seat: \S+\/github-copilot/.test(foreignCheck.output.summary));
+  assert.match(foreignCheck.output.summary, /^fallback: asked for anthropic\/codex, used anthropic\/pi with its default model, because codex does not work with anthropic$/m, 'queued check names the fallback');
   const refusedBeforeForeign = state.comments.length;
   assert.equal((await deliver('v2-fallback-no-seat', payload('noseat', '@isp-golem-xiv foreign'))).status, 202);
   await eventually(() => state.comments.length > refusedBeforeForeign, 'seatless fallback refusal');
   assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a payer without any seat is still refused');
   assert.equal(state.queue.length, queuedBeforeForeign + 1, 'seatless mention never enqueues');
   const refusedBeforeCodex = state.comments.length;
-  assert.equal((await deliver('v2-fallback-unrunnable-seat', payload('copilotonly', '@isp-golem-xiv foreign'))).status, 202);
+  // pi on an openai-codex seat is a choice the runner cannot execute.
+  files.set('roaming.md', '---\nharness: pi\n---\nReply with one short greeting.');
+  assert.equal((await deliver('v2-fallback-unrunnable-seat', payload('codexonly', '@isp-golem-xiv roaming'))).status, 202);
   await eventually(() => state.comments.length > refusedBeforeCodex, 'unrunnable seat refusal');
   assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a seat the runner cannot use is refused, never rerouted');
   assert.equal(state.queue.length, queuedBeforeForeign + 1, 'unrunnable seat never enqueues');
   files.delete('foreign.md');
+  files.delete('roaming.md');
   const queuedBeforeHelp = state.queue.length;
   const helpCount = state.comments.length;
   assert.equal((await deliver('v2-bare-help', payload('member', '@isp-golem-xiv\nanything'))).status, 202);
@@ -725,7 +727,7 @@ try {
   assert.ok(state.calls > callsBeforeFull);
   await seatRegistration();
   // With a runner that executes Codex, an OpenAI Codex seat runs codex: as fallback and natively.
-  files.set('foreign.md', '---\nharness: codex\nprovider: github-copilot\n---\nReply with one short greeting.');
+  files.set('foreign.md', '---\nharness: codex\nprovider: anthropic\n---\nReply with one short greeting.');
   files.set('codexer.md', '---\nharness: codex\nprovider: openai-codex\n---\nReply with one short greeting.');
   for (const [id, golem, fallback] of [['v2-codex-fallback', 'foreign', true], ['v2-codex-native', 'codexer', false]]) {
     assert.equal((await deliver(id, payload('codexonly', `@isp-golem-xiv ${golem}`))).status, 202);
@@ -733,7 +735,7 @@ try {
     const request = state.queue.find(r => r.golem === golem && r.seat_login === 'codexonly');
     assert.equal(request.provider, 'openai-codex');
     assert.equal(request.harness, 'codex');
-    if (fallback) assert.match(request.fallback, /^asked for github-copilot\/codex, used openai-codex\/codex .*no github-copilot seat$/);
+    if (fallback) assert.equal(request.fallback, 'asked for anthropic/codex, used openai-codex/codex with its default model, because there is no anthropic seat');
     else assert.ok(!('fallback' in request), 'native codex choice carries no fallback');
   }
   console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context and bounded rejection/recovery, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
@@ -781,7 +783,7 @@ async function seatRegistration() {
     assert.equal(seats.status, 200);
     assert.equal(seats.headers.get('Content-Security-Policy'), policy);
     assert.match(seats.headers.get('Cache-Control'), /no-store/);
-    assert.deepEqual(state.secretReads.slice(readsBefore), ['SEAT_MEMBER__ANTHROPIC', 'SEAT_MEMBER__OPENAI_CODEX', 'SEAT_MEMBER__GITHUB_COPILOT'], 'only own seat names are read');
+    assert.deepEqual(state.secretReads.slice(readsBefore), ['SEAT_MEMBER__ANTHROPIC', 'SEAT_MEMBER__OPENAI_CODEX'], 'only own seat names are read');
     return seats.text();
   };
   let html = await page();
@@ -853,6 +855,9 @@ async function seatRegistration() {
   assert.equal((await post('/v1/seats', registration)).status, 403, 'a session outliving membership cannot write');
   state.removedMembers.delete('member');
   assert.equal(state.seatWrites.length, writesBefore, 'refused requests never write');
+  const variablesBeforeSeat = state.variableWrites.length;
+  assert.equal((await post('/v1/seats/preferred', {provider:'openai-codex'})).status, 409, 'no seat at that provider');
+  assert.equal(state.variableWrites.length, variablesBeforeSeat, 'a refused preference never writes');
   response = await post('/v1/seats', registration);
   assert.equal(response.status, 200);
   const registered = await response.text();
@@ -869,7 +874,6 @@ async function seatRegistration() {
   assert.match(html, /<li data-seat="openai-codex">/);
   // Preferred seat: only a provider the person has a seat at; created once, then updated.
   const variableWrites = state.variableWrites.length;
-  assert.equal((await post('/v1/seats/preferred', {provider:'github-copilot'})).status, 409, 'no seat at that provider');
   assert.equal((await post('/v1/seats/preferred', {provider:'other'})).status, 400);
   assert.equal((await post('/v1/seats/preferred', {provider:'anthropic'}, {'X-Golem-Csrf':'0'.repeat(64)})).status, 403);
   assert.equal(state.variableWrites.length, variableWrites, 'refused preferences never write');
