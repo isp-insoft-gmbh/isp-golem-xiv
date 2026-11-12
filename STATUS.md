@@ -23,7 +23,12 @@
   Providers are `anthropic`/`openai-codex` only; `choose_seat` keeps the golem's provider and switches to `pi` when its harness does not work there (fixes live red `no-seat`, probe issue 8 comment `6822171957`); contract `fallback` promise reworded with Oliver's authorization; coordinator digest advanced. See DECISIONS 2026-11-12.
   Parent-verified on the committed tree: fmt, clippy native + wasm, router 30, runner 31 + 58 (2 ignored), repair-unbound and deploy tests, all four workerd suites (oversized-body line removed locally only for the Windows reset).
   Merged as PR #29 `7fecb9b` (CI `43211335877`), deployed; release v8 (run `43213854452`, native asset `739341027`, SHA-256 `2d269846b35228c2511358b5c5ef98698bc127b4ead020d8d6b8db00569b6a51`) verified and pinned by ops PR #14 (`b62d509`, CI `43215193615`, byte-matched) within minutes of the deploy.
-- **Current branch:** `fix/pin-v8-template`.
+- **Slice 3 accepted (2026-11-12):** full `--slice 3 --keep` (activity `activity-d4ea3e67-4`) exited 0 with 44/44 gates on deployed `696aafb`, runtime v8; log `C:\Users\okr\AppData\Local\Temp\golem-slice3-0dQAtH\accept.log`.
+  First live run of the reworded `fallback` check: check `131212249423` replied with `harness: pi`, `seat: bugabinga/anthropic`, observed `claude-opus-5-5`, `fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic` (run `43226933720`).
+  Kept sandboxes `isp-insoft-gmbh/isp-golem-xiv-test-{core,events,onboarding}-20261112133430`.
+  Open, not gated: dashboard last outcome and run boxes; Pi on OpenAI Codex seats; Windows-only oversized-body Worker test reset.
+- **Next:** Slice 4 (admin dashboard) and the operator guide.
+- **Current branch:** `docs/slice3-accepted`.
 - **Deployed Worker:** PR #29 merge `7fecb9bc57390fc619900ede541fbab14fb07c57`; live health verified. Runtime pins native v8 (ops PR #14). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.

@@ -16,6 +16,12 @@ Each entry: date, decision, reason, and evidence where it exists.
   It lands as its own `fix(accept)` commit with the red evidence above; the live check stays red until the new runner is pinned and the router deployed.
 - Remaining gap: `pi` on `openai-codex` is not runnable yet, so a `claude` or `pi` golem paid by a Codex-only person is still refused with `no-seat`.
 
+## 2026-11-12: Green for the reworded fallback check
+
+- Red (old Worker): probe issue 8 comment `6822171957`, golem `harness: codex, provider: anthropic`, answered `<!-- isp-golem-xiv kind=refused reason=no-seat -->`.
+- Green (`696aafb`, runtime v8): full Slice 3 acceptance 44/44; `fallback` check `131212249423` replied with `harness: pi`, `seat: bugabinga/anthropic` and `fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic`.
+- Oliver chose "harness only"; it is exercised with the tester's own seat and a golem naming `provider: anthropic`, not a dedicated member without a Codex seat.
+
 ## 2026-11-11: Seat registration page and refreshing Codex seats
 
 - Sign-in uses the App's user authorization: the callback checks the state cookie in constant time, exchanges the code with `APP_CLIENT_SECRET` (Worker secret, from the `production` environment), reads `/user` once, requires active membership, and sets a one-hour `golem_session` cookie MAC'd with a key derived from the client secret.
