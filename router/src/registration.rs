@@ -316,9 +316,15 @@ fn sign_in_help(provider: &str) -> &'static str {
         "anthropic" => {
             "Run <code>claude setup-token</code> and paste the token. It is valid for a year."
         }
-        "openai-codex" => {
-            "Sign in with <code>codex login</code> in a separate session used only for golems, then paste the content of <code>~/.codex/auth.json</code>. Runs refresh and write it back."
-        }
+        "openai-codex" => concat!(
+            "Create a <strong>fresh sign-in used only by golems</strong>. Never paste the sign-in you use yourself ",
+            "(for example <code>~/.codex/auth.json</code>): sign-ins refresh and rotate, so two users of one sign-in log each other out.</p>\n",
+            "<p>macOS or Linux (bash, zsh):</p>\n<pre><code>export CODEX_HOME=\"$(mktemp -d)\"\ncodex login\ncat \"$CODEX_HOME/auth.json\"\n</code></pre>\n",
+            "<p>Windows (PowerShell):</p>\n<pre><code>$env:CODEX_HOME = Join-Path $env:TEMP (New-Guid)\nNew-Item -ItemType Directory $env:CODEX_HOME | Out-Null\ncodex login\nGet-Content \"$env:CODEX_HOME\\auth.json\" -Raw | Set-Clipboard\n</code></pre>\n",
+            "<p>Paste the printed or copied content below. Afterwards delete that folder and close the terminal ",
+            "(bash, zsh: <code>rm -rf \"$CODEX_HOME\"</code>; PowerShell: <code>Remove-Item -Recurse $env:CODEX_HOME</code>), ",
+            "so golems hold the only copy. Runs refresh it and write it back."
+        ),
         _ => {
             "Sign in to GitHub Copilot in a separate session used only for golems, then paste the content of the sign-in file. Runs refresh and write it back."
         }
