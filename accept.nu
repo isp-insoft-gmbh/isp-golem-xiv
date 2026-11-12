@@ -384,7 +384,7 @@ def onboarding [ctx: record] {
     if not ($reply.body has $c.tester.provider) or not ($reply.body has ($c.router.url + $c.router.seats)) { "the reply does not name the tester's provider and link the seats page" }
   }
 
-  put-file $repo .golems/foreign.md (golem {harness: codex, provider: github-copilot} "Reply with one short greeting.\nChange nothing in the repository.")
+  put-file $repo .golems/foreign.md (golem {harness: codex, provider: $c.tester.provider} "Reply with one short greeting.\nChange nothing in the repository.")
   let sha = head-sha $repo
   let fallback = check fallback {||
     if (indexed $c $repo foreign) == null { return $"the router did not index foreign within ($c.limits.indexed)" }
@@ -396,7 +396,8 @@ def onboarding [ctx: record] {
     if $run == null { return "foreign has no check run" }
     let summary = $run.output.summary? | default ""
     if not ($summary =~ (pattern $c.check_run.fallback {})) { return "the check run does not say it fell back" }
-    if ($summary =~ 'seat: \S+/github-copilot') { "the run claims a github-copilot seat the tester does not have" }
+    if not ($summary has "harness: pi") { return "the run did not switch to the pi harness" }
+    if not ($summary has $"seat: ($ctx.login)/($c.tester.provider)") { $"the run is not on the tester's seat ($ctx.login)/($c.tester.provider)" }
   }
 
   let validation = check validation {||

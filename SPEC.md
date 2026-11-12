@@ -127,11 +127,12 @@ Runs on the same seat never overlap, because rotating sign-ins would invalidate 
 The golem's harness, model, and provider are preferences.
 Nobody needs a seat at every provider.
 
-1. If the seat holder has a seat at the golem's provider, the run uses the golem's harness and model.
-2. Otherwise it uses the seat holder's preferred seat, chosen on the registration page and kept as an ops repository variable.
-3. The harness stays if it works with that provider; otherwise it becomes `pi`, which works with all providers.
-4. The model becomes that harness's default for the provider.
-5. Without any seat the run is refused with a link to register one.
+1. If the seat holder has a seat at the golem's provider and the golem's harness works with it, the run uses the golem's harness and model.
+2. If the harness does not work with that provider, the run keeps that seat and uses `pi` with its default model.
+3. Without a seat at the golem's provider, the run uses the seat holder's preferred seat, chosen on the registration page and kept as an ops repository variable.
+4. The harness stays if it works with that provider; otherwise it becomes `pi`, which works with all providers.
+5. The model becomes that harness's default for the provider.
+6. Without any seat the run is refused with a link to register one.
 
 A fallback always says so: what was asked for, what was used, and why.
 Repositories whose teams use several providers keep instructions for all their harnesses themselves.
@@ -144,7 +145,7 @@ The credential is encrypted in the browser; the router stores it without ever se
 | Provider | Sign-in | Behaviour |
 |---|---|---|
 | `anthropic` | `claude setup-token` | valid for a year, does not change |
-| `openai-codex`, `github-copilot` | a fresh sign-in used only for golems | refreshes when the provider requires it; the run writes the new sign-in back |
+| `openai-codex` | a fresh sign-in used only for golems | refreshes when the provider requires it; the run writes the new sign-in back |
 
 - A refreshing sign-in must be separate from the one a person uses daily; otherwise one of them is logged out.
 - One seat serves every harness that works with its provider; which harnesses those are is listed in `contract.nuon`.

@@ -1124,7 +1124,8 @@ mod tests {
         assert!(writable_agent_result(&vec![b' '; OUTPUT_BYTES_MAX + 1], b"", &guard).is_err());
     }
 
-    const FOREIGN: &str = "---\nharness: codex\nprovider: github-copilot\n---\nTask";
+    // The payer has a seat at the golem's provider, but its harness does not work there.
+    const FOREIGN: &str = "---\nharness: codex\nprovider: anthropic\n---\nTask";
 
     fn fallback_request() -> serde_json::Value {
         let front = router::parse_golem("hello", FOREIGN).frontmatter;
@@ -1155,9 +1156,14 @@ mod tests {
             .lines()
             .find_map(|line| line.strip_prefix("fallback: "))
             .unwrap();
-        assert!(fallback.starts_with("asked for github-copilot/codex, used anthropic/pi"));
-        assert!(summary.contains("\nseat: test-member/anthropic\nharness: pi\n"));
-        assert!(!summary.contains("seat: test-member/github-copilot"));
+        assert_eq!(
+            fallback,
+            "asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic"
+        );
+        assert!(
+            summary
+                .contains("\nseat: test-member/anthropic\nharness: pi\nmodel: claude-opus-5-5\n")
+        );
         assert!(request.reply("answer").starts_with(
             "<!-- isp-golem-xiv kind=reply golem=hello -->\n\nanswer\n\nfallback: asked for"
         ));
@@ -1265,7 +1271,7 @@ mod tests {
             ("version", serde_json::json!(1)),
             ("harness", serde_json::json!("pi")),
             ("harness", serde_json::json!("claude")),
-            ("provider", serde_json::json!("github-copilot")),
+            ("provider", serde_json::json!("unknown-provider")),
             ("model", serde_json::json!("-c")),
         ] {
             let mut modified = value.clone();

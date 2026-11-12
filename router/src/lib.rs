@@ -406,7 +406,7 @@ pub fn parse_golem(name: &str, document: &str) -> Golem {
 
 #[must_use]
 pub fn seat_secret(login: &str, provider: &str) -> Option<String> {
-    if !valid_login(login) || !matches!(provider, "anthropic" | "openai-codex" | "github-copilot") {
+    if !valid_login(login) || !PROVIDERS.contains(&provider) {
         return None;
     }
     Some(format!(
@@ -748,15 +748,13 @@ pub fn validation_summary(golems: &[Golem]) -> (bool, String) {
 }
 
 /// Providers in fallback order, matching `contract.nuon` providers.
-pub const PROVIDERS: [&str; 3] = ["anthropic", "openai-codex", "github-copilot"];
+pub const PROVIDERS: [&str; 2] = ["anthropic", "openai-codex"];
 
 #[must_use]
 pub fn harness_works(provider: &str, harness: &str) -> bool {
     matches!(
         (provider, harness),
-        ("anthropic", "claude" | "pi")
-            | ("openai-codex", "codex" | "pi")
-            | ("github-copilot", "pi")
+        ("anthropic", "claude" | "pi") | ("openai-codex", "codex" | "pi")
     )
 }
 
@@ -836,7 +834,8 @@ pub fn queued_summary(seat_login: &str, choice: &SeatChoice, timeout_seconds: u3
 }
 
 /// SPEC "Which seat and model": golem provider first, else the preferred seat, else the first
-/// registered seat; keep the harness if it works there, else `pi`, with the harness default model.
+/// registered seat; keep the harness if it works there, else `pi` with its default model, even at
+/// the golem's own provider.
 #[must_use]
 pub fn choose_seat(
     frontmatter: &Frontmatter,
@@ -848,17 +847,22 @@ pub fn choose_seat(
         .harness
         .as_deref()
         .unwrap_or_else(|| default_harness(wanted));
-    if seats.contains(&wanted) {
-        return Some(SeatChoice {
-            provider: wanted.into(),
-            harness: harness.into(),
-            model: frontmatter.model.clone(),
-            fallback: None,
-        });
-    }
-    let provider = preferred
-        .filter(|p| seats.contains(p))
-        .or_else(|| PROVIDERS.iter().copied().find(|p| seats.contains(p)))?;
+    let (provider, reason) = if seats.contains(&wanted) {
+        if harness_works(wanted, harness) {
+            return Some(SeatChoice {
+                provider: wanted.into(),
+                harness: harness.into(),
+                model: frontmatter.model.clone(),
+                fallback: None,
+            });
+        }
+        (wanted, format!("{harness} does not work with {wanted}"))
+    } else {
+        let provider = preferred
+            .filter(|p| seats.contains(p))
+            .or_else(|| PROVIDERS.iter().copied().find(|p| seats.contains(p)))?;
+        (provider, format!("there is no {wanted} seat"))
+    };
     let used = if harness_works(provider, harness) {
         harness
     } else {
@@ -869,7 +873,7 @@ pub fn choose_seat(
         harness: used.into(),
         model: None,
         fallback: Some(format!(
-            "asked for {wanted}/{harness}{}, used {provider}/{used} with its default model, because there is no {wanted} seat",
+            "asked for {wanted}/{harness}{}, used {provider}/{used} with its default model, because {reason}",
             frontmatter
                 .model
                 .as_deref()
