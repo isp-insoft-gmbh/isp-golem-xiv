@@ -542,6 +542,19 @@ mod registration {
         assert!(empty.contains("You have no seats yet.") && !empty.contains("id=\"preferred\""));
         let admin = admin_page("member");
         assert!(admin.contains("Slice 4") && !admin.contains("<script"));
+        // Refreshing sign-ins rotate: people must create a fresh, golem-only sign-in on any OS.
+        assert!(empty.contains("fresh sign-in used only by golems"));
+        assert!(empty.contains("Never paste the sign-in you use yourself"));
+        assert!(
+            empty.contains("export CODEX_HOME=\"$(mktemp -d)\""),
+            "macOS/Linux instructions"
+        );
+        assert!(
+            empty.contains("$env:CODEX_HOME = Join-Path $env:TEMP"),
+            "Windows instructions"
+        );
+        assert!(empty.contains("so golems hold the only copy"));
+        assert!(!empty.contains("paste the content of <code>~/.codex/auth.json</code>"));
     }
 }
 
