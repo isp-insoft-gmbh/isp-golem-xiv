@@ -27,8 +27,13 @@
   First live run of the reworded `fallback` check: check `131212249423` replied with `harness: pi`, `seat: bugabinga/anthropic`, observed `claude-opus-5-5`, `fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic` (run `43226933720`).
   Kept sandboxes `isp-insoft-gmbh/isp-golem-xiv-test-{core,events,onboarding}-20261112133430`.
   Open, not gated: dashboard last outcome and run boxes; Pi on OpenAI Codex seats; Windows-only oversized-body Worker test reset.
-- **Next:** Slice 4 (admin dashboard) and the operator guide.
-- **Current branch:** `docs/slice3-accepted`.
+- **Native harness configuration (PR #32, open):** per Oliver, Claude, Pi and Codex load the target repository's project-local settings, hooks, skills, commands, extensions, MCP servers and context files natively; the runner no longer injects `CLAUDE.md`/`AGENTS.md`.
+  CI `43243042077` on `5891911` proved the Pi probes (project extension loads under `--approve`, not under `--no-approve`; `golem_report` conflict exits 1) and the Codex probe (project MCP server starts only with the trust override).
+  Claude trust is unproven: CI only shows a trust marker file was written; the probe's outcome is not logged on success.
+  Agent decision, not Oliver's: new files under `.claude`, `.codex`, `.pi` or `.agents` that were not in the snapshot are now silently dropped instead of blocking the run, so harness installs and caches work; consequence: a golem asked to add a skill there reports success but its PR lacks those files. Changing or deleting existing config still blocks.
+  Not yet done: merge, release v9, ops pin, and the live proof repo whose golem visibly uses a project skill and a Claude hook.
+- **Next after that:** dashboard last result and run boxes, Pi on OpenAI Codex seats, Windows Worker test; then Slice 4 and the operator guide.
+- **Current branch:** `feat/native-harness-config`.
 - **Deployed Worker:** PR #29 merge `7fecb9bc57390fc619900ede541fbab14fb07c57`; live health verified. Runtime pins native v8 (ops PR #14). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
