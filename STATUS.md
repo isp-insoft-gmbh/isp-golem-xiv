@@ -22,9 +22,9 @@
 - **Copilot removal and harness-only fallback (2026-11-12):** branch `feat/drop-copilot-harness-fallback` on `origin/trunk` `028d796`: commits `b2d90d3` (evidence), `45f728f` (code), `9c171be` (`fix(accept)`).
   Providers are `anthropic`/`openai-codex` only; `choose_seat` keeps the golem's provider and switches to `pi` when its harness does not work there (fixes live red `no-seat`, probe issue 8 comment `6822171957`); contract `fallback` promise reworded with Oliver's authorization; coordinator digest advanced. See DECISIONS 2026-11-12.
   Parent-verified on the committed tree: fmt, clippy native + wasm, router 30, runner 31 + 58 (2 ignored), repair-unbound and deploy tests, all four workerd suites (oversized-body line removed locally only for the Windows reset).
-  Rollout: releases are cut from trunk, so merging deploys the router before v8 exists; harness-only fallbacks fail closed at v7 `--validate` until v8 is released and pinned immediately after merge.
-- **Current branch:** `feat/drop-copilot-harness-fallback`.
-- **Deployed Worker:** PR #28 merge `028d796c332e1d938eb32b9788c2dd2229d7a966`; live health verified. Runtime pins native v7 (ops PR #13). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
+  Merged as PR #29 `7fecb9b` (CI `43211335877`), deployed; release v8 (run `43213854452`, native asset `739341027`, SHA-256 `2d269846b35228c2511358b5c5ef98698bc127b4ead020d8d6b8db00569b6a51`) verified and pinned by ops PR #14 (`b62d509`, CI `43215193615`, byte-matched) within minutes of the deploy.
+- **Current branch:** `fix/pin-v8-template`.
+- **Deployed Worker:** PR #29 merge `7fecb9bc57390fc619900ede541fbab14fb07c57`; live health verified. Runtime pins native v8 (ops PR #14). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.
