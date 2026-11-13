@@ -663,3 +663,254 @@ async fn seat_write_back_puts_only_the_sealed_sign_in_to_the_named_ops_secret() 
         [] as [(std::string::String, serde_json::Value); 0]
     );
 }
+
+fn dashboard(body: &str) -> Value {
+    json!({"number":12, "title":"Golems", "user":{"login":"isp-golem-xiv[bot]"}, "body":body})
+}
+
+fn dashboard_body() -> String {
+    router::dashboard_body(&[router::parse_golem("hello", "---\n---\nHi.")], None, &[])
+}
+
+#[tokio::test]
+async fn dashboard_last_result_rereads_the_apps_dashboard_and_patches_only_its_golem() {
+    let request = request();
+    let body = dashboard_body();
+    let decoy = json!({"number":3, "title":"Golems", "user":{"login":"member"}, "body":body});
+    let (github, seen) = server(vec![
+        (200, json!([decoy, dashboard(&body)])),
+        (200, dashboard(&body)),
+        (200, json!({})),
+    ]);
+    let status = github
+        .update_dashboard(
+            &request,
+            "publish-token",
+            ("replied", "claude-opus-5-5"),
+            "4242",
+            &OutputGuard::default(),
+        )
+        .await;
+    assert_eq!(status, "updated");
+    let seen = seen.join().unwrap();
+    assert_eq!(
+        seen.iter()
+            .map(|(line, _)| line.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "GET /repos/isp-insoft-gmbh/isp-golem-xiv-test-example/issues?state=open&per_page=100 HTTP/1.1",
+            "GET /repos/isp-insoft-gmbh/isp-golem-xiv-test-example/issues/12 HTTP/1.1",
+            "PATCH /repos/isp-insoft-gmbh/isp-golem-xiv-test-example/issues/12 HTTP/1.1",
+        ]
+    );
+    assert_eq!(
+        seen[2].1.as_object().unwrap().len(),
+        1,
+        "only the body changes"
+    );
+    let patched = seen[2].1["body"].as_str().unwrap();
+    let results = router::parse_last_results(patched);
+    assert_eq!(results.len(), 1);
+    let (golem, last) = &results[0];
+    assert_eq!(golem, "hello");
+    assert_eq!(
+        (
+            last.outcome.as_str(),
+            last.login.as_str(),
+            last.provider.as_str(),
+            last.harness.as_str(),
+            last.model.as_str(),
+            last.run_id
+        ),
+        (
+            "replied",
+            "member",
+            "anthropic",
+            "claude",
+            "claude-opus-5-5",
+            4242
+        )
+    );
+    assert!(
+        patched.contains(
+            "[log](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/4242)"
+        )
+    );
+    assert_eq!(
+        patched
+            .lines()
+            .filter(|line| !line.contains("golem-last") && !line.starts_with("  Last: "))
+            .collect::<Vec<_>>(),
+        body.lines()
+            .filter(|line| !line.contains("golem-last") && !line.starts_with("  Last: "))
+            .collect::<Vec<_>>(),
+        "everything else stays"
+    );
+    // An invalid observed model is shown as unobserved rather than dropping the result.
+    let (github, seen) = server(vec![
+        (200, json!([dashboard(&body)])),
+        (200, dashboard(&body)),
+        (200, json!({})),
+    ]);
+    assert_eq!(
+        github
+            .update_dashboard(
+                &request,
+                "token",
+                ("blocked", "model with spaces"),
+                "7",
+                &OutputGuard::default()
+            )
+            .await,
+        "updated"
+    );
+    assert!(
+        seen.join().unwrap()[2].1["body"]
+            .as_str()
+            .unwrap()
+            .contains("model=unobserved")
+    );
+}
+
+#[tokio::test]
+async fn dashboard_last_result_is_best_effort_not_found_or_failed() {
+    let request = request();
+    let body = dashboard_body();
+    let guard = OutputGuard::default();
+    for (responses, expected, calls) in [
+        (vec![(200, json!([]))], "not found", 1),
+        (
+            vec![(
+                200,
+                json!([dashboard(&body.replace(router::DASHBOARD_MARKER, ""))]),
+            )],
+            "not found",
+            1,
+        ),
+        (
+            vec![
+                (200, json!([dashboard(&body)])),
+                (200, dashboard(&body.replace("golem-last golem=hello", "x"))),
+            ],
+            "not found",
+            2,
+        ),
+        (
+            vec![
+                (200, json!([dashboard(&body)])),
+                (200, dashboard(&body.replace("hello", "other"))),
+            ],
+            "not found",
+            2,
+        ),
+        (vec![(500, json!({}))], "failed", 1),
+        (vec![(200, json!({"not":"a list"}))], "failed", 1),
+        (
+            vec![(200, json!([dashboard(&body)])), (404, json!({}))],
+            "failed",
+            2,
+        ),
+        (
+            vec![
+                (200, json!([dashboard(&body)])),
+                (200, dashboard(&body)),
+                (409, json!({})),
+            ],
+            "failed",
+            3,
+        ),
+    ] {
+        let (github, seen) = server(responses);
+        assert_eq!(
+            github
+                .update_dashboard(&request, "token", ("changed", "m"), "1", &guard)
+                .await,
+            expected
+        );
+        assert_eq!(seen.join().unwrap().len(), calls);
+    }
+    let (github, seen) = server(vec![]);
+    assert_eq!(
+        github
+            .update_dashboard(&request, "token", ("changed", "m"), "not-a-run", &guard)
+            .await,
+        "failed",
+        "invalid inputs never reach GitHub"
+    );
+    assert!(seen.join().unwrap().is_empty(), "no requests");
+}
+
+#[tokio::test]
+async fn dashboard_requests_bind_the_reply_to_the_apps_dashboard_instead_of_a_comment() {
+    let mut request = request();
+    request.trigger = Some("dashboard".into());
+    request.comment_id = None;
+    let (github, seen) = server(vec![(200, dashboard(&dashboard_body()))]);
+    github.validate_human(&request, "read-token").await.unwrap();
+    assert_eq!(
+        seen.join().unwrap()[0].0,
+        "GET /repos/isp-insoft-gmbh/isp-golem-xiv-test-example/issues/7 HTTP/1.1"
+    );
+    for issue in [
+        json!({"number":7, "title":"Golems", "user":{"login":"member"}, "body":dashboard_body()}),
+        json!({"number":7, "title":"Other", "user":{"login":"isp-golem-xiv[bot]"}, "body":dashboard_body()}),
+        json!({"number":7, "title":"Golems", "user":{"login":"isp-golem-xiv[bot]"}, "body":"no marker"}),
+        json!({"number":7, "title":"Golems", "user":{"login":"isp-golem-xiv[bot]"}, "body":dashboard_body(), "pull_request":{}}),
+    ] {
+        let (github, seen) = server(vec![(200, issue)]);
+        assert_eq!(
+            github.validate_human(&request, "read-token").await,
+            Err("dashboard identity mismatch")
+        );
+        seen.join().unwrap();
+    }
+    assert!(
+        github_feedback(&request).await,
+        "dashboard runs always answer"
+    );
+}
+
+async fn github_feedback(request: &DispatchV1) -> bool {
+    let (github, seen) = server(vec![]);
+    let feedback = github.feedback_eligible(request, "token").await.unwrap();
+    assert!(seen.join().unwrap().is_empty(), "no comment lookup");
+    feedback
+}
+
+#[tokio::test]
+async fn only_final_check_updates_record_the_published_outcome() {
+    let request = request();
+    let guard = OutputGuard::default();
+    let (github, seen) = server(vec![
+        (200, json!({})),
+        (500, json!({})),
+        (500, json!({})),
+        (500, json!({})),
+        (200, json!({})),
+    ]);
+    github
+        .check(&request, "token", "running", "default", "1", &guard)
+        .await
+        .unwrap();
+    assert_eq!(request.published.take(), None, "running is not an outcome");
+    assert!(
+        github
+            .check(&request, "token", "replied", "m", "1", &guard)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        request.published.take(),
+        None,
+        "an unpublished check records nothing"
+    );
+    github
+        .check(&request, "token", "blocked", "m", "1", &guard)
+        .await
+        .unwrap();
+    assert_eq!(
+        request.published.take(),
+        Some(("blocked".to_owned(), "m".to_owned()))
+    );
+    assert_eq!(seen.join().unwrap().len(), 5);
+}

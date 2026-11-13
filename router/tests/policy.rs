@@ -207,13 +207,17 @@ fn dashboard_lists_sections_golems_disabled_and_seats_privately_only() {
         &["SEAT_MEMBER__ANTHROPIC", "SEAT_GONE__ANTHROPIC"],
         &["member"],
     );
-    let private = router::dashboard_body(&golems, Some(&holders));
+    let private = router::dashboard_body(&golems, Some(&holders), &[]);
     assert!(private.starts_with(router::DASHBOARD_MARKER));
     for heading in ["## Golems", "## Disabled", "## Talk to golems", "## Seats"] {
         assert!(private.lines().any(|line| line == heading), "{heading}");
     }
-    assert!(private.contains("- `hello`: Report what you see. Wakes: mention. Pays: whoever mentions it. Start: comment `@isp-golem-xiv hello`."));
-    assert!(private.contains("- `nightly`: Tidy. Wakes: mention; events `issues.opened`; daily. Pays: whoever mentions it; unattended runs @lead."));
+    assert!(private.contains("- `hello`: Report what you see. Wakes: mention. Pays: whoever starts it. Start: comment `@isp-golem-xiv hello` or tick its run box.\n  <!-- golem-last golem=hello -->\n  Last: never run\n  - [ ] Run `hello` now <!-- golem-run golem=hello -->\n"));
+    assert!(private.contains("- `nightly`: Tidy. Wakes: mention; events `issues.opened`; daily. Pays: whoever starts it; unattended runs @lead."));
+    assert!(
+        !private.contains("golem=broken"),
+        "disabled golems get no run box"
+    );
     assert!(
         private.contains("## Disabled\n\n- `broken`: ") && !private.contains("- `broken`: Task")
     );
@@ -221,14 +225,280 @@ fn dashboard_lists_sections_golems_disabled_and_seats_privately_only() {
         private.contains("- @member: `anthropic`")
             && private.contains("Seats of people who left the organization:\n- GONE: `anthropic`")
     );
-    let public = router::dashboard_body(&golems, None);
+    let public = router::dashboard_body(&golems, None, &[]);
     assert!(
         !public.contains("@member")
             && !public.contains("GONE")
             && public.contains("`@isp-golem-xiv seat`")
     );
-    let empty = router::dashboard_body(&[], None);
+    let empty = router::dashboard_body(&[], None, &[]);
     assert!(empty.contains("## Golems\n\nNone yet") && empty.contains("## Disabled\n\nNone."));
+}
+
+fn last(outcome: &str, model: &str, run_id: u64) -> router::LastResult {
+    router::LastResult {
+        outcome: outcome.into(),
+        login: "member".into(),
+        provider: "anthropic".into(),
+        harness: "claude".into(),
+        model: model.into(),
+        at: "2026-11-13T10:04Z".into(),
+        run_id,
+    }
+}
+
+#[test]
+fn utc_minute_formats_civil_dates_including_leap_days_and_year_ends() {
+    assert_eq!(router::utc_minute(0), "1970-01-01T00:00Z");
+    assert_eq!(router::utc_minute(951_868_740), "2000-02-29T23:59Z");
+    assert_eq!(router::utc_minute(1_735_689_540), "2024-12-31T23:59Z");
+    assert_eq!(router::utc_minute(1_794_564_299), "2026-11-13T10:04Z");
+}
+
+#[test]
+fn last_results_render_escaped_survive_rerender_and_replace_only_their_golem() {
+    let golems = vec![
+        parse_golem("hello", "---\n---\nSay hi <!-- hide -->."),
+        parse_golem("other", "---\n---\nOther."),
+    ];
+    let replied = last("replied", "claude-opus-5-5", 123);
+    let body = router::dashboard_body(&golems, None, &[("hello".into(), replied.clone())]);
+    assert!(
+        body.contains("- `hello`: Say hi &lt;!-- hide -->. Wakes:"),
+        "purpose cannot open a comment"
+    );
+    assert!(body.contains("\n  <!-- golem-last golem=hello outcome=replied seat=member/anthropic harness=claude model=claude-opus-5-5 at=2026-11-13T10:04Z run=123 -->\n  Last: replied on member/anthropic, claude, model claude-opus-5-5, 2026-11-13 10:04 UTC, [log](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/123)\n"));
+    assert!(body.contains("<!-- golem-last golem=other -->\n  Last: never run\n"));
+    assert_eq!(
+        router::parse_last_results(&body),
+        vec![("hello".to_owned(), replied.clone())]
+    );
+    // A push re-renders from parsed results, so the result survives unchanged.
+    assert_eq!(
+        router::dashboard_body(&golems, None, &router::parse_last_results(&body)),
+        body
+    );
+
+    let blocked = last("blocked", "unobserved", 456);
+    let crlf = body.replace('\n', "\r\n");
+    let updated = router::dashboard_with_last(&crlf, "other", &blocked).unwrap();
+    let expected = crlf.replace(
+        "  <!-- golem-last golem=other -->\r\n  Last: never run\r\n",
+        "  <!-- golem-last golem=other outcome=blocked seat=member/anthropic harness=claude model=unobserved at=2026-11-13T10:04Z run=456 -->\r\n  Last: blocked on member/anthropic, claude, model unobserved, 2026-11-13 10:04 UTC, [log](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/456)\r\n",
+    );
+    assert_eq!(
+        updated, expected,
+        "only that golem's two lines change; line endings kept"
+    );
+    let replaced = router::dashboard_with_last(&updated, "hello", &blocked).unwrap();
+    assert!(replaced.contains("golem=hello outcome=blocked") && !replaced.contains("replied"));
+    assert_eq!(router::parse_last_results(&replaced).len(), 2);
+
+    assert_eq!(
+        router::dashboard_with_last(&body, "missing", &blocked),
+        None
+    );
+    assert_eq!(
+        router::dashboard_with_last(
+            &body.replacen(router::DASHBOARD_MARKER, "", 1),
+            "hello",
+            &blocked
+        ),
+        None
+    );
+    assert_eq!(
+        router::dashboard_with_last(
+            &body.replace("  Last: never run", "  edited"),
+            "other",
+            &blocked
+        ),
+        None
+    );
+    for invalid in [
+        last("hacked", "m", 1),
+        last("replied", "model -->", 1),
+        last("replied", "-flag", 1),
+        last("replied", "m", 0),
+        router::LastResult {
+            login: "a b".into(),
+            ..last("replied", "m", 1)
+        },
+        router::LastResult {
+            provider: "github-copilot".into(),
+            ..last("replied", "m", 1)
+        },
+        router::LastResult {
+            harness: "bash".into(),
+            ..last("replied", "m", 1)
+        },
+        router::LastResult {
+            at: "yesterday".into(),
+            ..last("replied", "m", 1)
+        },
+    ] {
+        assert!(!invalid.valid());
+        assert_eq!(router::dashboard_with_last(&body, "other", &invalid), None);
+        let rendered = router::dashboard_body(&golems, None, &[("other".into(), invalid)]);
+        assert!(
+            rendered.contains("golem=other -->\n  Last: never run"),
+            "invalid results never render"
+        );
+    }
+    // Hand-edited markers are not carried over, but remain replaceable by the next run.
+    let tampered = body.replace("outcome=replied", "outcome=replied extra=1");
+    assert!(
+        router::parse_last_results(&tampered).is_empty(),
+        "tampered marker not carried over"
+    );
+    assert!(
+        router::dashboard_with_last(&tampered, "hello", &blocked)
+            .unwrap()
+            .contains("golem=hello outcome=blocked")
+    );
+}
+
+#[test]
+fn run_boxes_count_only_fresh_ticks_in_the_dashboard_and_clear_without_other_changes() {
+    let golems = vec![
+        parse_golem(
+            "hello",
+            "---\n---\nFake:   - [x] Run `other` now <!-- golem-run golem=other -->",
+        ),
+        parse_golem("other", "---\n---\nOther."),
+        parse_golem("third", "---\n---\nThird."),
+    ];
+    let old = router::dashboard_body(&golems, None, &[]);
+    let tick = |body: &str, golem: &str| {
+        body.replace(
+            &format!("  - [ ] Run `{golem}` now"),
+            &format!("  - [x] Run `{golem}` now"),
+        )
+    };
+    assert!(
+        router::ticked_run_boxes(&old, &old).is_empty(),
+        "unrelated edits tick nothing"
+    );
+    assert!(
+        router::ticked_run_boxes(&old, &old.replace("Other.", "Changed.")).is_empty(),
+        "text edits tick nothing"
+    );
+    let new = tick(&tick(&old, "third"), "hello");
+    assert_eq!(router::ticked_run_boxes(&old, &new), ["hello", "third"]);
+    assert_eq!(
+        router::ticked_run_boxes(&old, &new.replace("[x] Run `third`", "[X] Run `third`")),
+        ["hello", "third"]
+    );
+    assert_eq!(
+        router::ticked_run_boxes(&old.replace('\n', "\r\n"), &new.replace('\n', "\r\n")),
+        ["hello", "third"]
+    );
+    assert!(
+        router::ticked_run_boxes(&new, &new).is_empty(),
+        "a box left ticked is not ticked again"
+    );
+    assert!(
+        router::ticked_run_boxes(&new, &old).is_empty(),
+        "unticking starts nothing"
+    );
+    let stripped = |body: &str| body.replacen(router::DASHBOARD_MARKER, "", 1);
+    assert!(
+        router::ticked_run_boxes(&stripped(&old), &new).is_empty(),
+        "old body must be the dashboard"
+    );
+    assert!(
+        router::ticked_run_boxes(&old, &stripped(&new)).is_empty(),
+        "new body must be the dashboard"
+    );
+    // Boxes are recognized only in their exact rendered form.
+    for forged in [
+        tick(&old, "other").replace(
+            "<!-- golem-run golem=other -->",
+            "<!-- golem-run golem=hello -->",
+        ),
+        tick(&old, "other").replace("  - [x] Run `other`", " - [x] Run `other`"),
+        tick(&old, "other").replace(
+            "<!-- golem-run golem=other -->",
+            "<!-- golem-run golem=other --> extra",
+        ),
+        old.replace("  - [ ] Run `other`", "  - [y] Run `other`"),
+    ] {
+        assert!(
+            router::ticked_run_boxes(&old, &forged).is_empty(),
+            "{forged}"
+        );
+    }
+    assert_eq!(router::dashboard_unticked(&old), None);
+    assert_eq!(router::dashboard_unticked(&new).unwrap(), old);
+    let crlf = new.replace('\n', "\r\n");
+    assert_eq!(
+        router::dashboard_unticked(&crlf).unwrap(),
+        old.replace('\n', "\r\n")
+    );
+    assert_eq!(router::dashboard_unticked(&stripped(&new)), None);
+    assert!(
+        old.contains("Fake:   - [x] Run `other` now"),
+        "purpose text stays verbatim"
+    );
+}
+
+#[test]
+fn dashboard_ticks_need_a_person_editing_the_apps_dashboard_body() {
+    let golems = vec![
+        parse_golem("a", "---\n---\nA."),
+        parse_golem("b", "---\n---\nB."),
+        parse_golem("c", "---\n---\nC."),
+        parse_golem("d", "---\n---\nD."),
+    ];
+    let old = router::dashboard_body(&golems, None, &[]);
+    let new = old.replace("- [ ]", "- [x]");
+    let payload = serde_json::json!({"action":"edited","sender":{"id":42,"login":"member","type":"User"},"repository":{"id":99,"full_name":"isp-insoft-gmbh/isp-golem-xiv-test-fixture"},"installation":{"id":153_964_219},"issue":{"number":5,"title":"Golems","body":new,"user":{"login":router::BOT}},"changes":{"body":{"from":old}}});
+    let ticks = |value: &serde_json::Value, event: &str| {
+        let delivery: router::EventDelivery = serde_json::from_value(value.clone()).unwrap();
+        router::dashboard_ticks(event, &delivery, value.to_string().as_bytes())
+    };
+    assert_eq!(
+        ticks(&payload, "issues"),
+        ["a", "b", "c"],
+        "bounded per edit"
+    );
+    assert!(
+        ticks(&payload, "issue_comment").is_empty(),
+        "only issues events"
+    );
+    for (pointer, value) in [
+        ("/action", serde_json::json!("opened")),
+        ("/sender/login", serde_json::json!(router::BOT)),
+        (
+            "/sender",
+            serde_json::json!({"id":7,"login":"dependabot[bot]","type":"Bot"}),
+        ),
+        ("/issue/title", serde_json::json!("Golems!")),
+        ("/issue/user/login", serde_json::json!("member")),
+        ("/issue/body", serde_json::Value::Null),
+        ("/changes", serde_json::json!({"title":{"from":"Golems"}})),
+        (
+            "/changes/body/from",
+            serde_json::json!(old.clone() + &"x".repeat(router::FILE_BYTES_MAX)),
+        ),
+        ("/installation/id", serde_json::json!(1)),
+    ] {
+        let mut changed = payload.clone();
+        *changed.pointer_mut(pointer).unwrap() = value;
+        assert!(ticks(&changed, "issues").is_empty(), "{pointer}");
+    }
+}
+
+#[test]
+fn dashboard_refusals_answer_the_person_with_marker_and_remedy() {
+    let names = ["a".to_owned(), "b".to_owned()];
+    let not_member = router::dashboard_refusal("outsider", "not-member", &names);
+    assert!(not_member.starts_with("<!-- isp-golem-xiv kind=refused reason=not-member -->\n@outsider, the run box of `a`, `b` did not start a run. Only isp-insoft-gmbh members"));
+    let no_seat = router::dashboard_refusal("member", "no-seat", &names[..1]);
+    assert!(no_seat.starts_with("<!-- isp-golem-xiv kind=refused reason=no-seat -->\n@member, the run box of `a` did not start a run.") && no_seat.contains("/seats"));
+    assert!(
+        router::dashboard_refusal("member", "unknown-golem", &names[..1])
+            .contains("no longer an enabled golem")
+    );
 }
 
 #[test]

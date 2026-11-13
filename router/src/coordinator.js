@@ -323,7 +323,7 @@ export class Coordinator {
       const row = this.queue.records[i];
       if (row.state === 'terminal' || !row.resource.startsWith(`${body.repository.toLowerCase()}/`)) continue;
       const request = await this.request(row);
-      if (request.trigger !== 'mention' || request.issue_number !== body.issue_number) continue;
+      if (!['mention', 'dashboard'].includes(request.trigger) || request.issue_number !== body.issue_number) continue;
       if (row.state === 'pending' || (row.state === 'stop_requested' && !row.dispatched)) {
         selected ??= row;
       } else {

@@ -33,7 +33,11 @@
   Agent decision, not Oliver's: new files under `.claude`, `.codex`, `.pi` or `.agents` that were not in the snapshot are now silently dropped instead of blocking the run, so harness installs and caches work; consequence: a golem asked to add a skill there reports success but its PR lacks those files. Changing or deleting existing config still blocks.
   Release v9 (run `43389057520`, native asset `742815104`, SHA-256 `029be3f35c945b359a9535c4ede7b231baa17706a06c66fc30b3428de3422239`) verified and pinned by ops PR #15 (`a357217`, CI `43390365953`, byte-matched).
   Live proof in `isp-insoft-gmbh/isp-golem-xiv-test-nativeconfig-20261113090534` (issue 1), unique tokens only reachable through project config: Claude (check `131769403103`) used `CLAUDE.md`, the `.claude/skills` skill and the `UserPromptSubmit` hook from `.claude/settings.json`; Pi (check `131772081451`) and Codex (check `131774705838`, Codex seat) used `AGENTS.md` and the `.agents/skills` skill; all replied successfully. This also shows Claude project trust working in practice.
-- **Next after that:** dashboard last result and run boxes, Pi on OpenAI Codex seats, Windows Worker test; then Slice 4 and the operator guide.
+- **Dashboard last result and run boxes (local, uncommitted, 2026-11-13):** implemented in the working tree on branch `fix/pin-v9-template` (which also carries the unrelated, unmerged v9 template commit `20a6feb`); move to its own branch before committing.
+  Design and gaps in DECISIONS 2026-11-13.
+  Verified locally: fmt, clippy native + wasm, router policy 35, runner 34 + 64 (2 ignored), repair-unbound with digest `75a4dd6b…23c0`, all four workerd suites incl. new dashboard scenarios (oversized-body line removed in a temp copy for the Windows reset).
+  Rollout: release a runner with this change and pin it in ops before the router deploys; then live-tick a box in a sandbox dashboard.
+- **Next after that:** Pi on OpenAI Codex seats, Windows Worker test; then Slice 4 and the operator guide.
 - **Current branch:** `feat/native-harness-config`.
 - **Deployed Worker:** PR #29 merge `7fecb9bc57390fc619900ede541fbab14fb07c57`; live health verified. Runtime pins native v8 (ops PR #14). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.

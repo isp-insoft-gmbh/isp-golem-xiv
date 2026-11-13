@@ -7,7 +7,7 @@ import {pathToFileURL} from 'node:url';
 export const OPS = 'isp-insoft-gmbh/isp-golem-xiv-ops';
 export const CODE = 'isp-insoft-gmbh/isp-golem-xiv';
 export const HEALTH = 'https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/health';
-export const COORDINATOR_SHA256 = "7f40de7c04d0c067b66be8900406077db17d5ced69e0cc896c91f410dfc1f45a";
+export const COORDINATOR_SHA256 = "75a4dd6bc151592ed10d3b5d8168ff65c92e2074e071748a29e29d5e41e123c0";
 const RELEASE_COMMIT = '0a9555f6c510085d251a6acf891e6740a9cabad4';
 const RELEASE_TAG = '1fe798c3fed7f7206985c5ea3e944c2dbfde31d4';
 const ASSET_ID = 707806211;

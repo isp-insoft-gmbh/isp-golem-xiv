@@ -349,6 +349,56 @@ async fn writable_no_changes_answer_humans_but_unattended_runs_only_record_reaso
 }
 
 #[tokio::test]
+async fn dashboard_runs_answer_the_ticker_in_the_dashboard_without_a_comment() {
+    let mut request = request();
+    request.version = 2;
+    request.trigger = Some("dashboard".into());
+    request.comment_id = None;
+    let (github, observed) = server(vec![(201, json!({})), (200, json!({}))]);
+    let context = RunContext {
+        github: &github,
+        request: &request,
+        private_key: "unused",
+        run_id: "99",
+        attempt: "1",
+    };
+    context
+        .publish_writable(
+            "test-write-token",
+            Ok(WritableResult {
+                base_sha: request.head_sha.clone(),
+                changes: Ok(vec![]),
+                output: golem_runner::writable_agent_result(
+                    br#"{"type":"result","subtype":"success","is_error":false,"result":"","structured_output":{"disposition":"completed","message":"Nothing to change."},"modelUsage":{"observed-model":{}}}"#,
+                    b"", &OutputGuard::default(),
+                ).unwrap(),
+                timed_out: false,
+            }),
+            &OutputGuard::default(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let observed = observed.join().unwrap().unwrap();
+    assert_eq!(observed.len(), 2, "no trigger comment is read");
+    assert!(observed[0].0.starts_with("POST ") && observed[0].0.contains("/issues/7/comments "));
+    assert_eq!(
+        observed[0].1["body"],
+        "<!-- isp-golem-xiv kind=reply golem=hello -->\n\n@member Nothing to change."
+    );
+    let summary = observed[1].1["output"]["summary"].as_str().unwrap();
+    assert!(
+        summary.contains("outcome: replied"),
+        "a person is answered, never no_change"
+    );
+    assert_eq!(
+        request.published.take(),
+        Some(("replied".to_owned(), "observed-model".to_owned())),
+        "the final check hands its outcome to the dashboard update"
+    );
+}
+
+#[tokio::test]
 async fn post_agent_validation_failures_keep_observed_model_without_publication() {
     for protected_edit in [true, false] {
         let workspace = tempfile::tempdir().unwrap();

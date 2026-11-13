@@ -78,6 +78,9 @@ pub struct DispatchV1 {
     /// Why a refreshed sign-in was not written back; set by the runner, never dispatched.
     #[serde(skip)]
     pub seat_note: std::cell::Cell<Option<&'static str>>,
+    /// Final outcome and model of the last completed check update; set by the runner.
+    #[serde(skip)]
+    pub published: std::cell::RefCell<Option<(String, String)>>,
 }
 
 fn identifier(value: &str, maximum: usize) -> bool {
@@ -194,7 +197,7 @@ impl DispatchV1 {
         if self.version == 2 {
             if !matches!(
                 self.trigger.as_deref(),
-                Some("mention" | "event" | "schedule")
+                Some("mention" | "dashboard" | "event" | "schedule")
             ) || self
                 .branch
                 .as_deref()
@@ -222,8 +225,9 @@ impl DispatchV1 {
             }
         }
         if self.human() {
+            // A dashboard run box has no comment; the dashboard issue is the trigger context.
             if self.issue_number.is_none()
-                || self.comment_id.is_none()
+                || self.comment_id.is_some() == self.dashboard()
                 || self.actor_id.is_none()
                 || actor.is_none_or(|login| !login.eq_ignore_ascii_case(&self.seat_login))
             {
@@ -245,9 +249,16 @@ impl DispatchV1 {
         Ok(())
     }
 
+    /// Started by a person, who pays with their own seat and is always answered.
     #[must_use]
     pub fn human(&self) -> bool {
-        self.version == 1 || self.trigger.as_deref() == Some("mention")
+        self.version == 1 || matches!(self.trigger.as_deref(), Some("mention" | "dashboard"))
+    }
+
+    /// Started by ticking a run box in the dashboard issue.
+    #[must_use]
+    pub fn dashboard(&self) -> bool {
+        self.version == 2 && self.trigger.as_deref() == Some("dashboard")
     }
 
     #[must_use]
@@ -339,8 +350,13 @@ impl DispatchV1 {
 
     #[must_use]
     pub fn reply(&self, output: &str) -> String {
+        // The dashboard issue is shared, so its replies name the person who ticked the box.
+        let to = match self.actor_login.as_deref() {
+            Some(actor) if self.dashboard() => format!("@{actor} "),
+            _ => String::new(),
+        };
         format!(
-            "<!-- isp-golem-xiv kind=reply golem={} -->\n\n{output}{}",
+            "<!-- isp-golem-xiv kind=reply golem={} -->\n\n{to}{output}{}",
             self.golem,
             self.fallback_line("\n\n")
         )
@@ -1071,6 +1087,52 @@ mod tests {
             assert!(parse(&legacy.to_string()).is_err());
             legacy.as_object_mut().unwrap().remove(field);
         }
+    }
+
+    #[test]
+    fn dashboard_runs_are_human_on_the_tickers_seat_without_a_comment() {
+        let mut value: serde_json::Value = serde_json::from_str(&request_json()).unwrap();
+        value["version"] = serde_json::json!(2);
+        value["trigger"] = serde_json::json!("dashboard");
+        value["branch"] = serde_json::json!("golems/hello");
+        value["queue_generation"] = serde_json::json!("12345678-1234-1234-1234-123456789abc");
+        value["comment_id"] = serde_json::Value::Null;
+        let request = parse(&value.to_string()).unwrap();
+        assert!(request.human() && request.dashboard());
+        let actor = request.actor_login.clone().unwrap();
+        assert_eq!(actor, request.seat_login);
+        assert!(
+            request.reply("answer").starts_with(&format!(
+                "<!-- isp-golem-xiv kind=reply golem=hello -->\n\n@{actor} answer"
+            )),
+            "the shared dashboard reply names the person"
+        );
+        assert!(
+            request.validate_definition("---\n---\nTask").is_ok(),
+            "any golem may be started"
+        );
+        for (field, invalid) in [
+            ("comment_id", serde_json::json!(9)),
+            ("issue_number", serde_json::Value::Null),
+            ("seat_login", serde_json::json!("another-member")),
+            ("actor_login", serde_json::json!("dependabot[bot]")),
+            ("actor_id", serde_json::Value::Null),
+            ("version", serde_json::json!(1)),
+        ] {
+            let mut bad = value.clone();
+            bad[field] = invalid;
+            assert!(parse(&bad.to_string()).is_err(), "{field}");
+        }
+        // Mentions still need their comment; only the dashboard trigger may omit it.
+        value["trigger"] = serde_json::json!("mention");
+        assert!(parse(&value.to_string()).is_err());
+        value["comment_id"] = serde_json::json!(9);
+        assert!(
+            !parse(&value.to_string())
+                .unwrap()
+                .reply("answer")
+                .contains('@')
+        );
     }
 
     #[test]

@@ -874,6 +874,16 @@ await scenario('without active mention stop selects only latest pending mention,
   assert.equal((await f.call('stop', {repository, issue_number: 99})).count, 0);
 });
 
+await scenario('stop in the dashboard issue selects the latest dashboard run like a mention, never events', async f => {
+  const event = request('carol', 'event', {trigger: 'event', check_run_id: 301});
+  const board = request('bob', 'board', {trigger: 'dashboard', comment_id: null, actor_login: 'bob', check_run_id: 302});
+  for (const [i, req] of [event, board].entries()) { await f.enqueue(req); await f.bind(req, 4000 + i); }
+  assert.equal((await f.call('stop', {repository, issue_number: 1})).count, 1);
+  assert.equal(f.row(board.delivery_id).state, 'stop_requested');
+  assert.deepEqual(f.cancels, [4001]);
+  assert.equal(f.row(event.delivery_id).state, 'bound');
+});
+
 await scenario('crash after bind: successful and failed terminal workflows receive blocked audits before release', async f => {
   for (const [i, conclusion] of ['success', 'failure'].entries()) {
     const req = request('member', `crash${i}`, {check_run_id: 301 + i, model: 'explicit-model'});

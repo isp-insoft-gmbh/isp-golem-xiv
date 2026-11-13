@@ -928,7 +928,6 @@ async fn update_dashboard(
     } else {
         None
     };
-    let body = crate::dashboard_body(golems, holders.as_ref());
     let issues = github
         .get(&format!(
             "/repos/{repository}/issues?state=open&per_page=100"
@@ -938,15 +937,16 @@ async fn update_dashboard(
         .as_array()
         .ok_or_else(|| failure("invalid issue listing"))?
         .iter()
-        .find(|issue| {
-            issue.pointer("/user/login").and_then(Value::as_str) == Some(crate::BOT)
-                && issue.get("title").and_then(Value::as_str) == Some(crate::DASHBOARD_TITLE)
-                && issue.get("pull_request").is_none()
-                && issue
-                    .get("body")
-                    .and_then(Value::as_str)
-                    .is_some_and(|text| text.starts_with(crate::DASHBOARD_MARKER))
-        });
+        .find(|issue| crate::is_dashboard_issue(issue));
+    // Last results live only in the dashboard; carry them over so a push never erases them.
+    // A runner writing between this read and the PATCH below loses its line until its next run.
+    let last = crate::parse_last_results(
+        existing
+            .and_then(|issue| issue.get("body"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+    );
+    let body = crate::dashboard_body(golems, holders.as_ref(), &last);
     if let Some(issue) = existing {
         if issue.get("body").and_then(Value::as_str) == Some(body.as_str()) {
             return Ok(());
@@ -1221,10 +1221,7 @@ async fn process_mention(
         next: 0,
         prepared: Some(prepared),
     };
-    let path = event_path(&work.delivery_id);
-    persist_event_source(github, &work).await?;
-    update_event_index(github, &work.delivery_id, true).await?;
-    let sha = save_event_work(github, &path, &work, None).await?;
+    let sha = persist_new_work(github, &work).await?;
     admit_request(
         env,
         github,
@@ -1239,6 +1236,166 @@ async fn process_mention(
     Ok(())
 }
 
+async fn comment(github: &Github, repository: &str, issue: u64, body: &str) -> Result<()> {
+    github
+        .post(
+            &format!("/repos/{repository}/issues/{issue}/comments"),
+            json!({"body":body}),
+        )
+        .await?;
+    Ok(())
+}
+
+/// Immutable private source, index admission and cursor, in that order; returns the cursor SHA.
+async fn persist_new_work(github: &Github, work: &EventWork) -> Result<String> {
+    persist_event_source(github, work).await?;
+    update_event_index(github, &work.delivery_id, true).await?;
+    save_event_work(github, &event_path(&work.delivery_id), work, None).await
+}
+
+/// Advances persisted work within this invocation's budget; the cron continues the rest.
+async fn drive_event_work(
+    env: &Env,
+    github: &Github,
+    mut work: EventWork,
+    mut sha: String,
+) -> Result<()> {
+    let path = event_path(&work.delivery_id);
+    while work.next < work.golems.len()
+        && github.requests.get() <= SUBREQUESTS_MAX - if work.prepared.is_some() { 10 } else { 22 }
+    {
+        resume_event(env, github, &mut work).await?;
+        sha = save_event_work(github, &path, &work, Some(&sha)).await?;
+    }
+    if work.next == work.golems.len() && github.requests.get() <= SUBREQUESTS_MAX - 9 {
+        retire_event(github, &work.delivery_id, Some(&sha)).await?;
+    }
+    Ok(())
+}
+
+/// A person ticked run boxes in the dashboard. Non-members are refused once; otherwise the ticked
+/// golems become durable event work, so redelivery is stopped by the claim and a restart resumes
+/// instead of dispatching twice. Ticks are commands only, never `issues.edited` event triggers.
+async fn process_dashboard(
+    env: &Env,
+    github: &Github,
+    delivery: EventDelivery,
+    ticks: Vec<String>,
+    delivery_id: String,
+    info: &Value,
+) -> Result<()> {
+    let repository = delivery.repository.full_name.clone();
+    let issue = delivery
+        .issue
+        .as_ref()
+        .map(|issue| issue.number)
+        .ok_or_else(|| failure("missing dashboard issue"))?;
+    if !github.member(&delivery.sender.login).await? {
+        let body = crate::dashboard_refusal(&delivery.sender.login, "not-member", &ticks);
+        comment(github, &repository, issue, &body).await?;
+        untick_dashboard(github, &repository, issue, &delivery_id).await;
+        return Ok(());
+    }
+    let work = EventWork {
+        version: 2,
+        head: github.head(&repository, info).await?,
+        delivery_id,
+        event: "dashboard".into(),
+        delivery,
+        golems: ticks,
+        next: 0,
+        prepared: None,
+    };
+    let sha = persist_new_work(github, &work).await?;
+    untick_dashboard(github, &repository, issue, &work.delivery_id).await;
+    drive_event_work(env, github, work, sha).await
+}
+
+/// Best effort: clears ticked run boxes in the freshest dashboard body; a failure only leaves
+/// a ticked box, which later edits never count as newly ticked.
+async fn untick_dashboard(github: &Github, repository: &str, issue: u64, delivery_id: &str) {
+    let result = async {
+        let current = github
+            .get(&format!("/repos/{repository}/issues/{issue}"))
+            .await?;
+        let Some(body) = Some(&current)
+            .filter(|issue| crate::is_dashboard_issue(issue))
+            .and_then(|issue| issue.get("body"))
+            .and_then(Value::as_str)
+            .and_then(crate::dashboard_unticked)
+        else {
+            return Ok(());
+        };
+        let (status, _) = github
+            .call(
+                Method::Patch,
+                &format!("/repos/{repository}/issues/{issue}"),
+                Some(json!({"body":body})),
+            )
+            .await?;
+        if status == 200 {
+            Ok(())
+        } else {
+            Err(failure("dashboard run boxes not cleared"))
+        }
+    }
+    .await;
+    if result.is_err() {
+        worker::console_error!("dashboard run boxes not cleared; delivery={delivery_id}");
+    }
+}
+
+/// One ticked golem: mention rules on the ticking member's own seat, never the owner's.
+async fn resume_dashboard(github: &Github, work: &mut EventWork) -> Result<()> {
+    let name = work
+        .golems
+        .get(work.next)
+        .filter(|name| crate::valid_golem_name(name))
+        .ok_or_else(|| failure("invalid dashboard position"))?
+        .clone();
+    let delivery = &work.delivery;
+    let repository = &delivery.repository.full_name;
+    let login = &delivery.sender.login;
+    let issue = delivery
+        .issue
+        .as_ref()
+        .map(|issue| issue.number)
+        .ok_or_else(|| failure("missing dashboard issue"))?;
+    let Some(info) = github.repository(repository).await? else {
+        work.next += 1;
+        return Ok(());
+    };
+    if info.get("id").and_then(Value::as_u64) != Some(delivery.repository.id) {
+        return Err(failure("dashboard repository identity changed"));
+    }
+    let head = github.head(repository, &info).await?;
+    let golem = github
+        .golem(repository, &head, &name)
+        .await?
+        .filter(|golem| golem.errors.is_empty());
+    let choice = match &golem {
+        Some(golem) => seat_choice(github, golem, login)
+            .await?
+            .filter(crate::SeatChoice::runnable),
+        None => None,
+    };
+    let reason = if golem.is_some() {
+        "no-seat"
+    } else {
+        "unknown-golem"
+    };
+    let (Some(golem), Some(choice)) = (golem, choice) else {
+        let body = crate::dashboard_refusal(login, reason, std::slice::from_ref(&name));
+        comment(github, repository, issue, &body).await?;
+        work.next += 1;
+        return Ok(());
+    };
+    let id = occurrence_id(&format!("dashboard-v2/{}/{}", work.delivery_id, golem.name));
+    let request = json!({"delivery_id":id,"repository_id":delivery.repository.id,"repository":repository,"head_sha":head,"trigger":"dashboard","issue_number":issue,"comment_id":null,"actor_id":delivery.sender.id,"actor_login":login,"seat_login":login,"instructions":"Started from the dashboard run box."});
+    work.prepared = Some(prepare_request(github, &golem, &choice, request).await?);
+    Ok(())
+}
+
 async fn process(
     env: Env,
     event: String,
@@ -1246,6 +1403,7 @@ async fn process(
     mention: Option<Delivery>,
     delivery_id: String,
     digest: String,
+    ticks: Vec<String>,
 ) -> Result<()> {
     let github = Github::installation(&env).await?;
     if !protocol_v2(&github).await? {
@@ -1293,6 +1451,9 @@ async fn process(
         )
         .await;
     }
+    if !ticks.is_empty() {
+        return process_dashboard(&env, &github, delivery, ticks, delivery_id, &info).await;
+    }
     let (head, golems) =
         index_with_upkeep(&github, &event, &delivery, repository, &info, &delivery_id).await?;
     let selected: Vec<_> = golems
@@ -1312,7 +1473,7 @@ async fn process(
     if !(200..300).contains(&tick.status_code()) {
         return Err(failure("event journal initialization failed"));
     }
-    let mut work = EventWork {
+    let work = EventWork {
         version: 2,
         head,
         delivery_id,
@@ -1322,20 +1483,8 @@ async fn process(
         next: 0,
         prepared: None,
     };
-    let path = event_path(&work.delivery_id);
-    persist_event_source(&github, &work).await?;
-    update_event_index(&github, &work.delivery_id, true).await?;
-    let mut sha = save_event_work(&github, &path, &work, None).await?;
-    while work.next < work.golems.len()
-        && github.requests.get() <= SUBREQUESTS_MAX - if work.prepared.is_some() { 10 } else { 22 }
-    {
-        resume_event(&env, &github, &mut work).await?;
-        sha = save_event_work(&github, &path, &work, Some(&sha)).await?;
-    }
-    if work.next == work.golems.len() && github.requests.get() <= SUBREQUESTS_MAX - 9 {
-        retire_event(&github, &work.delivery_id, Some(&sha)).await?;
-    }
-    Ok(())
+    let sha = persist_new_work(&github, &work).await?;
+    drive_event_work(&env, &github, work, sha).await
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -1544,6 +1693,9 @@ async fn resume_event(env: &Env, github: &Github, work: &mut EventWork) -> Resul
         work.prepared = None;
         work.next += 1;
         return Ok(());
+    }
+    if work.event == "dashboard" {
+        return resume_dashboard(github, work).await;
     }
     let Some(instructions) = crate::event_instructions(
         &work.event,
@@ -2353,10 +2505,11 @@ async fn webhook(mut request: Request, env: Env, ctx: Context) -> Result<Respons
     for byte in Sha256::digest(&bytes) {
         write!(&mut digest, "{byte:02x}").map_err(|_| failure("digest encoding failed"))?;
     }
-    let mention_request = mention.is_some();
+    let ticks = crate::dashboard_ticks(&event, &delivery, &bytes);
+    let mention_request = mention.is_some() || !ticks.is_empty();
     ctx.wait_until(async move {
         // waitUntil has a 30-second post-response lifetime; cap our work below it.
-        if bounded(process(env, event, delivery, mention, delivery_id.clone(), digest), 27_000).await.is_err() {
+        if bounded(process(env, event, delivery, mention, delivery_id.clone(), digest, ticks), 27_000).await.is_err() {
             worker::console_error!("webhook processing failed; delivery={}; claim may be retained; investigate before replay", delivery_id);
         }
     });
