@@ -36,11 +36,12 @@
 - **Dashboard last result and run boxes:** design and gaps in DECISIONS 2026-11-13; verified locally (router 35, runner 34 + 64, workerd suites) before PR #34.
 - **Dashboard shipped and live-proven:** PR #34 merged `d8a6ca1`; release v10 (run `43407846433`, native asset `743214211`, SHA-256 `e36151dcfa2bf40c0a6b63fc02147bd202cdec6abadcfc852c9d5c994bc69fcb`) pinned by ops PR #16 (`c065d02`, CI `43408810302`, byte-matched) about 10 minutes after the router deploy.
   In `isp-insoft-gmbh/isp-golem-xiv-test-nativeconfig-20261113090534` dashboard #4: after a push re-render, ticking `claudeconv`'s box via the API started run `43409045310` (success), the box was cleared, the reply began `@bugabinga`, and the golem's line became `Last: replied on bugabinga/anthropic, claude, model claude-sonnet-5-5, …, [log]`. A click in the GitHub web page is not separately proven (same `issues.edited` event).
-- **Pi on OpenAI Codex seats:** PR #35 (runner) merged `e32c6e3`; release v11 (run `43421782938`, native asset `743524944`, SHA-256 `b825e931bdc35523f53e2195218cc4141bec01b56c48214efeb598c7e22c6c71`) pinned by ops PR #17 (`8859012`, CI `43423147818`, byte-matched); branch `feat/router-pi-codex` enables dispatch.
-  Live Pi-then-Codex runs on the real Codex seat are still to do.
+- **Pi on OpenAI Codex seats:** PR #35 (runner) merged `e32c6e3`; release v11 (run `43421782938`, native asset `743524944`, SHA-256 `b825e931bdc35523f53e2195218cc4141bec01b56c48214efeb598c7e22c6c71`) pinned by ops PR #17 (`8859012`, CI `43423147818`, byte-matched); router PR #36 merged `acc2045` enables dispatch.
+  Live on the real `SEAT_BUGABINGA__OPENAI_CODEX` in `isp-insoft-gmbh/isp-golem-xiv-test-nativeconfig-20261113090534`: `pioncodex` (pi) run `43427764438`, check `131893226478` replied, `harness: pi`, observed `gpt-6.1-sol`; then `codexconv` (codex) run `43428751065`, check `131896504858` replied on the same seat; both logged `golem seat: unchanged` (token not near expiry).
+  Not yet observed live: Pi refreshing the seat and the next Codex run accepting the written-back format; expected once the access token nears expiry (~2026-11-22).
 - **Windows Worker tests:** Oliver chose to run them in WSL; the `x` change waits for Oliver to trust the repository's `mise.toml` inside WSL. A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `feat/router-pi-codex`.
+- **Current branch:** `docs/pi-codex-live`.
 - **Deployed Worker:** PR #29 merge `7fecb9bc57390fc619900ede541fbab14fb07c57`; live health verified. Runtime pins native v8 (ops PR #14). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
