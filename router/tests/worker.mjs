@@ -393,15 +393,7 @@ try {
   await eventually(() => state.comments.length > refusedBeforeForeign, 'seatless fallback refusal');
   assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a payer without any seat is still refused');
   assert.equal(state.queue.length, queuedBeforeForeign + 1, 'seatless mention never enqueues');
-  const refusedBeforeCodex = state.comments.length;
-  // pi on an openai-codex seat is a choice the runner cannot execute.
-  files.set('roaming.md', '---\nharness: pi\n---\nReply with one short greeting.');
-  assert.equal((await deliver('v2-fallback-unrunnable-seat', payload('codexonly', '@isp-golem-xiv roaming'))).status, 202);
-  await eventually(() => state.comments.length > refusedBeforeCodex, 'unrunnable seat refusal');
-  assert.ok(state.comments.at(-1).startsWith('<!-- isp-golem-xiv kind=refused reason=no-seat -->'), 'a seat the runner cannot use is refused, never rerouted');
-  assert.equal(state.queue.length, queuedBeforeForeign + 1, 'unrunnable seat never enqueues');
   files.delete('foreign.md');
-  files.delete('roaming.md');
   const queuedBeforeHelp = state.queue.length;
   const helpCount = state.comments.length;
   assert.equal((await deliver('v2-bare-help', payload('member', '@isp-golem-xiv\nanything'))).status, 202);
@@ -744,6 +736,15 @@ try {
     if (fallback) assert.equal(request.fallback, 'asked for anthropic/codex, used openai-codex/codex with its default model, because there is no anthropic seat');
     else assert.ok(!('fallback' in request), 'native codex choice carries no fallback');
   }
+  // With runner v11, pi also runs on an OpenAI Codex seat: a pi golem on a codex-only payer dispatches.
+  files.set('roaming.md', '---\nharness: pi\n---\nReply with one short greeting.');
+  assert.equal((await deliver('v2-pi-on-codex', payload('codexonly', '@isp-golem-xiv roaming'))).status, 202);
+  await eventually(() => state.queue.some(r => r.golem === 'roaming' && r.seat_login === 'codexonly'), 'pi golem on a codex seat');
+  const roaming = state.queue.find(r => r.golem === 'roaming' && r.seat_login === 'codexonly');
+  assert.equal(roaming.provider, 'openai-codex');
+  assert.equal(roaming.harness, 'pi');
+  assert.equal(roaming.model, null);
+  assert.equal(roaming.fallback, 'asked for anthropic/pi, used openai-codex/pi with its default model, because there is no anthropic seat');
   console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context and bounded rejection/recovery, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
 } finally {await worker.dispose();}
 

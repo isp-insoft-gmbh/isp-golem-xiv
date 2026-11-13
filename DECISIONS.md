@@ -6,7 +6,7 @@ Each entry: date, decision, reason, and evidence where it exists.
 ## 2026-11-13: Pi on OpenAI Codex seats (runner only)
 
 - SPEC Credentials says one seat serves every harness that works with its provider, and `contract.nuon` lists `codex` and `pi` for `openai-codex`; the runner now executes `(openai-codex, pi)` (`RUNNER_PAIRS`), recomputing the choice from the pinned definition like every other pair.
-  The router still refuses that pair (`runner_supports`) until a runner release with this change is pinned in ops; enabling it there is a separate change, in that order.
+  Runner v11 (release `43421782938`) was pinned by ops PR #17 first; only then did the router's `runner_supports` admit `openai-codex`/`pi`, so a `claude` or `pi` golem on a Codex-only payer now dispatches as `pi` instead of being refused.
 - The stored seat stays in the Codex CLI `auth.json` format; Pi gets a converted copy.
   Pi 1.5.1 keeps sign-ins in `<PI_CODING_AGENT_DIR>/auth.json` (`pi-coding-agent/dist/config.js` `getAuthPath`, no separate override), keyed by provider: `{"openai-codex": {type: "oauth", access, refresh, expires, accountId}}` (`pi-ai/dist/auth/oauth/openai-codex.js` `credentialsFromToken`); `auth-storage.js` accepts an oauth entry only with string `access`/`refresh` and a finite number `expires`.
 - `expires` (milliseconds) is the access token's own JWT `exp`, the same expiry Codex 0.167.1 refreshes on (`login/src/auth/manager.rs`: access-token `exp` first, the 8-day `last_refresh` rule only without one); Pi refreshes when less than five minutes remain (`pi-ai/dist/auth/resolve.js`).
