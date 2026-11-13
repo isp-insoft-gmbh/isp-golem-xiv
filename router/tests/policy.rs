@@ -131,7 +131,7 @@ fn fallback_dispatch_runs_foreign_golems_on_an_anthropic_seat_with_pi_and_says_s
     let own = choose_seat(&plain.frontmatter, &["anthropic"], None).unwrap();
     assert!(own.runnable());
     assert!(!queued_summary("member", &own, 1800).contains("fallback"));
-    // The runner executes Anthropic (claude, pi) and OpenAI Codex (codex) seats; other choices are refused, never rerouted.
+    // The runner executes Anthropic (claude, pi) and OpenAI Codex (codex, pi) seats; other choices are refused, never rerouted.
     let codex = choose_seat(&foreign.frontmatter, &["openai-codex"], None).unwrap();
     assert_eq!(
         (codex.provider.as_str(), codex.harness.as_str()),
@@ -139,11 +139,12 @@ fn fallback_dispatch_runs_foreign_golems_on_an_anthropic_seat_with_pi_and_says_s
     );
     assert!(codex.runnable());
     let roaming = parse_golem("roaming", "---\nharness: pi\n---\nTask");
-    assert!(
-        !choose_seat(&roaming.frontmatter, &["openai-codex"], None)
-            .unwrap()
-            .runnable()
+    let pi_on_codex = choose_seat(&roaming.frontmatter, &["openai-codex"], None).unwrap();
+    assert_eq!(
+        (pi_on_codex.provider.as_str(), pi_on_codex.harness.as_str()),
+        ("openai-codex", "pi")
     );
+    assert!(pi_on_codex.runnable());
     assert!(
         choose_seat(&foreign.frontmatter, &[], None).is_none(),
         "no seat, no run"
@@ -154,9 +155,10 @@ fn fallback_dispatch_runs_foreign_golems_on_an_anthropic_seat_with_pi_and_says_s
         Some("claude-sonnet-5-5")
     ));
     assert!(runner_supports("anthropic", "pi", None));
+    assert!(runner_supports("openai-codex", "pi", None));
     for (provider, harness, model) in [
         ("anthropic", "codex", None),
-        ("openai-codex", "pi", None),
+        ("openai-codex", "claude", None),
         ("anthropic", "pi", Some("anthropic/claude:high")),
         ("anthropic", "pi", Some("--injected")),
         ("anthropic", "pi", Some("")),

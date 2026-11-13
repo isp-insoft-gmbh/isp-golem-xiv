@@ -1111,20 +1111,20 @@ pub struct SeatChoice {
 }
 
 impl SeatChoice {
-    /// Whether the pinned runner (v7+) can execute this choice: Anthropic seats with `claude` or
-    /// `pi`, `OpenAI` Codex seats with `codex`, and a model that is a single safe CLI argument.
+    /// Whether the pinned runner (v11+) can execute this choice: Anthropic seats with `claude` or
+    /// `pi`, `OpenAI` Codex seats with `codex` or `pi`, and a model that is a single safe CLI argument.
     #[must_use]
     pub fn runnable(&self) -> bool {
         runner_supports(&self.provider, &self.harness, self.model.as_deref())
     }
 }
 
-/// Shared by router dispatch and the runner's credential-boundary validation.
+/// Router dispatch gate; mirrors the runner's own `RUNNER_PAIRS` for the pinned release.
 #[must_use]
 pub fn runner_supports(provider: &str, harness: &str, model: Option<&str>) -> bool {
     matches!(
         (provider, harness),
-        ("anthropic", "claude" | "pi") | ("openai-codex", "codex")
+        ("anthropic", "claude" | "pi") | ("openai-codex", "codex" | "pi")
     ) && model.is_none_or(|model| {
         !model.is_empty()
             && model.len() <= 128
