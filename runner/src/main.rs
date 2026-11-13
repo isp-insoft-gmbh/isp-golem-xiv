@@ -328,6 +328,20 @@ impl RunContext<'_> {
                 .await?;
             println!("golem lifecycle: publication_credentials_minted");
             let outcome = self.publish_writable(&token, result, guard).await;
+            // Only after a final check; never alters the outcome or queue completion.
+            if let Some((final_outcome, model)) = self.request.published.take() {
+                let status = self
+                    .github
+                    .update_dashboard(
+                        self.request,
+                        &token,
+                        (&final_outcome, &model),
+                        self.run_id,
+                        guard,
+                    )
+                    .await;
+                println!("golem dashboard: {status}");
+            }
             // Feedback/check failures retain the queue claim for coordinator repair.
             let terminal = outcome?;
             println!("golem lifecycle: publication_complete");

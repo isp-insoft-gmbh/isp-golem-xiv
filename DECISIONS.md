@@ -3,6 +3,34 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-13: Dashboard last result and run boxes
+
+- Closes the open gap of 2026-11-11 "Onboarding and dashboard on push".
+  Each enabled golem's dashboard entry now has a hidden marker line carrying its last result, a visible `Last:` line derived from it, and a run box ``- [ ] Run `NAME` now <!-- golem-run golem=NAME -->``.
+- The marker is the source of truth: `outcome` from the fixed outcome set, `seat=<login>/<provider>`, `harness`, `model`, `at` (UTC minute) and the ops run id are validated before rendering and when parsed; the only link is `https://github.com/<ops>/actions/runs/<id>`.
+  Invalid or hand-edited markers are not carried over and render as "never run"; a hand-edited visible line is overwritten on the next render.
+  Purposes escape `<`, so a purpose cannot open an HTML comment that hides markers or boxes.
+- Router re-renders on push parse the current dashboard's markers and keep them.
+- The runner, after the final check update succeeded and after container destruction, re-reads the dashboard (first page of open issues, App author, title, marker, then a fresh GET of that issue) and PATCHes only this golem's two lines with the existing target publication token (`issues: write`).
+  It is best effort and logs exactly `golem dashboard: updated|not found|failed`; it never changes the outcome or queue completion.
+  An unobservable model is shown as `unobserved`.
+  Known race: concurrent runs of different golems, and a router re-render, each write the whole body; the re-read keeps the window short, last writer wins, and a lost line returns with that golem's next run.
+  Not covered: outcomes written only by the coordinator (stopped before admission, blocked reconciliation) and the disabled v1 protocol do not update the dashboard.
+- Run boxes: an `issues.edited` delivery whose sender is a `User`, on the App's dashboard (author, title, marker in both old and new body), whose box changed from `[ ]` to `[x]` is a dashboard command, not an `issues.edited` event trigger; other edits of the dashboard stay ordinary events.
+  Old and new bodies are parsed from the delivery only to find ticks (each at most 64 KiB) and are never journaled, so event work does not grow.
+  At most three boxes per edit start runs; further ticks in the same edit are cleared unrun.
+- Mention rules apply: an inactive member gets one `not-member` refusal for the edit; per golem, a missing or disabled golem gets `unknown-golem` and a person without a runnable seat `no-seat`; the payer is always the ticking person, never the owner.
+  Refusals in the shared dashboard issue start with the refused marker and then `@<login>`.
+- Ticked golems become ordinary durable event work (`event: "dashboard"`) behind the delivery claim, so a redelivery is ignored and a restart resumes the remaining golems on the cron instead of dispatching twice; each request has id `occurrence_id(dashboard-v2/<delivery>/<golem>)`, trigger `dashboard`, the dashboard issue, no comment, actor and seat the ticking person, and instructions `Started from the dashboard run box.`.
+  A refusal posted just before a crash may be posted again on resume.
+- After the work is durable, the router clears ticked boxes in the freshest body (best effort; a box left ticked is never counted as newly ticked again).
+- Runner: `dashboard` is human like `mention` (seat equals actor, no owner fallback, always answered, `no_change` never chosen); it requires no comment, and instead of the comment identity it verifies that the issue is the App's dashboard.
+  Replies start with `@<actor>` after the marker.
+- Coordinator: `@isp-golem-xiv stop` in the dashboard issue also stops the latest dashboard run, as the queued check summary promises; the reviewed digest in `tools/repair-unbound.mjs` advances to `75a4dd6b…23c0`, so the repair helper refuses the deployed Worker until this change is deployed.
+- Rollout order: pinned runner v9 rejects trigger `dashboard` at `--validate`, before bind, leaving an unbound dispatched row that holds the golem and seat until a stop fence or repair.
+  A runner release containing this change must be pinned in ops before the router deploys; the router has no runner-version gate.
+- Unverified: that GitHub delivers `issues.edited` with `changes.body.from` when a box is clicked in the web interface, and that nested task-list boxes under a list item stay clickable; both need a live tick.
+
 ## 2026-11-12: Harnesses run the repository's own configuration
 
 - Oliver decided that a golem runs each harness the way the target repository configured it: project settings, hooks, skills, commands, agents, extensions, rules, MCP servers and context files load natively, and the runner reimplements none of them.

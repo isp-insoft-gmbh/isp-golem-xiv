@@ -636,9 +636,346 @@ fn wakes(front: &Frontmatter) -> String {
     ways.join("; ")
 }
 
-/// The pinned dashboard issue; `holders` is `None` in public repositories.
+/// Outcomes a finished run reports (SPEC "Runs").
+pub const OUTCOMES: [&str; 6] = [
+    "changed",
+    "replied",
+    "no_change",
+    "incomplete",
+    "blocked",
+    "stopped",
+];
+const LAST_PREFIX: &str = "  <!-- golem-last golem=";
+const LAST_LINE: &str = "  Last: ";
+
+/// A golem's last run as the dashboard shows it; every field is validated before rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LastResult {
+    pub outcome: String,
+    pub login: String,
+    pub provider: String,
+    pub harness: String,
+    pub model: String,
+    /// UTC minute as `YYYY-MM-DDTHH:MMZ`, see [`utc_minute`].
+    pub at: String,
+    /// Ops Actions run id; the only link the dashboard renders.
+    pub run_id: u64,
+}
+
+fn model_token(model: &str) -> bool {
+    !model.is_empty()
+        && model.len() <= 128
+        && !model.starts_with('-')
+        && model
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-._".contains(&b))
+}
+
+fn valid_minute(at: &str) -> bool {
+    at.len() == 17
+        && at.bytes().enumerate().all(|(index, byte)| match index {
+            4 | 7 => byte == b'-',
+            10 => byte == b'T',
+            13 => byte == b':',
+            16 => byte == b'Z',
+            _ => byte.is_ascii_digit(),
+        })
+}
+
+/// UTC minute of a Unix timestamp as `YYYY-MM-DDTHH:MMZ` (civil-from-days, proleptic Gregorian).
 #[must_use]
-pub fn dashboard_body(golems: &[Golem], holders: Option<&SeatHolders>) -> String {
+pub fn utc_minute(seconds: u64) -> String {
+    let days = seconds / 86_400;
+    let minute = seconds % 86_400 / 60;
+    let z = days + 719_468;
+    let era = z / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + u64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}Z",
+        minute / 60,
+        minute % 60
+    )
+}
+
+impl LastResult {
+    #[must_use]
+    pub fn valid(&self) -> bool {
+        OUTCOMES.contains(&self.outcome.as_str())
+            && valid_login(&self.login)
+            && PROVIDERS.contains(&self.provider.as_str())
+            && matches!(self.harness.as_str(), "claude" | "pi" | "codex")
+            && model_token(&self.model)
+            && valid_minute(&self.at)
+            && self.run_id > 0
+    }
+}
+
+/// Hidden marker and visible line of a golem's last result; invalid results render as never run.
+fn last_lines(golem: &str, last: Option<&LastResult>) -> [String; 2] {
+    match last.filter(|last| last.valid()) {
+        Some(last) => [
+            format!(
+                "{LAST_PREFIX}{golem} outcome={} seat={}/{} harness={} model={} at={} run={} -->",
+                last.outcome,
+                last.login,
+                last.provider,
+                last.harness,
+                last.model,
+                last.at,
+                last.run_id
+            ),
+            format!(
+                "{LAST_LINE}{} on {}/{}, {}, model {}, {} {} UTC, [log](https://github.com/{OPS}/actions/runs/{})",
+                last.outcome,
+                last.login,
+                last.provider,
+                last.harness,
+                last.model,
+                last.at.get(..10).unwrap_or_default(),
+                last.at.get(11..16).unwrap_or_default(),
+                last.run_id
+            ),
+        ],
+        None => [
+            format!("{LAST_PREFIX}{golem} -->"),
+            format!("{LAST_LINE}never run"),
+        ],
+    }
+}
+
+/// A last-result marker line: its golem, and its result when present and valid.
+fn parse_last(line: &str) -> Option<(&str, Option<LastResult>)> {
+    let rest = line.strip_prefix(LAST_PREFIX)?.strip_suffix(" -->")?;
+    let mut parts = rest.split(' ');
+    let golem = parts.next().filter(|golem| valid_golem_name(golem))?;
+    let fields: Vec<&str> = parts.collect();
+    if fields.is_empty() {
+        return Some((golem, None));
+    }
+    Some((golem, last_fields(&fields).filter(LastResult::valid)))
+}
+
+fn last_fields(fields: &[&str]) -> Option<LastResult> {
+    let [outcome, seat, harness, model, at, run] = fields else {
+        return None;
+    };
+    let value = |field: &str, key: &str| {
+        field
+            .strip_prefix(key)?
+            .strip_prefix('=')
+            .map(str::to_owned)
+    };
+    let seat = value(seat, "seat")?;
+    let (login, provider) = seat.split_once('/')?;
+    Some(LastResult {
+        outcome: value(outcome, "outcome")?,
+        login: login.to_owned(),
+        provider: provider.to_owned(),
+        harness: value(harness, "harness")?,
+        model: value(model, "model")?,
+        at: value(at, "at")?,
+        run_id: value(run, "run")?.parse().ok()?,
+    })
+}
+
+/// Valid last results carried by an existing dashboard's markers, first per golem.
+#[must_use]
+pub fn parse_last_results(body: &str) -> Vec<(String, LastResult)> {
+    let mut results: Vec<(String, LastResult)> = Vec::new();
+    if !body.starts_with(DASHBOARD_MARKER) {
+        return results;
+    }
+    for line in body.lines() {
+        if let Some((golem, Some(last))) = parse_last(line)
+            && !results.iter().any(|(name, _)| name == golem)
+        {
+            results.push((golem.to_owned(), last));
+        }
+    }
+    results
+}
+
+/// Replace exactly `golem`'s marker and last-result line, keeping every other byte;
+/// `None` without a dashboard, that golem's marker, or a valid result.
+#[must_use]
+pub fn dashboard_with_last(body: &str, golem: &str, last: &LastResult) -> Option<String> {
+    if !body.starts_with(DASHBOARD_MARKER) || !valid_golem_name(golem) || !last.valid() {
+        return None;
+    }
+    let lines: Vec<&str> = body.split('\n').collect();
+    let index = lines.iter().position(|line| {
+        parse_last(line.trim_end_matches('\r')).is_some_and(|(name, _)| name == golem)
+    })?;
+    lines
+        .get(index + 1)
+        .filter(|line| line.starts_with(LAST_LINE))?;
+    let [marker, visible] = last_lines(golem, Some(last));
+    Some(
+        lines
+            .iter()
+            .enumerate()
+            .map(|(position, line)| {
+                let ending = if line.ends_with('\r') { "\r" } else { "" };
+                if position == index {
+                    format!("{marker}{ending}")
+                } else if position == index + 1 {
+                    format!("{visible}{ending}")
+                } else {
+                    (*line).to_owned()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+fn run_box(golem: &str, ticked: bool) -> String {
+    format!(
+        "  - [{}] Run `{golem}` now <!-- golem-run golem={golem} -->",
+        if ticked { 'x' } else { ' ' }
+    )
+}
+
+/// A run box line exactly as rendered, ticked or not.
+fn parse_run_box(line: &str) -> Option<(&str, bool)> {
+    let rest = line.strip_prefix("  - [")?;
+    let ticked = match rest.get(..1)? {
+        " " => false,
+        "x" | "X" => true,
+        _ => return None,
+    };
+    let (golem, rest) = rest.get(1..)?.strip_prefix("] Run `")?.split_once('`')?;
+    (valid_golem_name(golem) && rest == format!(" now <!-- golem-run golem={golem} -->"))
+        .then_some((golem, ticked))
+}
+
+fn first_box(body: &str, golem: &str) -> Option<bool> {
+    body.lines()
+        .filter_map(parse_run_box)
+        .find(|(name, _)| *name == golem)
+        .map(|(_, ticked)| ticked)
+}
+
+/// Golems whose run box changed from unticked to ticked between two dashboard bodies,
+/// in the new body's order; any other edit is ignored.
+#[must_use]
+pub fn ticked_run_boxes(old: &str, new: &str) -> Vec<String> {
+    let mut ticked: Vec<String> = Vec::new();
+    if !old.starts_with(DASHBOARD_MARKER) || !new.starts_with(DASHBOARD_MARKER) {
+        return ticked;
+    }
+    for (golem, _) in new.lines().filter_map(parse_run_box) {
+        if !ticked.iter().any(|name| name == golem)
+            && first_box(new, golem) == Some(true)
+            && first_box(old, golem) == Some(false)
+        {
+            ticked.push(golem.to_owned());
+        }
+    }
+    ticked
+}
+
+/// The dashboard with every ticked run box cleared, everything else kept; `None` if none was ticked.
+#[must_use]
+pub fn dashboard_unticked(body: &str) -> Option<String> {
+    if !body.starts_with(DASHBOARD_MARKER) {
+        return None;
+    }
+    let mut changed = false;
+    let text = body
+        .split('\n')
+        .map(|line| {
+            let content = line.trim_end_matches('\r');
+            match parse_run_box(content) {
+                Some((golem, true)) => {
+                    changed = true;
+                    run_box(golem, false) + line.get(content.len()..).unwrap_or_default()
+                }
+                _ => line.to_owned(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    changed.then_some(text)
+}
+
+/// Whether a GitHub issue object is the App's dashboard: author, title and hidden marker.
+#[must_use]
+pub fn is_dashboard_issue(issue: &serde_json::Value) -> bool {
+    issue
+        .pointer("/user/login")
+        .and_then(serde_json::Value::as_str)
+        == Some(BOT)
+        && issue.get("title").and_then(serde_json::Value::as_str) == Some(DASHBOARD_TITLE)
+        && issue.get("pull_request").is_none()
+        && issue
+            .get("body")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|body| body.starts_with(DASHBOARD_MARKER))
+}
+
+/// Refusal of run boxes, answering the person who ticked them in the dashboard issue.
+#[must_use]
+pub fn dashboard_refusal(login: &str, reason: &str, golems: &[String]) -> String {
+    let explanation = if reason == "unknown-golem" {
+        "It is no longer an enabled golem here; the dashboard catches up on the next push."
+            .to_owned()
+    } else {
+        refusal(reason, &[])
+            .split_once('\n')
+            .map(|(_, explanation)| explanation.to_owned())
+            .unwrap_or_default()
+    };
+    format!(
+        "<!-- isp-golem-xiv kind=refused reason={reason} -->\n@{login}, the run box of {} did not start a run. {explanation}",
+        golems
+            .iter()
+            .map(|golem| format!("`{golem}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// An enabled golem's dashboard entry: summary, last-result marker and line, run box.
+fn golem_lines(golem: &Golem, results: &[(String, LastResult)]) -> [String; 4] {
+    let pays = golem.frontmatter.owner.as_deref().map_or_else(
+        || "whoever starts it".to_owned(),
+        |owner| format!("whoever starts it; unattended runs @{owner}"),
+    );
+    let previous = results
+        .iter()
+        .find(|(name, _)| *name == golem.name)
+        .map(|(_, last)| last);
+    let [marker, visible] = last_lines(&golem.name, previous);
+    [
+        // An unescaped `<!--` in a purpose would hide the markers and run box below it.
+        format!(
+            "- `{}`: {} Wakes: {}. Pays: {pays}. Start: comment `@isp-golem-xiv {}` or tick its run box.",
+            golem.name,
+            golem.purpose.replace('<', "&lt;"),
+            wakes(&golem.frontmatter),
+            golem.name
+        ),
+        marker,
+        visible,
+        run_box(&golem.name, false),
+    ]
+}
+
+/// The pinned dashboard issue; `holders` is `None` in public repositories, `last` carries
+/// results parsed from the current dashboard so re-rendering preserves them.
+#[must_use]
+pub fn dashboard_body(
+    golems: &[Golem],
+    holders: Option<&SeatHolders>,
+    results: &[(String, LastResult)],
+) -> String {
     let mut lines = vec![
         DASHBOARD_MARKER.to_owned(),
         "Golems in this repository, kept current by isp-golem-xiv.".to_owned(),
@@ -651,17 +988,7 @@ pub fn dashboard_body(golems: &[Golem], holders: Option<&SeatHolders>) -> String
         lines.push("None yet; add one to `.golems/`.".into());
     }
     for golem in enabled {
-        let pays = golem.frontmatter.owner.as_deref().map_or_else(
-            || "whoever mentions it".to_owned(),
-            |owner| format!("whoever mentions it; unattended runs @{owner}"),
-        );
-        lines.push(format!(
-            "- `{}`: {} Wakes: {}. Pays: {pays}. Start: comment `@isp-golem-xiv {}`.",
-            golem.name,
-            golem.purpose,
-            wakes(&golem.frontmatter),
-            golem.name
-        ));
+        lines.extend(golem_lines(golem, results));
     }
     lines.extend([String::new(), "## Disabled".to_owned(), String::new()]);
     let disabled: Vec<_> = golems.iter().filter(|g| !g.errors.is_empty()).collect();
@@ -1017,6 +1344,69 @@ impl EventDelivery {
                 .as_ref()
                 .is_none_or(|issue| issue.number > 0)
     }
+}
+
+/// Run boxes honoured per dashboard edit; further ticks in the same edit are cleared unrun.
+pub const DASHBOARD_TICKS_MAX: usize = 3;
+
+// Parsed only for `issues.edited` and never journaled: issue bodies must not enlarge event work.
+#[derive(Deserialize)]
+struct DashboardEdit {
+    issue: EditedIssue,
+    changes: EditChanges,
+}
+#[derive(Deserialize)]
+struct EditedIssue {
+    number: u64,
+    title: String,
+    body: Option<String>,
+    user: IssueAuthor,
+}
+#[derive(Deserialize)]
+struct IssueAuthor {
+    login: String,
+}
+#[derive(Deserialize)]
+struct EditChanges {
+    body: EditedText,
+}
+#[derive(Deserialize)]
+struct EditedText {
+    from: Option<String>,
+}
+
+/// Golems a person newly ticked in the App's dashboard issue, at most
+/// [`DASHBOARD_TICKS_MAX`]; empty for any other event, sender, issue or edit.
+#[must_use]
+pub fn dashboard_ticks(event: &str, delivery: &EventDelivery, payload: &[u8]) -> Vec<String> {
+    if event != "issues"
+        || delivery.action != "edited"
+        || delivery.sender.kind != "User"
+        || !valid_login(&delivery.sender.login)
+        || !delivery.accepted()
+    {
+        return Vec::new();
+    }
+    let Ok(edit) = serde_json::from_slice::<DashboardEdit>(payload) else {
+        return Vec::new();
+    };
+    let (Some(new), Some(old)) = (
+        edit.issue.body.as_deref(),
+        edit.changes.body.from.as_deref(),
+    ) else {
+        return Vec::new();
+    };
+    if edit.issue.user.login != BOT
+        || edit.issue.title != DASHBOARD_TITLE
+        || delivery.issue.as_ref().map(|issue| issue.number) != Some(edit.issue.number)
+        || new.len() > FILE_BYTES_MAX
+        || old.len() > FILE_BYTES_MAX
+    {
+        return Vec::new();
+    }
+    let mut ticked = ticked_run_boxes(old, new);
+    ticked.truncate(DASHBOARD_TICKS_MAX);
+    ticked
 }
 
 #[must_use]

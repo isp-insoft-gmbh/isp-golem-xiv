@@ -340,6 +340,22 @@ impl Github {
             return Err("human seat mismatch");
         }
         // The seat membership check already covers the actor when both identities coincide.
+        if request.dashboard() {
+            // No comment to bind: the reply goes only to the App's own dashboard issue.
+            let issue = request.issue_number.ok_or("missing issue identity")?;
+            let issue = self
+                .json(
+                    Method::GET,
+                    &format!("/repos/{}/issues/{issue}", request.repository),
+                    token,
+                    None,
+                )
+                .await?;
+            if !router::is_dashboard_issue(&issue) {
+                return Err("dashboard identity mismatch");
+            }
+            return Ok(());
+        }
         self.trigger_comment(request, token).await?;
         Ok(())
     }
@@ -841,12 +857,104 @@ impl Github {
                 )
                 .await;
             match result {
-                Ok(_) => return Ok(()),
+                Ok(_) => {
+                    if conclusion.is_some() {
+                        request
+                            .published
+                            .replace(Some((outcome.to_owned(), model.to_owned())));
+                    }
+                    return Ok(());
+                }
                 Err(error) if attempt == 2 => return Err(error),
                 Err(_) => tokio::time::sleep(Duration::from_millis(250)).await,
             }
         }
         Err("check update retry budget exhausted")
+    }
+
+    /// Best effort after the final check: this golem's last result in the dashboard issue.
+    /// Never fails the run. Concurrent runs of different golems rewrite the same body; it is
+    /// re-read right before the write, so only writes overlapping that window lose (last wins).
+    pub async fn update_dashboard(
+        &self,
+        request: &DispatchV1,
+        token: &str,
+        (outcome, model): (&str, &str),
+        run_id: &str,
+        guard: &OutputGuard,
+    ) -> &'static str {
+        match self
+            .write_last_result(request, token, (outcome, model), run_id, guard)
+            .await
+        {
+            Ok(true) => "updated",
+            Ok(false) => "not found",
+            Err(_) => "failed",
+        }
+    }
+
+    async fn write_last_result(
+        &self,
+        request: &DispatchV1,
+        token: &str,
+        (outcome, model): (&str, &str),
+        run_id: &str,
+        guard: &OutputGuard,
+    ) -> Result<bool> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| "invalid clock")?
+            .as_secs();
+        let mut last = router::LastResult {
+            outcome: outcome.to_owned(),
+            login: request.seat_login.clone(),
+            provider: request.provider.clone(),
+            harness: request.harness.clone(),
+            model: model.to_owned(),
+            at: router::utc_minute(now),
+            run_id: run_id.parse().map_err(|_| "invalid run identity")?,
+        };
+        if !last.valid() {
+            "unobserved".clone_into(&mut last.model);
+        }
+        if !last.valid() {
+            return Err("invalid last result");
+        }
+        guard.check(&format!("{last:?}"))?;
+        let issues = self
+            .json(
+                Method::GET,
+                &format!(
+                    "/repos/{}/issues?state=open&per_page=100",
+                    request.repository
+                ),
+                token,
+                None,
+            )
+            .await?;
+        let Some(number) = issues
+            .as_array()
+            .ok_or("invalid issue listing")?
+            .iter()
+            .find(|issue| router::is_dashboard_issue(issue))
+            .and_then(|issue| issue.get("number"))
+            .and_then(Value::as_u64)
+        else {
+            return Ok(false);
+        };
+        let path = format!("/repos/{}/issues/{number}", request.repository);
+        let issue = self.json(Method::GET, &path, token, None).await?;
+        let Some(body) = Some(&issue)
+            .filter(|issue| router::is_dashboard_issue(issue))
+            .and_then(|issue| issue.get("body"))
+            .and_then(Value::as_str)
+            .and_then(|body| router::dashboard_with_last(body, &request.golem, &last))
+        else {
+            return Ok(false);
+        };
+        self.json(Method::PATCH, &path, token, Some(json!({"body": body})))
+            .await?;
+        Ok(true)
     }
 
     pub async fn reply(

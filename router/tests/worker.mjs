@@ -31,7 +31,7 @@ const files = new Map([
   ['stop.md', '---\n---\nReserved name.'],
 ]);
 const onboardRepo = 'isp-insoft-gmbh/isp-golem-xiv-test-onboard';
-const state = {onboard: {golems: null, writes: [], branches: [], pulls: [], issues: [], pins: [], patches: 0}, oauthExchanges: [], seatWrites: [], seatSecrets: new Set(), secretReads: [], variables: new Map(), variableWrites: [], removedMembers: new Set(), calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
+const state = {onboard: {golems: null, writes: [], branches: [], pulls: [], issues: [], pins: [], patches: 0, comments: []}, oauthExchanges: [], seatWrites: [], seatSecrets: new Set(), secretReads: [], variables: new Map(), variableWrites: [], removedMembers: new Set(), calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
 let protocol2 = false;
 let installation = [{id:99, full_name:repository, default_branch:'trunk', topics:['isp-golem-xiv-test']}];
 const repository2 = 'isp-insoft-gmbh/isp-golem-xiv-test-second';
@@ -115,7 +115,12 @@ async function github(request) {
     if (sub === '/issues' && method === 'GET') return answer(200, o.issues.filter(issue => issue.state === 'open'));
     if (sub === '/issues' && method === 'POST') {const issue = {number:100+o.issues.length, node_id:`I_node${o.issues.length}`, state:'open', user:{login:'isp-golem-xiv[bot]'}, title:body.title, body:body.body}; o.issues.push(issue); return answer(201, issue);}
     const patch = sub.match(/^\/issues\/(\d+)$/);
-    if (patch && method === 'PATCH') {const issue = o.issues.find(i => i.number === Number(patch[1])); const update = await request.json(); issue.body = update.body; o.patches++; return answer(200, issue);}
+    const issue = patch && o.issues.find(i => i.number === Number(patch[1]));
+    if (patch && !issue) return answer(404, {});
+    if (patch && method === 'GET') return answer(200, issue);
+    if (patch && method === 'PATCH') {const update = await request.json(); issue.body = update.body; o.patches++; return answer(200, issue);}
+    const comments = sub.match(/^\/issues\/(\d+)\/comments$/);
+    if (comments && method === 'POST') {o.comments.push({issue:Number(comments[1]), body:body.body}); return answer(201, {id:o.comments.length});}
   }
   if (path === '/graphql' && method === 'POST') {state.onboard.pins.push(body.variables.id); return answer(200, {data:{pinIssue:{issue:{id:body.variables.id}}}});}
   if (path === `/repos/${ops}/actions/secrets`) return answer(200, {total_count:3, secrets:[{name:'APP_PRIVATE_KEY'},{name:'SEAT_MEMBER__ANTHROPIC'},{name:'SEAT_GONE_PERSON__OPENAI_CODEX'}]});
@@ -725,6 +730,7 @@ try {
   assert.ok(enqueued(), 'push-triggered golem admitted at the 20-golem limit');
   await eventually(() => o.patches === 2, 'dashboard also updated at the limit');
   assert.ok(state.calls > callsBeforeFull);
+  await dashboardScenarios(o, push);
   await seatRegistration();
   // With a runner that executes Codex, an OpenAI Codex seat runs codex: as fallback and natively.
   files.set('foreign.md', '---\nharness: codex\nprovider: anthropic\n---\nReply with one short greeting.');
@@ -740,6 +746,76 @@ try {
   }
   console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context and bounded rejection/recovery, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
 } finally {await worker.dispose();}
+
+// Last results survive push re-renders; run boxes start runs like mentions, on the ticker's seat.
+async function dashboardScenarios(o, push) {
+  const board = () => o.issues[0];
+  const lastMarker = '  <!-- golem-last golem=g0 outcome=replied seat=member/anthropic harness=claude model=claude-opus-5-5 at=2026-11-13T10:04Z run=4242 -->';
+  const lastLine = '  Last: replied on member/anthropic, claude, model claude-opus-5-5, 2026-11-13 10:04 UTC, [log](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/4242)';
+  assert.match(board().body, /^  <!-- golem-last golem=g0 -->\n  Last: never run\n  - \[ \] Run `g0` now <!-- golem-run golem=g0 -->$/m);
+  // What a runner writes after a run; a forged result for another golem is not carried over.
+  board().body = board().body.replace('  <!-- golem-last golem=g0 -->\n  Last: never run', `${lastMarker}\n${lastLine}`)
+    .replace('  <!-- golem-last golem=g1 -->', '  <!-- golem-last golem=g1 outcome=pwned seat=member/anthropic harness=claude model=m at=2026-11-13T10:04Z run=1 -->');
+  o.golems = new Map([['_golems.md', 'Rules.'], ['g0.md', '---\n---\nTask.'], ['g1.md', '---\n---\nTask.'], ['hello.md', '---\n---\nSay hello.']]);
+  const patches = o.patches;
+  assert.equal((await deliver('v2-dashboard-rerender', push, true, false, 'push')).status, 200);
+  await eventually(() => o.patches === patches + 1, 'dashboard re-rendered after .golems/ change');
+  assert.ok(board().body.includes(`${lastMarker}\n${lastLine}\n  - [ ] Run \`g0\` now`), 'push re-render preserves the last result');
+  assert.ok(board().body.includes('  <!-- golem-last golem=g1 -->\n  Last: never run\n'), 'invalid results are not carried over');
+  assert.ok(!board().body.includes('`pusher`'));
+  const edited = (sender, from, to) => ({action:'edited', sender, repository:{id:150, full_name:onboardRepo}, installation:{id:153964219}, issue:{number:board().number, title:'Golems', user:{login:'isp-golem-xiv[bot]'}, body:to}, changes:{body:{from}}});
+  const member = {id:42, login:'member', type:'User'};
+  const tickBox = (body, golem) => body.replace(`  - [ ] Run \`${golem}\` now`, `  - [x] Run \`${golem}\` now`);
+  const runs = () => state.queue.filter(r => r.repository === onboardRepo && r.trigger === 'dashboard');
+  const clean = board().body;
+  // A person ticks a box: GitHub stores the ticked body, then delivers the edit.
+  const ticked = tickBox(clean, 'hello');
+  board().body = ticked;
+  const tickEvent = edited(member, clean, ticked);
+  assert.equal((await deliver('v2-dashboard-tick', tickEvent, true, false, 'issues')).status, 202);
+  await eventually(() => runs().length === 1, 'run box admits a dashboard run');
+  const run = runs()[0];
+  assert.deepEqual(
+    {golem:run.golem, issue:run.issue_number, comment:run.comment_id, actor:run.actor_login, actorId:run.actor_id, seat:run.seat_login, provider:run.provider, harness:run.harness, instructions:run.instructions, version:run.version},
+    {golem:'hello', issue:board().number, comment:null, actor:'member', actorId:42, seat:'member', provider:'anthropic', harness:'claude', instructions:'Started from the dashboard run box.', version:2},
+  );
+  assert.equal(run.delivery_id.length, 36);
+  assert.equal(state.checks.find(check => check.external_id === run.delivery_id)?.name, 'golem/hello', 'queued check run like a mention');
+  await eventually(() => board().body === clean, 'run box cleared, everything else kept');
+  const attempts = () => state.enqueueAttempts.filter(r => r.delivery_id === run.delivery_id).length;
+  const attemptsBefore = attempts();
+  assert.equal((await deliver('v2-dashboard-tick', tickEvent, true, false, 'issues')).status, 202);
+  await sleep(300);
+  await tick(Date.UTC(2026,10,9,12));
+  assert.equal(runs().length, 1, 'redelivery never dispatches again');
+  assert.equal(attempts(), attemptsBefore, 'redelivery never re-admits');
+  // The App's own edit and other bots never start runs; the App's edit costs no API call.
+  const calls = state.calls;
+  assert.equal((await deliver('v2-dashboard-app', edited({id:9, login:'isp-golem-xiv[bot]', type:'Bot'}, clean, tickBox(clean, 'hello')), true, false, 'issues')).status, 200);
+  assert.equal(state.calls, calls, 'App edits are ignored before any API call');
+  assert.equal((await deliver('v2-dashboard-bot', edited({id:7, login:'dependabot[bot]', type:'Bot'}, clean, tickBox(clean, 'hello')), true, false, 'issues')).status, 200);
+  // An unrelated edit by a member is not a command.
+  assert.equal((await deliver('v2-dashboard-unrelated', edited(member, clean, clean.replace('kept current by', 'kept up to date by')), true, false, 'issues')).status, 200);
+  await sleep(300);
+  assert.equal(runs().length, 1, 'bot and unrelated edits start nothing');
+  assert.equal(o.comments.length, 0, 'and answer nothing');
+  // Refusals answer the ticker in the dashboard issue and clear the boxes.
+  for (const [id, sender, golem, reason] of [
+    ['v2-dashboard-outsider', {id:77, login:'outsider', type:'User'}, 'hello', 'not-member'],
+    ['v2-dashboard-noseat', {id:43, login:'noseat', type:'User'}, 'g0', 'no-seat'],
+  ]) {
+    const box = tickBox(clean, golem);
+    board().body = box;
+    const comments = o.comments.length;
+    assert.equal((await deliver(id, edited(sender, clean, box), true, false, 'issues')).status, 202);
+    await eventually(() => o.comments.length === comments + 1, `${reason} refusal`);
+    const refusal = o.comments.at(-1);
+    assert.equal(refusal.issue, board().number);
+    assert.ok(refusal.body.startsWith(`<!-- isp-golem-xiv kind=refused reason=${reason} -->\n@${sender.login}, the run box of \`${golem}\` did not start a run.`), refusal.body);
+    await eventually(() => board().body === clean, `${reason} box cleared`);
+    assert.equal(runs().length, 1, `${reason} never enqueues`);
+  }
+}
 
 // Runs last: registering changes member's seats and preferred seat, which earlier scenarios pin.
 async function seatRegistration() {
