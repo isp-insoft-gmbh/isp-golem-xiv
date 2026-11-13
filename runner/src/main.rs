@@ -238,7 +238,8 @@ fn verified_changes(
     golem_runner::changes::diff(before, after_agent, guard)
 }
 
-/// What a Codex run left in its private `auth.json`, read after confirmed destruction.
+/// What a Codex or Pi run on a Codex seat left in its private `auth.json`, in that harness's
+/// format, read after confirmed destruction.
 type SeatReadback = Option<Result<String>>;
 
 /// Private parent directory, workspace, base commit, prompt and baseline files.
@@ -359,17 +360,32 @@ impl RunContext<'_> {
         readback: SeatReadback,
         guard: &mut OutputGuard,
     ) {
+        // Pi keeps the seat in its own format; the stored seat is always Codex's.
+        let pi = self.request.harness == "pi";
         if let Some(Ok(text)) = &readback {
-            codex::guard_text(text, guard);
+            if pi {
+                codex::guard_pi_text(text, guard);
+            } else {
+                codex::guard_text(text, guard);
+            }
         }
-        let failure =
-            match readback.map_or(Refresh::Unchanged, |after| codex::refresh(original, after)) {
-                Refresh::Unchanged => {
-                    println!("golem seat: unchanged");
-                    return;
-                }
-                Refresh::Invalid(error) => error,
-                Refresh::Refreshed(refreshed) => match self
+        let decision = readback.map_or(Refresh::Unchanged, |after| {
+            if pi {
+                codex::pi_refresh(original, after, std::time::SystemTime::now())
+            } else {
+                codex::refresh(original, after)
+            }
+        });
+        let failure = match decision {
+            Refresh::Unchanged => {
+                println!("golem seat: unchanged");
+                return;
+            }
+            Refresh::Invalid(error) => error,
+            Refresh::Refreshed(refreshed) => {
+                // A converted Pi sign-in is new text; guard it like the read-back.
+                refreshed.guard(guard);
+                match self
                     .github
                     .write_seat(
                         self.private_key,
@@ -384,8 +400,9 @@ impl RunContext<'_> {
                         return;
                     }
                     Err(error) => error,
-                },
-            };
+                }
+            }
+        };
         println!("golem seat: write-back failed");
         self.request.seat_note.set(Some(failure));
     }
@@ -445,12 +462,15 @@ impl RunContext<'_> {
         name: &str,
         guard: &OutputGuard,
     ) -> Result<(Result<WritableResult>, SeatReadback)> {
+        // A Codex seat reaches Pi as a converted copy in Pi's own format.
+        let pi = self.request.harness == "pi";
         let prepared = self
             .prepare_writable(token, guard)
             .await
             .and_then(|prepared| {
                 let home = match seat {
-                    Seat::Codex(auth) => Some(codex::private_home(auth)?),
+                    Seat::Codex(auth) if pi => Some(codex::private_home(&auth.pi_text()?)?),
+                    Seat::Codex(auth) => Some(codex::private_home(auth.text())?),
                     Seat::Token(_) => None,
                 };
                 Ok((prepared, home))
@@ -460,6 +480,7 @@ impl RunContext<'_> {
             Err(error) => return Ok((Err(error), None)),
         };
         let credential = match (seat, &home) {
+            (Seat::Codex(_), Some(home)) if pi => sandbox::Credential::PiHome(home.path()),
             (Seat::Codex(_), Some(home)) => sandbox::Credential::CodexHome(home.path()),
             (Seat::Token(token), _) => sandbox::Credential::Token(token),
             (Seat::Codex(_), None) => return Ok((Err("missing private seat home"), None)),

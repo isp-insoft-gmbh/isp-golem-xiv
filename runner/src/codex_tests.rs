@@ -1,12 +1,15 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing)] // Malformed fixtures should fail loudly.
 use super::*;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::json;
 
 /// JWT-shaped like real `ChatGPT` tokens: RS256 header, ~1 KB of claims, 256-byte signature.
 fn jwt(subject: &str, fill: u8) -> String {
+    jwt_for(subject, fill, "acct-fixture")
+}
+
+fn jwt_for(subject: &str, fill: u8, account: &str) -> String {
     let claims = json!({"sub":subject, "email":"member@example.invalid", "exp":1_900_000_000,
-        "https://api.openai.com/auth":{"chatgpt_plan_type":"plus", "chatgpt_account_id":"acct-fixture",
+        "https://api.openai.com/auth":{"chatgpt_plan_type":"plus", "chatgpt_account_id":account,
         "chatgpt_user_id":"user-fixture", "organizations":[{"id":"org-fixture","title":"x".repeat(1100)}]}});
     format!(
         "{}.{}.{}",
@@ -190,9 +193,279 @@ fn write_back_only_refreshed_valid_sign_ins_of_the_same_account() {
 }
 
 #[test]
+fn refresh_times_are_rfc3339_utc_seconds() {
+    let at = |seconds| rfc3339(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds));
+    for (seconds, expected) in [
+        (0, "1970-01-01T00:00:00Z"),
+        (1_700_000_000, "2023-11-14T22:13:20Z"),
+        (1_709_164_800, "2024-02-29T00:00:00Z"),
+        (1_709_251_199, "2024-02-29T23:59:59Z"),
+        (951_782_400, "2000-02-29T00:00:00Z"),
+        (4_102_444_800, "2100-01-01T00:00:00Z"),
+    ] {
+        assert_eq!(at(seconds).as_deref(), Some(expected), "{seconds}");
+    }
+}
+
+fn pi_entry(text: &str) -> serde_json::Value {
+    let value: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(value.as_object().unwrap().len(), 1, "only the Codex entry");
+    value[PI_PROVIDER].clone()
+}
+
+/// What Pi writes after refreshing: `JSON.stringify(merged, null, 2)` of its credential.
+fn pi_refreshed(access: &str, refresh_token: &str) -> String {
+    serde_json::to_string_pretty(&json!({PI_PROVIDER: {"type":"oauth", "access":access,
+        "refresh":refresh_token, "expires":1_900_000_000_000_u64, "accountId":"acct-fixture"}}))
+    .unwrap()
+}
+
+#[test]
+fn pi_reads_the_seat_with_the_access_token_expiry_and_account() {
+    let original = auth("one", "2026-11-01T00:00:00Z");
+    let text = original.pi_text().unwrap();
+    let entry = pi_entry(&text);
+    let codex: serde_json::Value = serde_json::from_str(original.text()).unwrap();
+    assert_eq!(
+        entry,
+        json!({"type":"oauth", "access":codex["tokens"]["access_token"],
+            "refresh":codex["tokens"]["refresh_token"], "expires":1_900_000_000_000_u64,
+            "accountId":"acct-fixture"})
+    );
+    assert!(pi_credential(&text).is_some());
+    // Unchanged by Pi: nothing to write back.
+    assert!(matches!(
+        pi_refresh(&original, Ok(text), std::time::SystemTime::now()),
+        Refresh::Unchanged
+    ));
+    let claims = |claims: serde_json::Value| {
+        format!(
+            "{}.{}.{}",
+            URL_SAFE_NO_PAD.encode(br#"{"alg":"RS256"}"#),
+            URL_SAFE_NO_PAD.encode(claims.to_string()),
+            URL_SAFE_NO_PAD.encode([1_u8; 64])
+        )
+    };
+    for (access, error) in [
+        (
+            claims(json!({"https://api.openai.com/auth":{"chatgpt_account_id":"acct-fixture"}})),
+            "Codex sign-in access token has no expiry; Pi cannot use it",
+        ),
+        (
+            claims(json!({"exp":1_900_000_000, "https://api.openai.com/auth":{}})),
+            "Codex sign-in access token names no account; Pi cannot use it",
+        ),
+        (
+            claims(json!({"exp":-1, "https://api.openai.com/auth":{"chatgpt_account_id":"a"}})),
+            "Codex sign-in access token is not a JWT; Pi cannot use it",
+        ),
+        (
+            claims(
+                json!({"exp":u64::MAX / 100, "https://api.openai.com/auth":{"chatgpt_account_id":"a"}}),
+            ),
+            "Codex sign-in access token has no expiry; Pi cannot use it",
+        ),
+        (
+            format!("opaque-access-token-{}", "a".repeat(40)),
+            "Codex sign-in access token is not a JWT; Pi cannot use it",
+        ),
+    ] {
+        let seat = CodexAuth::parse(&edited(original.text(), |value| {
+            value["tokens"]["access_token"] = json!(access);
+        }))
+        .unwrap();
+        assert_eq!(seat.pi_text(), Err(error), "{error}");
+    }
+}
+
+#[test]
+fn pi_refreshed_tokens_are_written_back_in_codex_format_keeping_every_other_field() {
+    let original = CodexAuth::parse(&edited(
+        &auth_json("one", "2026-11-01T00:00:00.123456Z"),
+        |value| {
+            value["tokens"]["login_owner_id"] = json!("owner-fixture");
+            value["unknown_top_level"] = json!({"kept": true});
+        },
+    ))
+    .unwrap();
+    let before: serde_json::Value = serde_json::from_str(original.text()).unwrap();
+    // 2026-11-13T12:00:00Z
+    let now = std::time::UNIX_EPOCH + std::time::Duration::from_hours(498_492);
+    let access = jwt("access-two", 2);
+    let decision = pi_refresh(
+        &original,
+        Ok(pi_refreshed(&access, "rt_two-fixture-not-real")),
+        now,
+    );
+    let Refresh::Refreshed(refreshed) = decision else {
+        unreachable!("Pi's refresh must be written back");
+    };
+    let after: serde_json::Value = serde_json::from_str(refreshed.text()).unwrap();
+    assert!(
+        CodexAuth::parse(refreshed.text()).is_ok(),
+        "Codex can read it"
+    );
+    assert_eq!(after["tokens"]["access_token"], json!(access));
+    assert_eq!(
+        after["tokens"]["refresh_token"],
+        json!("rt_two-fixture-not-real")
+    );
+    assert_eq!(after["last_refresh"], json!("2026-11-13T12:00:00Z"));
+    let mut expected = before.clone();
+    expected["tokens"]["access_token"] = after["tokens"]["access_token"].clone();
+    expected["tokens"]["refresh_token"] = after["tokens"]["refresh_token"].clone();
+    expected["last_refresh"] = after["last_refresh"].clone();
+    assert_eq!(
+        after, expected,
+        "id_token, account_id, auth_mode, OPENAI_API_KEY, agent_identity and unknown fields kept"
+    );
+    // Converting the written-back seat for the next Pi run yields what Pi wrote.
+    assert_eq!(
+        pi_entry(&refreshed.pi_text().unwrap())["refresh"],
+        json!("rt_two-fixture-not-real")
+    );
+    // Only the refresh token rotated, or only the access token: still a refresh.
+    let access_one = before["tokens"]["access_token"].as_str().unwrap();
+    for (access, refresh_token) in [
+        (access_one, "rt_two-fixture-not-real"),
+        (
+            access.as_str(),
+            before["tokens"]["refresh_token"].as_str().unwrap(),
+        ),
+    ] {
+        assert!(matches!(
+            pi_refresh(&original, Ok(pi_refreshed(access, refresh_token)), now),
+            Refresh::Refreshed(_)
+        ));
+    }
+}
+
+#[test]
+fn pi_write_back_rejects_other_accounts_and_invalid_shapes() {
+    let original = auth("one", "2026-11-01T00:00:00Z");
+    let now = std::time::SystemTime::now();
+    let access = jwt("access-two", 2);
+    let refreshed = pi_refreshed(&access, "rt_two-fixture-not-real");
+    let entry_edit = |edit: &dyn Fn(&mut serde_json::Value)| {
+        edited(&refreshed, |value| edit(&mut value[PI_PROVIDER]))
+    };
+    for (after, expected) in [
+        (
+            Err("refreshed sign-in missing"),
+            "refreshed sign-in missing",
+        ),
+        (
+            Ok("{}".to_owned()),
+            "refreshed sign-in is not a valid Pi sign-in",
+        ),
+        (
+            Ok("not json".to_owned()),
+            "refreshed sign-in is not a valid Pi sign-in",
+        ),
+        (
+            Ok(original.text().to_owned()),
+            "refreshed sign-in is not a valid Pi sign-in",
+        ),
+        (
+            Ok(entry_edit(&|entry| entry["type"] = json!("api_key"))),
+            "refreshed sign-in is not a valid Pi sign-in",
+        ),
+        (
+            Ok(entry_edit(&|entry| entry["expires"] = json!("soon"))),
+            "refreshed sign-in is not a valid Pi sign-in",
+        ),
+        (
+            Ok(entry_edit(&|entry| {
+                entry.as_object_mut().unwrap().remove("refresh");
+            })),
+            "refreshed sign-in is not a valid Pi sign-in",
+        ),
+        (
+            Ok(entry_edit(&|entry| entry["accountId"] = json!(7))),
+            "refreshed sign-in is not a valid Pi sign-in",
+        ),
+        (
+            Ok(pi_refreshed(
+                &jwt_for("access-two", 2, "acct-other"),
+                "rt_two-fixture-not-real",
+            )),
+            "refreshed sign-in belongs to another account",
+        ),
+        (
+            Ok(entry_edit(&|entry| {
+                entry["accountId"] = json!("acct-other");
+            })),
+            "refreshed sign-in belongs to another account",
+        ),
+        (
+            Ok(pi_refreshed(
+                &format!("opaque-{}", "a".repeat(40)),
+                "rt_two-fixture-not-real",
+            )),
+            "refreshed sign-in names no account",
+        ),
+        (
+            Ok(pi_refreshed(&access, "short")),
+            "refreshed sign-in is not a valid Codex sign-in",
+        ),
+    ] {
+        assert!(
+            matches!(pi_refresh(&original, after, now), Refresh::Invalid(error) if error == expected),
+            "{expected}"
+        );
+    }
+    // A Pi credential without `accountId`, as other Pi versions might write, is still checked
+    // on the token's own claim.
+    let unnamed = entry_edit(&|entry| {
+        entry.as_object_mut().unwrap().remove("accountId");
+    });
+    assert!(matches!(
+        pi_refresh(&original, Ok(unnamed), now),
+        Refresh::Refreshed(_)
+    ));
+    // The runner stamps the refresh time; a clock before the epoch cannot.
+    assert!(matches!(
+        pi_refresh(
+            &original,
+            Ok(refreshed),
+            std::time::UNIX_EPOCH - std::time::Duration::from_secs(1)
+        ),
+        Refresh::Invalid("refreshed sign-in is not a valid Codex sign-in")
+    ));
+}
+
+#[test]
+fn pi_shaped_sign_ins_are_guarded_as_text_and_value_by_value() {
+    let original = auth("one", "2026-11-01T00:00:00Z");
+    let mut seat = OutputGuard::default();
+    original.guard(&mut seat);
+    let pi = original.pi_text().unwrap();
+    assert!(seat.check(&pi).is_err());
+    for line in pi.lines().filter(|line| line.len() >= 16) {
+        assert!(seat.check(&format!("x {line} y")).is_err(), "{line}");
+    }
+    let access = jwt("access-two", 2);
+    let refreshed = pi_refreshed(&access, "rt_two-fixture-not-real");
+    let mut after = OutputGuard::default();
+    guard_pi_text(&refreshed, &mut after);
+    for secret in [
+        refreshed.as_str(),
+        access.as_str(),
+        "rt_two-fixture-not-real",
+    ] {
+        assert!(after.check(&format!("leaked {secret} end")).is_err());
+        assert!(after.check(&URL_SAFE_NO_PAD.encode(secret)).is_err());
+    }
+    assert!(after.check("an ordinary answer").is_ok());
+    let mut leftover = OutputGuard::default();
+    guard_pi_text("tampered-pi-sign-in-content", &mut leftover);
+    assert!(leftover.check("tampered-pi-sign-in-content").is_err());
+}
+
+#[test]
 fn private_home_holds_only_the_sign_in_and_is_removed_with_its_contents() {
     let original = auth("one", "2026-11-01T00:00:00Z");
-    let home = private_home(&original).unwrap();
+    let home = private_home(original.text()).unwrap();
     let path = home.path().to_owned();
     let entries: Vec<_> = std::fs::read_dir(&path)
         .unwrap()

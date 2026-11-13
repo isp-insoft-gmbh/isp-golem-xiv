@@ -29,10 +29,11 @@ pub fn initial_workflow_attempt(attempt: &str) -> Result<()> {
 }
 
 /// (provider, harness) pairs this runner executes; the router must dispatch only these.
-pub const RUNNER_PAIRS: [(&str, &str); 3] = [
+pub const RUNNER_PAIRS: [(&str, &str); 4] = [
     ("anthropic", "claude"),
     ("anthropic", "pi"),
     ("openai-codex", "codex"),
+    ("openai-codex", "pi"),
 ];
 
 /// Whether this runner executes the choice, with a model that is one safe CLI argument.
@@ -1276,6 +1277,19 @@ mod tests {
             }
         }
         assert!(runner_executes("openai-codex", "codex", Some("gpt-5.5")));
+        // Every harness that works with a provider, per contract.nuon providers.
+        let mut pairs = RUNNER_PAIRS.to_vec();
+        pairs.sort_unstable();
+        assert_eq!(
+            pairs,
+            [
+                ("anthropic", "claude"),
+                ("anthropic", "pi"),
+                ("openai-codex", "codex"),
+                ("openai-codex", "pi"),
+            ]
+        );
+        assert!(runner_executes("openai-codex", "pi", Some("gpt-6.1-sol")));
         for model in [
             "",
             "-c",
@@ -1315,7 +1329,7 @@ mod tests {
                 .validate_definition("---\nharness: codex\nprovider: openai-codex\n---\nTask")
                 .is_ok()
         );
-        // A claude golem on an openai-codex seat falls back to pi, which this runner cannot run.
+        // A claude golem on an openai-codex seat falls back to pi, which this request is not.
         assert!(request.validate_definition("---\n---\nTask").is_err());
         let mut modelled = value.clone();
         modelled["model"] = serde_json::json!("gpt-5.5");
@@ -1331,7 +1345,6 @@ mod tests {
         );
         for (field, bad) in [
             ("version", serde_json::json!(1)),
-            ("harness", serde_json::json!("pi")),
             ("harness", serde_json::json!("claude")),
             ("provider", serde_json::json!("unknown-provider")),
             ("model", serde_json::json!("-c")),
@@ -1349,6 +1362,76 @@ mod tests {
         let mut anthropic = value;
         anthropic["provider"] = serde_json::json!("anthropic");
         assert!(parse(&anthropic.to_string()).is_err());
+    }
+
+    /// What the router dispatches for `document` when the payer has only an openai-codex seat.
+    fn codex_seat_request(document: &str) -> serde_json::Value {
+        let front = router::parse_golem("hello", document).frontmatter;
+        let choice = router::choose_seat(&front, &["openai-codex"], None).unwrap();
+        let mut value = codex_request();
+        value["provider"] = serde_json::json!(choice.provider);
+        value["harness"] = serde_json::json!(choice.harness);
+        value["model"] = serde_json::json!(choice.model);
+        value["fallback"] = serde_json::json!(choice.fallback);
+        value
+    }
+
+    #[test]
+    fn pi_runs_on_an_openai_codex_seat_only_as_the_recomputed_choice() {
+        const PI: &str = "---\nharness: pi\nprovider: openai-codex\nmodel: gpt-6.1-sol\n---\nTask";
+        // A pi golem preferring openai-codex: its own harness and model, no fallback.
+        let own = codex_seat_request(PI);
+        assert_eq!(own["harness"], "pi");
+        assert_eq!(own["model"], "gpt-6.1-sol");
+        assert!(own["fallback"].is_null());
+        let request = parse(&own.to_string()).unwrap();
+        assert_eq!(request.seat_secret_name(), "SEAT_TEST_MEMBER__OPENAI_CODEX");
+        assert!(request.validate_definition(PI).is_ok());
+        assert!(
+            request.validate_definition(CODEX).is_err(),
+            "a codex golem stays on codex"
+        );
+        // A claude golem paid by a Codex-only person: pi with its default model, and says so.
+        let fallback = codex_seat_request("---\n---\nTask");
+        let request = parse(&fallback.to_string()).unwrap();
+        assert_eq!(
+            (request.harness.as_str(), request.model.as_deref()),
+            ("pi", None)
+        );
+        assert!(request.validate_definition("---\n---\nTask").is_ok());
+        assert_eq!(
+            request.fallback.as_deref(),
+            Some(
+                "asked for anthropic/claude, used openai-codex/pi with its default model, because there is no anthropic seat"
+            )
+        );
+        assert!(
+            request
+                .summary("replied", "gpt-6.1-sol", "9")
+                .contains("\nseat: test-member/openai-codex\nharness: pi\nmodel: gpt-6.1-sol\n")
+        );
+        // The runner rejects any other claim for the same golem.
+        for (field, bad) in [
+            ("fallback", serde_json::Value::Null),
+            ("model", serde_json::json!("gpt-6.1-sol")),
+            ("harness", serde_json::json!("codex")),
+        ] {
+            let mut modified = fallback.clone();
+            modified[field] = bad;
+            if let Ok(request) = parse(&modified.to_string()) {
+                assert!(
+                    request.validate_definition("---\n---\nTask").is_err(),
+                    "{field}"
+                );
+            }
+        }
+        // pi is writable-only, on every provider.
+        let mut legacy = own;
+        legacy["version"] = serde_json::json!(1);
+        for v2 in ["trigger", "branch", "queue_generation", "fallback"] {
+            legacy.as_object_mut().unwrap().remove(v2);
+        }
+        assert!(parse(&legacy.to_string()).is_err());
     }
 
     #[test]

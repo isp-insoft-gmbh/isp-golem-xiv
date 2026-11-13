@@ -3,6 +3,33 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-13: Pi on OpenAI Codex seats (runner only)
+
+- SPEC Credentials says one seat serves every harness that works with its provider, and `contract.nuon` lists `codex` and `pi` for `openai-codex`; the runner now executes `(openai-codex, pi)` (`RUNNER_PAIRS`), recomputing the choice from the pinned definition like every other pair.
+  The router still refuses that pair (`runner_supports`) until a runner release with this change is pinned in ops; enabling it there is a separate change, in that order.
+- The stored seat stays in the Codex CLI `auth.json` format; Pi gets a converted copy.
+  Pi 1.5.1 keeps sign-ins in `<PI_CODING_AGENT_DIR>/auth.json` (`pi-coding-agent/dist/config.js` `getAuthPath`, no separate override), keyed by provider: `{"openai-codex": {type: "oauth", access, refresh, expires, accountId}}` (`pi-ai/dist/auth/oauth/openai-codex.js` `credentialsFromToken`); `auth-storage.js` accepts an oauth entry only with string `access`/`refresh` and a finite number `expires`.
+- `expires` (milliseconds) is the access token's own JWT `exp`, the same expiry Codex 0.167.1 refreshes on (`login/src/auth/manager.rs`: access-token `exp` first, the 8-day `last_refresh` rule only without one); Pi refreshes when less than five minutes remain (`pi-ai/dist/auth/resolve.js`).
+  A seat whose access token has no decodable `exp`, or no `chatgpt_account_id` claim (Pi derives the request's account from the token on every call, `openai-codex-responses.js` `extractAccountId`), is refused for Pi before any container: guessing an expiry would make Pi refresh, and rotate the seat, on every run. Such a seat still runs `codex`.
+- The copy lives in a private per-run directory mounted writable at `/golem-pi`, outside `/workspace`, and `container.cjs` points `PI_CODING_AGENT_DIR` there when `GOLEM_PROVIDER=openai-codex`; it is Pi's whole agent directory for that run, and Pi keeps its `proper-lockfile` lock `auth.json.lock` beside the file, so the directory, not just the file, must be writable.
+  No Anthropic token is forwarded on a Codex seat; Anthropic seats keep `/home/agent/.pi/agent` and `ANTHROPIC_OAUTH_TOKEN` unchanged.
+- `--provider` without `--model` is a Pi startup error (`main.js`), so `--provider openai-codex --model <m>` is passed only for a requested model; otherwise Pi picks its default for the only provider it has a sign-in for (`model-resolver.js` `findInitialModel`, `openai-codex` → `gpt-6.1-sol`).
+  Project and runner flags are the same as for Anthropic Pi runs (`--approve`, `golem_report` extension, JSON mode).
+- Write-back: after confirmed destruction the runner reads back only `auth.json` (bounded regular file, as for Codex).
+  Pi refreshes under its file lock and rewrites the file in place (`writeFileSync`, `JSON.stringify(…, null, 2)`) but keeps only `access`, `refresh` and `expires`, discarding the refreshed `id_token`.
+  If access or refresh token changed, the runner rebuilds Codex's file from the original seat's fields with the new tokens and a `last_refresh` it stamps itself at read-back (RFC 3339, seconds); `id_token`, `account_id`, `auth_mode`, `OPENAI_API_KEY` and unknown fields keep their values, keys are re-serialized in sorted order.
+  Codex 0.167.1 reads the `id_token` only for claims (email, plan, account), never its expiry (`login/src/token_data.rs` `parse_chatgpt_jwt_claims`), and keeps the old one itself when a refresh response lacks one (`persist_tokens`).
+  The account is compared on the access tokens' `chatgpt_account_id` claims (and Pi's `accountId` if present), then the result passes the existing Codex checks and the same sealed-box write-back with the ops-only `secrets: write` token and `golem seat: refreshed|unchanged|write-back failed` logs.
+- Output guard: the seat in both formats as whole texts and every token value; after a Pi run the raw read-back and every string in it, and the converted Codex text before it is written.
+- Agent image: Pi needs nothing new except the `/golem-pi` mount point; a new offline build probe seeds an invented Pi-format sign-in and expects an Anthropic-token-only control to exit 1 without output, then the default and the `--provider/--model` runs to select `gpt-6.1-sol`, fail the request offline as an assistant error event with exit 0, and leave the file byte-identical.
+- Evidence: runner unit tests (conversion both ways, refusal of unusable seats, write-back keeping every other field, other-account and malformed Pi files rejected, guard contents, Pi arguments and environment for both providers, the choice binding and the `RUNNER_PAIRS` matrix).
+- Unverified: the Dockerfile probe has not executed anywhere yet; its first run is the CI `test-agent` job of the pull request.
+  No live Pi run on an OpenAI Codex seat: Pi authenticating, refreshing and the converted write-back being accepted by the next Codex run need a real seat.
+  Whether the offline Codex transport fails fast enough (WebSocket first, then SSE) to stay inside the probe's 90-second kill is inferred from DNS failing immediately without network.
+  Pi refreshes only near `exp`, Codex also by its 8-day rule only without `exp`; both stay inside the access token's lifetime, which is inference from source, not observation.
+- Known gaps: the seat is readable by the agent and by repository-defined Pi extensions, as for every harness; `/golem-pi` is a host bind mount without a size bound, like `/golem-codex`; Pi decodes the token payload with `atob`, which rejects base64url `-`/`_`, so a token whose claims encode to those characters fails inside Pi (rare for ASCII claims, not observed).
+  Runs on one seat never overlap (the coordinator serializes rows sharing `seat` = `<login>/<provider>`, independent of harness, `router/src/coordinator.js` `shares`), so `codex` and `pi` runs cannot race one refresh token; a run that refreshes but fails write-back leaves a rotated-away seat, noted in the check summary as for Codex.
+
 ## 2026-11-13: Dashboard last result and run boxes
 
 - Closes the open gap of 2026-11-11 "Onboarding and dashboard on push".

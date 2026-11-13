@@ -34,7 +34,7 @@ RUN mise --version | grep '^2026.10.21 ' \
     && rm -rf /tmp/codex-help /root/.codex \
     && mise exec -- uv --version | grep -F 'uv 0.13.7' \
     && python3 --version \
-    && mkdir -p /workspace /home/agent /golem-codex \
+    && mkdir -p /workspace /home/agent /golem-codex /golem-pi \
     && chmod -R a+rX /opt/mise /opt/mise-config \
     && chown 1000:1000 /home/agent \
     && ln -s "$(mise which claude)" /usr/local/bin/claude \
@@ -154,6 +154,41 @@ RUN --network=none set -eu; \
     if grep -F -e 'Error loading config' -e 'unexpected argument' "$root/err"; then exit 1; fi; \
     test -e /tmp/golem-codex-mcp-marker; \
     /usr/local/bin/node -e 'const fs = require("node:fs"); const text = fs.readFileSync(process.argv[1], "utf8").trim(); const records = text ? text.split("\n").map(JSON.parse) : []; const allowed = ["thread.started", "turn.started", "turn.completed", "turn.failed", "error", "item.completed"]; if (!records.some(r => r.type === "thread.started") || records.some(r => !allowed.includes(r.type)) || records.some(r => r.type === "turn.completed") || records.some(r => r.type === "item.completed" && !["agent_message", "error"].includes(r.item?.type))) process.exit(1);' "$root/out"
+# Pi on an OpenAI Codex seat through the real entry, production flags and stream filter,
+# offline, with an invented sign-in in Pi's format in /golem-pi whose expiry is far ahead, so
+# Pi does not refresh. With only an Anthropic token, no model resolves and startup exits 1:
+# the entry forwards no Anthropic token on a Codex seat. With the file, Pi selects
+# openai-codex, its default model without --model and the requested one with
+# --provider/--model, and the request fails without network, reported as an assistant error
+# event while exiting 0; the file is left as it was. This proves the agent directory, the file
+# shape and the flags, not authentication, refresh or write-back (those require a live run).
+RUN --network=none set -eu; \
+    root="$(mktemp -d)"; \
+    trap 'rm -rf "$root" /home/agent/.pi; rm -rf /golem-pi; mkdir -p /golem-pi' EXIT; \
+    seat="sk-ant-oat01-$(printf 'x%.0s' $(seq 1 40))"; \
+    codex_pi_probe() { \
+      name="$1"; shift; code=0; \
+      printf 'probe' | env -i PATH=/usr/local/bin:/usr/bin:/bin GOLEM_HARNESS=pi GOLEM_WRITABLE=0 \
+        GOLEM_PROVIDER=openai-codex ANTHROPIC_OAUTH_TOKEN="$seat" \
+        /usr/bin/timeout --signal=KILL 90 /usr/local/bin/node /opt/golem/container.cjs \
+        --mode json --no-session --session-dir /tmp/golem-pi-sessions --approve \
+        --extension /opt/golem/pi-report.js --no-themes "$@" \
+        >"$root/$name.out" 2>"$root/$name.err" || code=$?; \
+      cat "$root/$name.out" "$root/$name.err"; \
+      echo "$code" >"$root/$name.code"; \
+    }; \
+    codex_pi_probe unseated; \
+    test "$(cat "$root/unseated.code")" -eq 1; \
+    test ! -s "$root/unseated.out"; \
+    /usr/local/bin/node -e 'const b = s => Buffer.from(s).toString("base64url"); const jwt = b(JSON.stringify({alg: "RS256", typ: "JWT"})) + "." + b(JSON.stringify({exp: 4102444800, "https://api.openai.com/auth": {chatgpt_account_id: "acct-probe"}})) + "." + b("x".repeat(256)); require("node:fs").writeFileSync("/golem-pi/auth.json", JSON.stringify({"openai-codex": {type: "oauth", access: jwt, refresh: "rt_probe-not-a-real-refresh-token", expires: 4102444800000, accountId: "acct-probe"}}, null, 2));'; \
+    cp /golem-pi/auth.json "$root/seat.json"; \
+    codex_pi_probe default; \
+    codex_pi_probe chosen --provider openai-codex --model gpt-6.1-sol; \
+    for name in default chosen; do \
+      test "$(cat "$root/$name.code")" -eq 0; \
+      /usr/local/bin/node -e 'const fs = require("node:fs"); const records = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").map(JSON.parse); const allowed = ["message_end", "tool_execution_start", "tool_execution_end", "agent_settled"]; const ends = records.filter(r => r.type === "message_end"); if (records.some(r => !allowed.includes(r.type)) || ends.length === 0 || ends.at(-1).message.stopReason !== "error" || ends.at(-1).message.model !== "gpt-6.1-sol" || records.filter(r => r.type === "agent_settled").length !== 1) process.exit(1);' "$root/$name.out"; \
+    done; \
+    cmp "$root/seat.json" /golem-pi/auth.json
 # Claude with the production read-only flags, offline and unseated, against a project allow
 # rule: once directly with an empty config home (untrusted) and once through the real entry,
 # which records workspace trust in the fresh config home. Both stop at sign-in. Only if the
