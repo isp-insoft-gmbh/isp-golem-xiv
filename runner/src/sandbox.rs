@@ -14,6 +14,9 @@ const FORBIDDEN_READ_ROOTS: [&str; 6] = ["proc", "sys", "dev", "home", "tmp", "r
 const TARGET_TIMEOUT_SECONDS: u64 = 600;
 /// Private per-run `CODEX_HOME`, outside /workspace; holds only the seat sign-in at start.
 const CODEX_HOME: &str = "/golem-codex";
+/// Private per-run Pi agent directory for a Codex seat, outside /workspace; holds only Pi's
+/// converted `auth.json` at start. `container.cjs` points `PI_CODING_AGENT_DIR` here.
+const PI_HOME: &str = "/golem-pi";
 /// Strict output schema baked into the image; `OpenAI` strict mode supports no length bounds,
 /// so the runner enforces those itself.
 const CODEX_SCHEMA: &str = "/opt/golem/codex-result-schema.json";
@@ -355,6 +358,9 @@ pub enum Credential<'a> {
     Token(&'a str),
     /// A private directory with the Codex sign-in, mounted writable so Codex can refresh it.
     CodexHome(&'a Path),
+    /// A private Pi agent directory with the Codex sign-in in Pi's format, mounted writable so
+    /// Pi can refresh it and keep its lock directory beside it.
+    PiHome(&'a Path),
 }
 
 struct Agent<'a> {
@@ -376,7 +382,7 @@ async fn agent(
     if !matches!(
         (settings.harness, writable, settings.credential),
         ("claude", _, Credential::Token(_))
-            | ("pi", true, Credential::Token(_))
+            | ("pi", true, Credential::Token(_) | Credential::PiHome(_))
             | ("codex", true, Credential::CodexHome(_))
     ) {
         return Ok(Err("unsupported harness"));
@@ -386,16 +392,17 @@ async fn agent(
             Ok(create) => create,
             Err(error) => return Ok(Err(error)),
         };
-    match settings.credential {
-        Credential::CodexHome(home) => {
-            if let Err(error) = configure_codex(&mut create, home, settings.model) {
-                return Ok(Err(error));
-            }
+    let configured = match (settings.harness, settings.credential) {
+        ("pi", credential) => configure_pi(&mut create, credential, settings.model),
+        (_, Credential::CodexHome(home)) => configure_codex(&mut create, home, settings.model),
+        (_, Credential::Token(seat)) => {
+            configure_agent(&mut create, seat, settings.model, writable);
+            Ok(())
         }
-        Credential::Token(seat) if settings.harness == "pi" => {
-            configure_pi(&mut create, seat, settings.model);
-        }
-        Credential::Token(seat) => configure_agent(&mut create, seat, settings.model, writable),
+        (_, Credential::PiHome(_)) => Err("unsupported harness"),
+    };
+    if let Err(error) = configured {
+        return Ok(Err(error));
     }
     lifecycle(create, name, Some(prompt.as_bytes()), timeout_seconds).await
 }
@@ -405,19 +412,40 @@ async fn agent(
 /// extensions, skills, prompts, MCP, packages); context files load anyway. The golem-owned
 /// report extension is loaded first, so a project tool with its name is a startup conflict
 /// and Pi exits 1 before any event. Themes are interface-only and stay off.
-fn configure_pi(create: &mut Command, seat: &str, model: Option<&str>) {
+/// An Anthropic seat is only `ANTHROPIC_OAUTH_TOKEN`; a Codex seat is only Pi's `auth.json`
+/// in the private agent directory, never an environment value. `--provider` without
+/// `--model` is a Pi startup error, so without a requested model Pi picks its default for
+/// the only provider it has a sign-in for.
+fn configure_pi(
+    create: &mut Command,
+    credential: Credential<'_>,
+    model: Option<&str>,
+) -> Result<()> {
+    let provider = match credential {
+        Credential::Token(seat) => {
+            create
+                .args(["--env", "ANTHROPIC_OAUTH_TOKEN"])
+                .env("ANTHROPIC_OAUTH_TOKEN", seat);
+            "anthropic"
+        }
+        Credential::PiHome(home) => {
+            mount(create, home, PI_HOME, false)?;
+            golem_runner::codex::PI_PROVIDER
+        }
+        Credential::CodexHome(_) => return Err("unsupported harness"),
+    };
     create
         .args([
-            "--env",
-            "ANTHROPIC_OAUTH_TOKEN",
             "--env",
             "GOLEM_WRITABLE",
             "--env",
             "GOLEM_HARNESS",
+            "--env",
+            "GOLEM_PROVIDER",
         ])
-        .env("ANTHROPIC_OAUTH_TOKEN", seat)
         .env("GOLEM_WRITABLE", "1")
         .env("GOLEM_HARNESS", "pi")
+        .env("GOLEM_PROVIDER", provider)
         .args([
             IMAGE,
             "--mode",
@@ -431,8 +459,9 @@ fn configure_pi(create: &mut Command, seat: &str, model: Option<&str>) {
             "--no-themes",
         ]);
     if let Some(model) = model {
-        create.args(["--provider", "anthropic", "--model", model]);
+        create.args(["--provider", provider, "--model", model]);
     }
+    Ok(())
 }
 
 /// JSONL events on stdout, the prompt on stdin, the container as the only sandbox, no user
@@ -787,16 +816,48 @@ mod tests {
     }
 
     #[test]
-    fn pi_runs_json_events_with_project_trust_the_report_extension_and_its_own_seat_variable() {
-        for model in [None, Some("claude-sonnet-5-5")] {
+    fn pi_runs_json_events_with_project_trust_the_report_extension_and_only_its_seat() {
+        let home = std::env::temp_dir().join("golem-pi-fixture");
+        for (credential, provider, model) in [
+            (Credential::Token("sentinel"), "anthropic", None),
+            (
+                Credential::Token("sentinel"),
+                "anthropic",
+                Some("claude-sonnet-5-5"),
+            ),
+            (Credential::PiHome(&home), "openai-codex", None),
+            (
+                Credential::PiHome(&home),
+                "openai-codex",
+                Some("gpt-6.1-sol"),
+            ),
+        ] {
             let mut command = docker();
-            configure_pi(&mut command, "sentinel", model);
+            configure_pi(&mut command, credential, model).unwrap();
             let command = command.as_std();
             let args: Vec<_> = command
                 .get_args()
                 .map(|arg| arg.to_string_lossy().into_owned())
                 .collect();
             let image = args.iter().position(|arg| arg == IMAGE).unwrap();
+            let mounts: Vec<_> = args[..image]
+                .windows(2)
+                .filter(|pair| pair[0] == "--mount")
+                .map(|pair| pair[1].clone())
+                .collect();
+            let seated = matches!(credential, Credential::PiHome(_));
+            if seated {
+                assert_eq!(
+                    mounts,
+                    [format!(
+                        "type=bind,source={},target={PI_HOME},bind-propagation=rprivate",
+                        home.display()
+                    )],
+                    "writable, outside /workspace"
+                );
+            } else {
+                assert_eq!(mounts, [] as [String; 0]);
+            }
             let harness = &args[image + 1..];
             let pair = |flag: &str, value: &str| {
                 harness
@@ -818,21 +879,43 @@ mod tests {
             );
             assert_eq!(
                 model.is_some(),
-                pair("--provider", "anthropic") && pair("--model", model.unwrap_or_default())
+                pair("--provider", provider) && pair("--model", model.unwrap_or_default())
+            );
+            assert_eq!(
+                harness.iter().any(|arg| arg == "--provider"),
+                model.is_some(),
+                "Pi rejects --provider without --model"
             );
             assert!(
-                !harness.iter().any(|arg| arg == "sentinel"),
+                !args.iter().any(|arg| arg == "sentinel"),
                 "seat never in argv"
             );
             let env: Vec<_> = command
                 .get_envs()
                 .filter_map(|(key, value)| Some((key.to_str()?, value?.to_str()?)))
                 .collect();
-            assert!(env.contains(&("ANTHROPIC_OAUTH_TOKEN", "sentinel")));
+            assert_eq!(
+                env.contains(&("ANTHROPIC_OAUTH_TOKEN", "sentinel")),
+                !seated
+            );
+            assert_eq!(
+                args.iter().any(|arg| arg == "ANTHROPIC_OAUTH_TOKEN"),
+                !seated,
+                "a Codex seat never forwards an Anthropic token"
+            );
+            assert!(env.contains(&("GOLEM_PROVIDER", provider)));
             assert!(env.contains(&("GOLEM_HARNESS", "pi")));
             assert!(env.contains(&("GOLEM_WRITABLE", "1")));
             assert!(!env.iter().any(|(key, _)| *key == "CLAUDE_CODE_OAUTH_TOKEN"));
+            if seated {
+                assert!(env.iter().all(|(key, _)| !key.contains("TOKEN")));
+            }
         }
+        let mut command = docker();
+        assert!(
+            configure_pi(&mut command, Credential::CodexHome(&home), None).is_err(),
+            "Pi never reads Codex's own format"
+        );
     }
 
     #[tokio::test]
@@ -844,6 +927,10 @@ mod tests {
             ("codex", false, Credential::CodexHome(home)),
             ("claude", true, Credential::CodexHome(home)),
             ("pi", true, Credential::CodexHome(home)),
+            ("pi", false, Credential::PiHome(home)),
+            ("codex", true, Credential::PiHome(home)),
+            ("claude", true, Credential::PiHome(home)),
+            ("claude", false, Credential::PiHome(home)),
             ("", true, Credential::Token("sentinel")),
         ] {
             let settings = Agent {
@@ -871,6 +958,9 @@ mod tests {
         assert!(dockerfile.contains("/opt/golem/pi-entry"));
         assert!(entrypoint.contains("harnessEntry('/opt/golem/codex-entry'"));
         assert!(entrypoint.contains(&format!("CODEX_HOME: '{CODEX_HOME}'")));
+        assert!(entrypoint.contains(&format!("'{PI_HOME}'")));
+        assert!(dockerfile.contains(&format!("{CODEX_HOME} {PI_HOME} ")));
+        assert!(dockerfile.contains(&format!("{PI_HOME}/auth.json")));
         assert!(dockerfile.contains(&format!("COPY codex-result-schema.json {CODEX_SCHEMA}")));
         assert!(dockerfile.contains("/opt/golem/codex-entry"));
         assert!(

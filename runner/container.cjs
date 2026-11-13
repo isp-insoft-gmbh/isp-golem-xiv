@@ -134,10 +134,13 @@ if (args[0] === '--prepare-target') {
   const base = process.env.GOLEM_WRITABLE === '1' ? toolEnvironment() : targetEnv;
   // Each harness receives only its own seat variable, never the other's.
   if (harness === 'pi') {
+    // A Codex seat is only Pi's auth.json in the private, writable agent directory mount;
+    // an Anthropic seat is only its token variable.
+    const codexSeat = process.env.GOLEM_PROVIDER === 'openai-codex';
     harnessEntry('/opt/golem/pi-entry', args, {
-      ...base, PI_CODING_AGENT_DIR: '/home/agent/.pi/agent',
+      ...base, PI_CODING_AGENT_DIR: codexSeat ? '/golem-pi' : '/home/agent/.pi/agent',
       PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0', JITI_FS_CACHE: 'false',
-      ANTHROPIC_OAUTH_TOKEN: process.env.ANTHROPIC_OAUTH_TOKEN,
+      ANTHROPIC_OAUTH_TOKEN: codexSeat ? undefined : process.env.ANTHROPIC_OAUTH_TOKEN,
     }, piRecord);
   } else if (harness === 'codex') {
     // The seat is only the sign-in file in the private, writable CODEX_HOME mount.

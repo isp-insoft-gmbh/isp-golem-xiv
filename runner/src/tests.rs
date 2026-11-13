@@ -1553,6 +1553,88 @@ fn codex_sign_in(refresh_token: &str, last_refresh: &str) -> String {
     .unwrap()
 }
 
+fn access_jwt(account: &str, fill: char) -> String {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    format!(
+        "eyJhbGciOiJSUzI1NiJ9.{}.{}",
+        URL_SAFE_NO_PAD.encode(
+            json!({"exp": 1_900_000_000, "https://api.openai.com/auth": {"chatgpt_account_id": account}})
+                .to_string()
+        ),
+        fill.to_string().repeat(43)
+    )
+}
+
+/// A pi run on a Codex seat: Pi's file is read back, guarded, converted and written back
+/// through the same path, with the same notes, as a Codex run's.
+#[tokio::test]
+async fn pi_seat_write_back_converts_guards_and_notes_like_codex() {
+    let original = golem_runner::codex::CodexAuth::parse(
+        &serde_json::to_string_pretty(&json!({
+            "auth_mode": "chatgpt", "OPENAI_API_KEY": null,
+            "tokens": {"id_token": format!("eyJ.id-one-{}", "i".repeat(40)),
+                "access_token": access_jwt("acct-fixture", 'a'),
+                "refresh_token": "rt_one-fixture-not-real", "account_id": "acct-fixture"},
+            "last_refresh": "2026-11-01T00:00:00Z"
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let pi_file = |access: &str, refresh: &str| {
+        serde_json::to_string_pretty(&json!({"openai-codex": {"type": "oauth",
+            "access": access, "refresh": refresh, "expires": 1_900_000_000_000_u64,
+            "accountId": "acct-fixture"}}))
+        .unwrap()
+    };
+    let refreshed_access = access_jwt("acct-fixture", 'b');
+    let refreshed = pi_file(&refreshed_access, "rt_two-fixture-not-real");
+    for (readback, note) in [
+        (None, None),
+        (Some(Ok(original.pi_text().unwrap())), None),
+        (
+            Some(Ok(original.text().to_owned())),
+            Some("refreshed sign-in is not a valid Pi sign-in"),
+        ),
+        (
+            Some(Ok(pi_file(
+                &access_jwt("acct-other", 'b'),
+                "rt_two-fixture-not-real",
+            ))),
+            Some("refreshed sign-in belongs to another account"),
+        ),
+        // Refreshed and converted, but minting the ops token fails before any request.
+        (Some(Ok(refreshed.clone())), Some("invalid App private key")),
+    ] {
+        let mut request = request();
+        request.provider = "openai-codex".into();
+        request.harness = "pi".into();
+        let (github, observed) = server(vec![]);
+        let context = RunContext {
+            github: &github,
+            request: &request,
+            private_key: "not a private key",
+            run_id: "99",
+            attempt: "1",
+        };
+        let mut guard = OutputGuard::default();
+        let refreshed_readback = matches!(&readback, Some(Ok(text)) if *text == refreshed);
+        context
+            .write_back_seat(&original, readback, &mut guard)
+            .await;
+        assert_eq!(request.seat_note.get(), note);
+        assert_eq!(observed.join().unwrap().unwrap().len(), 0, "no request");
+        if refreshed_readback {
+            for secret in [
+                refreshed.as_str(),
+                &refreshed_access,
+                "rt_two-fixture-not-real",
+            ] {
+                assert!(guard.check(&format!("leaked {secret}")).is_err());
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn seat_write_back_failures_are_noted_guarded_and_never_fail_the_run() {
     let original =

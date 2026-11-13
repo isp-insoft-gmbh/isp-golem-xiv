@@ -1,9 +1,11 @@
 //! Codex sign-ins (the Codex CLI `auth.json`) and the strict `codex exec --json` protocol.
 //!
 //! A refreshing sign-in rotates its refresh token, so the sign-in a run ends with must be
-//! written back; a credential that fails validation never is.
+//! written back; a credential that fails validation never is. The stored seat is always in
+//! Codex's format; Pi runs on the same seat through a converted copy in Pi's format.
 
 use crate::{AgentOutput, OutputGuard, Result, WritableAnswer, checked_output, valid_model};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Deserialize;
 use std::path::Path;
 
@@ -93,10 +95,13 @@ impl CodexAuth {
         &self.text
     }
 
-    /// The whole file and every credential value on its own: a bare token is not a line of
-    /// the pretty-printed file, so line-wise guarding alone would miss it.
+    /// The whole file in both formats and every credential value on its own: a bare token is
+    /// not a line of the pretty-printed file, so line-wise guarding alone would miss it.
     pub fn guard(&self, guard: &mut OutputGuard) {
         guard.add(&self.text);
+        if let Ok(pi) = self.pi_text() {
+            guard.add(&pi);
+        }
         for value in [
             &self.tokens.id_token,
             &self.tokens.access_token,
@@ -149,12 +154,207 @@ pub fn refresh(original: &CodexAuth, after: Result<String>) -> Refresh {
     Refresh::Refreshed(after)
 }
 
-/// A private `CODEX_HOME` holding only the seat's sign-in, outside every workspace.
-/// Dropping it removes the directory, including whatever Codex added.
+/// Pi's provider id for `ChatGPT` subscriptions, the key of its entry in Pi's `auth.json`.
+pub const PI_PROVIDER: &str = "openai-codex";
+/// Largest integer a JavaScript number holds exactly; Pi compares `expires` as a number.
+const JS_SAFE_INTEGER_MAX: u64 = (1 << 53) - 1;
+
+#[derive(Deserialize)]
+struct AccessClaims {
+    #[serde(default)]
+    exp: Option<u64>,
+    #[serde(rename = "https://api.openai.com/auth", default)]
+    auth: Option<AccountClaims>,
+}
+
+#[derive(Deserialize)]
+struct AccountClaims {
+    #[serde(default)]
+    chatgpt_account_id: Option<String>,
+}
+
+/// Unverified claims of a `ChatGPT` access token, read like Codex and Pi read them.
+fn access_claims(token: &str) -> Option<AccessClaims> {
+    let mut parts = token.split('.');
+    let (Some(_), Some(payload), Some(_), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return None;
+    };
+    serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()
+}
+
+/// The account Pi and Codex send with every request: the access token's claim.
+fn access_account(token: &str) -> Option<String> {
+    access_claims(token)?
+        .auth?
+        .chatgpt_account_id
+        .filter(|id| !id.is_empty())
+}
+
+impl CodexAuth {
+    /// The same sign-in as Pi 1.5.1 stores it in `<agent dir>/auth.json`:
+    /// `{"openai-codex": {type: "oauth", access, refresh, expires, accountId}}`, `expires` in
+    /// milliseconds. Pi refreshes five minutes before `expires`, so it is the access token's
+    /// own `exp`, as Codex uses it.
+    ///
+    /// # Errors
+    /// An access token without a decodable `exp` (guessing would make Pi refresh, and rotate
+    /// the seat, on every run) or without the account claim Pi sends with every request
+    /// (`openai-codex-responses.js` reads it from the token, never from the stored `accountId`).
+    pub fn pi_text(&self) -> Result<String> {
+        let claims = access_claims(&self.tokens.access_token)
+            .ok_or("Codex sign-in access token is not a JWT; Pi cannot use it")?;
+        let expires = claims
+            .exp
+            .and_then(|exp| exp.checked_mul(1000))
+            .filter(|expires| *expires <= JS_SAFE_INTEGER_MAX)
+            .ok_or("Codex sign-in access token has no expiry; Pi cannot use it")?;
+        let account = claims
+            .auth
+            .and_then(|auth| auth.chatgpt_account_id)
+            .filter(|id| !id.is_empty())
+            .ok_or("Codex sign-in access token names no account; Pi cannot use it")?;
+        let credential = serde_json::json!({
+            "type": "oauth",
+            "access": self.tokens.access_token,
+            "refresh": self.tokens.refresh_token,
+            "expires": expires,
+            "accountId": account,
+        });
+        serde_json::to_string_pretty(&serde_json::json!({ PI_PROVIDER: credential }))
+            .map_err(|_| "cannot convert Codex sign-in for Pi")
+    }
+}
+
+/// Pi's `openai-codex` entry: access token, refresh token and the account it names, if any.
+fn pi_credential(text: &str) -> Option<(String, String, Option<String>)> {
+    let value: serde_json::Value = serde_json::from_str(text).ok()?;
+    let entry = value.get(PI_PROVIDER)?;
+    let field = |key: &str| entry.get(key).and_then(serde_json::Value::as_str);
+    if field("type") != Some("oauth")
+        || !entry
+            .get("expires")
+            .and_then(serde_json::Value::as_f64)
+            .is_some_and(f64::is_finite)
+    {
+        return None;
+    }
+    let account = match entry.get("accountId") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(account) => Some(account.as_str()?.to_owned()),
+    };
+    Some((
+        field("access")?.to_owned(),
+        field("refresh")?.to_owned(),
+        account,
+    ))
+}
+
+/// Guard whatever a Pi run left in its `auth.json`: the whole text and every string in it.
+pub fn guard_pi_text(text: &str, guard: &mut OutputGuard) {
+    fn strings(value: &serde_json::Value, guard: &mut OutputGuard) {
+        match value {
+            serde_json::Value::String(text) => guard.add(text),
+            serde_json::Value::Array(values) => values.iter().for_each(|v| strings(v, guard)),
+            serde_json::Value::Object(map) => map.values().for_each(|v| strings(v, guard)),
+            _ => {}
+        }
+    }
+    guard.add(text);
+    if let Ok(value) = serde_json::from_str(text) {
+        strings(&value, guard);
+    }
+}
+
+/// RFC 3339 UTC time in whole seconds, as Codex accepts for `last_refresh`.
+fn rfc3339(time: std::time::SystemTime) -> Option<String> {
+    let seconds = time.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    let (days, rest) = (seconds / 86_400, seconds % 86_400);
+    // Howard Hinnant's civil_from_days, for days since 1970-01-01.
+    let z = i64::try_from(days).ok()? + 719_468;
+    let era = z.div_euclid(146_097);
+    let day_of_era = z.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = if shifted_month < 10 {
+        shifted_month + 3
+    } else {
+        shifted_month - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        rest / 60 % 60,
+        rest % 60
+    ))
+}
+
+/// Write-back decision for a Pi run on a Codex seat. Pi keeps only access and refresh tokens
+/// and discards the refreshed `id_token`, so the result has the original Codex file's fields
+/// (keys re-serialized in sorted order) with new tokens and `last_refresh` stamped by the
+/// runner at read-back; every other field, including the `id_token` and unknown fields Codex
+/// owns, keeps its value. Codex 0.167.1 reads the `id_token` only for claims (email, plan,
+/// account), never its expiry, and keeps it itself when a refresh response lacks one. The account is compared on the access tokens' claims, which
+/// both harnesses send with every request; the result then passes the Codex checks.
+#[must_use]
+pub fn pi_refresh(
+    original: &CodexAuth,
+    after: Result<String>,
+    now: std::time::SystemTime,
+) -> Refresh {
+    let after = match after {
+        Ok(after) => after,
+        Err(error) => return Refresh::Invalid(error),
+    };
+    let Some((access, refresh_token, named_account)) = pi_credential(&after) else {
+        return Refresh::Invalid("refreshed sign-in is not a valid Pi sign-in");
+    };
+    if access == original.tokens.access_token && refresh_token == original.tokens.refresh_token {
+        return Refresh::Unchanged;
+    }
+    let before = access_account(&original.tokens.access_token)
+        .or_else(|| original.tokens.account_id.clone());
+    let Some(account) = access_account(&access) else {
+        return Refresh::Invalid("refreshed sign-in names no account");
+    };
+    if before.is_some_and(|before| before != account)
+        || named_account.is_some_and(|named| named != account)
+    {
+        return Refresh::Invalid("refreshed sign-in belongs to another account");
+    }
+    let Ok(mut file) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&original.text)
+    else {
+        return Refresh::Invalid("refreshed sign-in is not a valid Codex sign-in");
+    };
+    let (Some(tokens), Some(stamp)) = (
+        file.get_mut("tokens")
+            .and_then(serde_json::Value::as_object_mut),
+        rfc3339(now),
+    ) else {
+        return Refresh::Invalid("refreshed sign-in is not a valid Codex sign-in");
+    };
+    tokens.insert("access_token".into(), access.into());
+    tokens.insert("refresh_token".into(), refresh_token.into());
+    file.insert("last_refresh".into(), stamp.into());
+    match serde_json::to_string_pretty(&file) {
+        Ok(text) => refresh(original, Ok(text)),
+        Err(_) => Refresh::Invalid("refreshed sign-in is not a valid Codex sign-in"),
+    }
+}
+
+/// A private directory holding only one sign-in file, `auth.json`, outside every workspace:
+/// `CODEX_HOME` with the seat as is, or Pi's agent directory with its converted copy.
+/// Dropping it removes the directory, including whatever the harness added.
 ///
 /// # Errors
 /// Fails when the directory or file cannot be created privately.
-pub fn private_home(auth: &CodexAuth) -> Result<tempfile::TempDir> {
+pub fn private_home(sign_in: &str) -> Result<tempfile::TempDir> {
     use std::io::Write as _;
     let home = tempfile::Builder::new()
         .prefix("golem-seat-")
@@ -171,12 +371,13 @@ pub fn private_home(auth: &CodexAuth) -> Result<tempfile::TempDir> {
     }
     options
         .open(home.path().join(AUTH_FILE))
-        .and_then(|mut file| file.write_all(auth.text.as_bytes()))
+        .and_then(|mut file| file.write_all(sign_in.as_bytes()))
         .map_err(|_| "cannot write private seat sign-in")?;
     Ok(home)
 }
 
 /// Read back only `auth.json`, as a bounded regular file; call after confirmed destruction.
+/// Pi keeps its lock directory `auth.json.lock` beside it; that and everything else is ignored.
 ///
 /// # Errors
 /// Missing, linked, special, oversized or non-UTF-8 files.
