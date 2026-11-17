@@ -218,7 +218,91 @@ impl Audit {
 pub fn page(login: &str) -> String {
     let login = escape(login);
     format!(
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Organization · isp-golem-xiv</title><script src=\"/admin.js\" defer></script></head><body><main><h1>Organization</h1><p>Signed in as @{login}. <a href=\"/seats\">Manage your seats</a>.</p><p>Read-only GitHub metadata. Every request checks current organization membership. Logs require access to the private ops repository.</p><section aria-labelledby=\"runs-title\"><h2 id=\"runs-title\">Runs</h2><p>Last 30 days by Actions creation time; undispatched requests by terminal check time. Duration: Actions start to final target check completion, not billing time. Unknown means no verified metadata.</p><p id=\"runs-status\" role=\"status\">Loading…</p><div id=\"runs\"></div><button id=\"more-runs\" hidden>Load more runs</button><p id=\"undispatched-status\" role=\"status\">Loading undispatched requests…</p><button id=\"more-undispatched\" hidden>Scan more undispatched audits</button></section><section><h2>Usage</h2><p>Runs and observed duration per paying person/provider, over loaded verified dispatched records only; undispatched requests excluded; not provider charges or billed Actions minutes.</p><div id=\"usage\"></div></section><section><h2>Health</h2><p>Workflow failure rate counts failed, timed-out, startup-failure, action-required and stale conclusions / loaded completed workflows. Blocked, incomplete and stopped outcomes are shown separately. Refreshing seat expiry is unknown: GitHub secret names do not contain expiry; update time is not expiry.</p><div id=\"health\"></div></section><section><h2>Seats</h2><p id=\"seats-status\" role=\"status\">Loading…</p><div id=\"seats\"></div></section><section><h2>Repositories</h2><p>Installed repositories, including enabled and disabled golems. Definition errors are suppressed; inspect .golems/ in GitHub.</p><p id=\"repositories-status\" role=\"status\">Loading…</p><div id=\"repositories\"></div><button id=\"more-repositories\" hidden>Load next repository</button></section><noscript>This dashboard requires JavaScript; JSON is available at /v1/admin/runs, /v1/admin/seats and /v1/admin/repositories after sign-in.</noscript></main></body></html>"
+        r##"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Organization · isp-golem-xiv</title>
+<link rel="stylesheet" href="/admin.css">
+<script src="/admin.js" defer></script>
+</head>
+<body>
+<main>
+<header>
+<h1>Organization</h1>
+<p>Signed in as <strong>@{login}</strong>. <a href="/seats">Manage your seats</a></p>
+<nav aria-label="Dashboard sections">
+<a href="#runs-section">Runs</a>
+<a href="#usage-section">Usage</a>
+<a href="#health-section">Health</a>
+<a href="#seats-section">Seats</a>
+<a href="#repositories-section">Repositories</a>
+</nav>
+</header>
+
+<section id="runs-section" aria-labelledby="runs-title">
+<h2 id="runs-title">Runs</h2>
+<p>Last 30 days. Open a log to investigate a run; private logs require ops access.</p>
+<p class="table-hint">Scroll tables sideways when columns do not fit.</p>
+<p id="runs-status" role="status">Loading runs…</p>
+<div id="runs" class="table-region" tabindex="0" role="region" aria-label="Run results"></div>
+<button id="more-runs" type="button" hidden>Load more runs</button>
+<p id="undispatched-status" role="status">Loading requests…</p>
+<button id="more-undispatched" type="button" hidden>Load more requests</button>
+<details>
+<summary>About requests that never started</summary>
+<p>Stopped or blocked before execution. The run table labels them as not dispatched; they have no model, duration or Actions log.</p>
+</details>
+</section>
+
+<section id="usage-section" aria-labelledby="usage-title">
+<h2 id="usage-title">Usage</h2>
+<p>Paying seats, from audited runs loaded so far. Not provider charges or billed Actions minutes.</p>
+<div id="usage" class="table-region" tabindex="0" role="region" aria-label="Seat usage"></div>
+</section>
+
+<section id="health-section" aria-labelledby="health-title">
+<h2 id="health-title">Health</h2>
+<p>Loaded records only. Missing audits and unknown values are not successful runs.</p>
+<div id="health" aria-live="polite">Loading health…</div>
+</section>
+
+<section id="seats-section" aria-labelledby="seats-title">
+<h2 id="seats-title">Seats</h2>
+<p>Registered providers across the organization. <a href="/seats">Add or replace your seat</a>.</p>
+<p id="seats-status" role="status">Loading seats…</p>
+<div id="seats" class="table-region" tabindex="0" role="region" aria-label="Registered seats"></div>
+</section>
+
+<section id="repositories-section" aria-labelledby="repositories-title">
+<h2 id="repositories-title">Repositories</h2>
+<p>Installed repositories and golem availability. Fix disabled definitions in the repository's <code>.golems/</code> directory.</p>
+<p id="repositories-status" role="status">Loading repositories…</p>
+<div id="repositories"></div>
+<button id="more-repositories" type="button" hidden>Load next repository</button>
+</section>
+
+<footer>
+<p><a href="/admin">Reload dashboard / sign in again</a> · <a href="https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/workflows/runner.yml">Open ops workflows</a></p>
+<details>
+<summary>How to read these numbers</summary>
+<ul>
+<li>Runs use Actions creation time for the 30-day window; requests that never started use final check time.</li>
+<li>Only loaded, verified audits contribute to usage and outcome totals. Older missing audits need verified backfill; no history is invented.</li>
+<li>Duration is Actions start to final target check completion, not agent-only or billing time.</li>
+<li>Unknown means no verified observation, including model and seat expiry. A secret's update time is not its expiry.</li>
+<li>Workflow failure rate uses failed, timed-out, startup-failure, action-required and stale conclusions over loaded completed workflows.</li>
+<li>Pagination is bounded to 1,000 workflows and 100 pages per listing. Changing upstream data can shift pages; a scan limit leaves totals incomplete.</li>
+<li>Seats may include normalized identifiers for people who left. Repository metadata can be unavailable without the repository being disabled.</li>
+</ul>
+</details>
+<noscript>Enable JavaScript to load the dashboard. Signed-in JSON endpoints: /v1/admin/runs, /v1/admin/seats, /v1/admin/repositories.</noscript>
+</footer>
+</main>
+</body>
+</html>
+"##
     )
 }
 

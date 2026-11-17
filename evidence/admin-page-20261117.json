@@ -1,0 +1,54 @@
+{
+  "kind": "recorded-browser-session",
+  "scope": "deployed admin rendering and pagination, not complete Slice 4 acceptance",
+  "date": "2026-11-17",
+  "browser": "Firefox 160.0 on Windows, headed fresh profile",
+  "url": "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/admin",
+  "deployment_verified_before_session": "da28fd64545e3a7cdde68b3efc2b4d13c38f6db4",
+  "authentication": {
+    "method": "Oliver completed GitHub OAuth interactively",
+    "rendered_login": "bugabinga",
+    "credential_values_in_this_record": false
+  },
+  "observations": [
+    {
+      "bidi_response": 1202,
+      "sections": ["Runs", "Usage", "Health", "Seats", "Repositories"],
+      "run_rows": 2,
+      "seat_rows": 2,
+      "repository_sections": 1,
+      "more_runs_available": true,
+      "more_repositories_available": true
+    },
+    {
+      "bidi_response": 1204,
+      "action": "DOM click on Load more runs and Load next repository",
+      "authenticated_repository_page_2_status": 200
+    },
+    {
+      "bidi_response": 1206,
+      "run_rows": 2,
+      "usage_rows": 2,
+      "health_populated": true,
+      "repository_sections": 2,
+      "history_explicitly_incomplete": true,
+      "loaded_workflow_count": 20,
+      "total_workflow_count": 89,
+      "missing_audits_after_two_pages": 18,
+      "installed_repository_total": 37,
+      "viewport_width": 1872,
+      "document_scroll_width": 1872
+    },
+    {
+      "bidi_response": 1207,
+      "screenshot_inspected": true,
+      "screenshot_storage": "private OS temp; not published because repository metadata is private"
+    }
+  ],
+  "limitations": [
+    "Historical audits and refreshing-seat expiry metadata remain incomplete.",
+    "One displayed record is a genuine blocked run, not successful agent execution.",
+    "This session predates deployment verification of the placeholder-model correction.",
+    "No cookies, tokens, private repository names or private page contents are included in this record."
+  ]
+}
