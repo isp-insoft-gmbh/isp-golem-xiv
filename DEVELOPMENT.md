@@ -71,6 +71,12 @@ Tests protect behavior, not construction history.
 - A failing test is diagnosed before it is changed; tests are never weakened to get green.
 - Fast tests run on every change.
 
+On Windows, `mise run test-worker` builds the Worker natively, then runs the unchanged workerd suites in the default WSL distribution.
+That distribution needs `mise` on its executable search path, this repository trusted, and its mise tools installed.
+WSL failures fail the task; there is no automatic native retry.
+Set `GOLEM_WORKER_TESTS_NATIVE` for a native diagnostic run, where oversized uploads can reset instead of returning 413.
+Linux CI runs the same suites natively and remains the merge gate.
+
 ### Mutation testing
 
 Mutation testing improves tests during development; it is never a gate and has no target score.
@@ -90,7 +96,8 @@ Mise is the single entry point for people, the agent, and CI.
 - Every tool and version comes from `mise.toml`; nobody installs tools by hand.
 - Every routine action is a task: `ci`, `test`, `fmt`, `accept`, `dist`, `release`, `gh-settings`.
 - `mise run ci` locally and in CI is the same gate.
-- Orchestration is one-way: mise calls the tools, the tools never call mise.
+- Orchestration is one-way: mise calls the tools, the tools never call mise tasks.
+  The Windows xtask uses WSL `mise exec` only to initialize the Linux environment for the unchanged Worker suites.
 
 ## Tooling
 

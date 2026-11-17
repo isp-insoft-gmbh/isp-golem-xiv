@@ -3,6 +3,19 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-17: Run Windows Worker suites in WSL
+
+- Oliver selected WSL rather than skipping oversized-body assertions or draining unauthenticated request bodies.
+  The 2026-11-03 transport experiment and the no-arbitrary-draining decision still hold; production router behavior is unchanged.
+- `x::runtime_tests` invokes the same `tools/router-runtime-tests.mjs` with Linux mise and Node in the default WSL distribution on Windows; Worker compilation stays native.
+  Linux CI keeps its native path and all four existing suites, assertions and timeouts stay unchanged.
+- WSL startup, tool discovery and suite failures propagate through the existing bounded command runner; no unbounded readiness probe or automatic native retry.
+  Presence of `GOLEM_WORKER_TESTS_NATIVE` explicitly selects native diagnostic execution.
+- Oliver trusted this repository and installed its tools in WSL.
+  `mise run test-worker` completed as activity `activity-26d024ae-1` (exit 0, 210.41 s): runtime helpers, delivered Worker, integrated coordinator Worker, and coordinator SQLite/journal suites all passed through WSL.
+  The delivered Worker suite includes the unchanged oversized-body 413 assertion; this is local built-artifact evidence, not deployed acceptance.
+  Fmt, `x` Clippy and three unit tests passed; Linux PR CI remains the merge gate.
+
 ## 2026-11-13: Pi on OpenAI Codex seats (runner only)
 
 - SPEC Credentials says one seat serves every harness that works with its provider, and `contract.nuon` lists `codex` and `pi` for `openai-codex`; the runner now executes `(openai-codex, pi)` (`RUNNER_PAIRS`), recomputing the choice from the pinned definition like every other pair.

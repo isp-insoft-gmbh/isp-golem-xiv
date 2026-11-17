@@ -82,7 +82,27 @@ fn tests() -> Result<()> {
     run("node", &["tools/deploy-http-test.mjs"])
 }
 
+/// On Windows, Miniflare resets oversized uploads instead of returning the router's 413
+/// (DECISIONS 2026-11-03), so the unchanged suite requires WSL Linux like CI.
+/// Set `GOLEM_WORKER_TESTS_NATIVE` to force a native diagnostic run.
 fn runtime_tests() -> Result<()> {
+    if cfg!(windows) && env::var_os("GOLEM_WORKER_TESTS_NATIVE").is_none() {
+        let root = env::current_dir()?;
+        let root = root.to_str().ok_or("repository path is not UTF-8")?;
+        return run(
+            "wsl.exe",
+            &[
+                "--cd",
+                root,
+                "--exec",
+                "mise",
+                "exec",
+                "--",
+                "node",
+                "tools/router-runtime-tests.mjs",
+            ],
+        );
+    }
     run("node", &["tools/router-runtime-tests.mjs"])
 }
 
