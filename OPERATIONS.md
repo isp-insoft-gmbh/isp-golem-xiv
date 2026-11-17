@@ -51,8 +51,8 @@ Do not replay a delivery merely because a reply is slow.
 
 ## Read the organization dashboard
 
-The Slice 4 admin dashboard at [/admin](https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/admin) is still pending deployment and live verification at this revision.
-Once deployed, organization members sign in with GitHub; every data request rechecks current membership.
+The first Slice 4 admin dashboard increment is deployed at [/admin](https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/admin); full acceptance remains pending.
+Organization members sign in with GitHub; every data request rechecks current membership.
 
 - **Runs:** paginated metadata for the last 30 days, with repository, golem, trigger, seat, observed model, outcome, duration and ops log.
 - **Usage:** counts and observed time per paying person/provider over loaded verified records, not provider charges or billed Actions minutes.

@@ -3,6 +3,25 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-17: Live admin projection and unknown model correction
+
+- PR #39 merged `da28fd6` after exact-head CI `44084644483`; trunk CI `44086507038` and deploy `44086507106` passed, and live health matches.
+  Authenticated runs, seats, repositories and undispatched endpoints returned 200 with private/no-store responses.
+  Page 1 reported one verified audit, nine missing audits and 88 workflows; this is not complete historical coverage.
+- One read-only historical join succeeded for run `43428751065`, request tag `5aa18f1c36ed5752611de04281976b5ba4791324`, bound snapshot `08775555fe6e874b208704a899a1bd196b391aa5`, terminal snapshot `a321c61112bcfaa4e13f9c8ae2326f08a40fb2c5`, final check `131896504858`.
+  Repository/head/App/seat/harness/run identities matched; duration is 387 s, while check `model: default` does not establish an actual model.
+  Seven GETs, no writes; a recovery candidate for one run, not proof for all 88.
+- The first v3 audit producer incorrectly accepted `default` as an observed model identifier.
+  A Rust regression went red (`Some("default")` versus expected `None`); new audits now record null, existing immutable v3 placeholders normalize to null at read time, and retirement accepts that historical unknown without rewriting its audit.
+  This preserves provenance rather than inventing observations or changing published history.
+  Parent full Worker gate `activity-26d024ae-11` passed exit 0 in 73.53 s; pinned host/wasm Clippy, four admin tests and repair/digest checks passed.
+  This only corrects the known placeholder; requested non-placeholder Codex model names still do not establish an independent provider observation.
+- Fresh run `44089143230` was blocked (`container execution failed`), not a successful harness proof.
+  Its v3 audit and admin record bind the source comment/request/check/run and correctly report blocked/null-model/367 s; the container stage is not retained by current diagnostics.
+  Do not infer credential failure from that generic error or blindly redispatch.
+- Browser proof is awaiting Oliver's sign-in to the fresh test Firefox window.
+  Full Slice 4 acceptance remains unrun; judge unchanged.
+
 ## 2026-11-17: Organization dashboard and durable sanitized audits
 
 - Red before implementation: tester-authorized `GET /v1/admin/runs` returned HTTP 404 on the deployed system.

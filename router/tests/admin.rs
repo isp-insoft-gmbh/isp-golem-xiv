@@ -33,6 +33,19 @@ fn final_metadata_survives_retirement_without_request_or_queue_access() {
         audit["outcome"] = json!(outcome);
         assert!(accepts(&audit, &run));
     }
+    audit["outcome"] = json!("replied");
+    audit["model"] = json!("default");
+    assert_eq!(
+        Audit::from_tag(
+            &tag(&audit),
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            &run
+        )
+        .unwrap()
+        .model,
+        None,
+        "historical default means an unobserved model, not a model identifier"
+    );
     audit["model"] = Value::Null;
     audit["outcome"] = Value::Null;
     audit["duration_s"] = Value::Null;

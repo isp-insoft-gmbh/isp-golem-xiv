@@ -223,3 +223,18 @@ All five sections populated; run pagination loaded a second record and updated h
 Desktop 1440-pixel viewport had no document overflow; 390-pixel viewport had horizontal table overflow to 567 pixels, a remaining layout limitation.
 Fixture screenshots in OS temp are disposable local review artifacts, not `admin-page` evidence for a signed-in member on the deployed system.
 No Slice 4 evidence promise is marked complete here.
+
+## Deployed admin API and fresh blocked-run audit
+
+PR #39 deployed commit `da28fd64545e3a7cdde68b3efc2b4d13c38f6db4` after exact-head CI `44084644483`, trunk CI `44086507038` and deployment `44086507106`.
+Authenticated runs, seats, repositories and undispatched endpoints returned 200 with `Cache-Control: private, no-store`; live health matched the merge commit.
+
+Fresh [run 44089143230](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/44089143230), source comment `6948843571` in native-config sandbox issue #7, completed check `134059245652` as blocked with `container execution failed`.
+The immutable request tag `74a936bba9d36cc37cfcb1b5e00d251a8d18e143` and v3 admin audit bound the same request, check and run; authenticated `/v1/admin/runs` returned the identical record: `bugabinga/anthropic`, model null, outcome blocked, duration 367 s.
+This is genuine blocked-run reporting, not successful agent execution or `admin-runs` acceptance for a new hello run.
+Native lifecycle evidence confirms destruction, publication and reservation release; it does not identify which container phase failed.
+
+Separately, seven read-only GETs established one historical recovery candidate: run `43428751065` → request tag `5aa18f1c36ed5752611de04281976b5ba4791324` → bound queue snapshot `08775555fe6e874b208704a899a1bd196b391aa5` → terminal snapshot `a321c61112bcfaa4e13f9c8ae2326f08a40fb2c5` → target check `131896504858`.
+App, repository/head, paying seat, harness, run and attempt identities matched.
+Outcome replied and duration 387 s are sourced; `model: default` leaves the actual model unknown.
+No historical audit was written; recoverability of the other 87 scoped workflows is undetermined.
