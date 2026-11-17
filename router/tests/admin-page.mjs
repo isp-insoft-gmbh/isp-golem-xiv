@@ -63,6 +63,9 @@ export async function verifyAdminPage(script) {
   await ids.get('more-runs').onclick();
   assert.ok(requests.includes('/v1/admin/runs?page=2&as_of=1794902400'));
   assert.equal(ids.get('runs').children[0].children[2].children.length, 4, 'pagination deduplicates immutable run IDs');
+  const pagedRows = ids.get('runs').children[0].children[2].children;
+  assert.deepEqual(pagedRows.flatMap(row => row.children[8].children.map(link => link.href)).sort(), [log(1), log(2)], 'existing audited runs remain exactly once after an overlapping page');
+  assert.equal(pagedRows.filter(row => row.children[3].textContent === third.seat && row.children[6].textContent === third.outcome).length, 1, 'new audited run appends exactly once');
   assert.equal(metric('Workflow failures'), '1 / 3 (33.3%)');
   assert.equal(metric('Missing audits'), '1');
   assert.match(ids.get('runs-status').textContent, /History incomplete: 1 missing audit/);

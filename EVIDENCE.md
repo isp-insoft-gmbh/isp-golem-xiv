@@ -246,9 +246,30 @@ PR #40 deployment `44098456622` and trunk CI `44098456881` passed.
 Authenticated Firefox verification matched `/health` version `0c06d46e5b07db04d28ea49769023a12191d238f`, API status 200 for historical run `43428751065` with model null, and its rendered model cell `unknown` (BiDi responses `1301`–`1302`).
 This verifies the model correction, independently of the earlier `da28fd6` rendering record.
 
-The subsequent UI rewrite is local only.
+Before publication, the UI rewrite was verified locally as follows.
 Final parent full Worker gate `activity-26d024ae-21` completed with exit 0 in 60.21 s; terminal status and all four suite summaries confirmed from retained log `C:/Users/okr/AppData/Local/Temp/golem-admin-ui-final-regressions-20261117.log`, including the current DOM consumer, new stylesheet/CSP/method checks and 105 coordinator scenarios.
 Firefox 160 fixture verification used actual Rust-generated HTML plus current JS/CSS; 390 px viewport had document scroll width 390, with horizontal tables confined to labelled focusable regions.
 A populated retry scenario confirmed visible undispatched-source failure, disabled Retry during its request, then cleared error, one newly rendered undispatched record, one preserved dispatched record and unchanged dispatched usage count 1.
 Desktop pagination reached three displayed records (two dispatched, one undispatched) and two repositories without duplicated dispatched rows or document overflow at 1440 px.
-Those records are invented fixtures, not deployed runs; native keyboard horizontal scrolling remains unverified.
+Those records are invented fixtures, not deployed runs; native keyboard horizontal scrolling was not established by those local checks.
+
+## Deployed UI rewrite: HTTP verification
+
+[PR #41](https://github.com/isp-insoft-gmbh/isp-golem-xiv/pull/41) merged as `b88f5f87095a7c72315558539c8c67d448134fc3` after exact-head CI `44108681183`; trunk CI `44110999820` and deploy `44111000121` completed successfully.
+Watchers -23, -25 and -24 each completed with exit 0; refreshed merge eligibility was clean with no unresolved review threads, and the merged tree matched reviewed head `c498383`.
+[Recorded live HTTP check](evidence/admin-ui-http-20261117.json) exited 0 against the deployed SHA: health, exact CSS/JS source hashes, MIME/no-store, stylesheet POST 405, anonymous admin redirect/API denial and all four member APIs passed.
+Runs/seats returned two records each, repositories one paginated record, and undispatched requests zero records on the loaded pages.
+This is deployed HTTP evidence, not a new agent execution, complete history, or authenticated browser rendering of the rewrite.
+Fresh headed Firefox remained at GitHub login at this HTTP-only milestone; the subsequent browser result is recorded separately below.
+
+## Deployed UI rewrite: authenticated browser verification
+
+[Recorded live Firefox session](evidence/admin-ui-browser-20261117.json) matched deployed health `b88f5f87095a7c72315558539c8c67d448134fc3` after fresh `/seats` navigation recovered expired sign-in state.
+The member page rendered all five sections as `bugabinga`, with HTML status 200, loaded/referenced stylesheet and CSP permitting same-origin styles (BiDi `1462`).
+Private desktop/mobile screenshots were inspected; viewport/document widths were 1440/1440 and 390/390, with table overflow contained in labelled focusable regions (`1463`–`1466`).
+Native ArrowRight moved the focused run-results region from 0 to 43.17 px, with no document overflow (`1470`–`1472`).
+Both pagination controls disabled during requests and recovered; repository sections increased 1→2, completed workflow metadata 10→20, and missing audits 8→18 (`1480`).
+The audited rows stayed at two, with distinct log IDs `44089143230` and `43428751065`: successful pagination through an audit-empty page, not proof that new audited rows append live.
+The current DOM regression in `router/tests/admin-page.mjs` covers page 1 run IDs 1/2 and overlapping page 2 IDs 1/3; added explicit checks confirm the new audited row appears once and both existing run links remain unique, without changing production code or captured live evidence.
+The current order-independent DOM regression passed separately; follow-up full Worker gate `activity-26d024ae-26` completed exit 0 in 64.84 s with all four suite summaries (`C:/Users/okr/AppData/Local/Temp/golem-admin-ui-append-proof-worker-20261117.log`).
+Full Slice 4 acceptance, complete historical reconstruction and refreshing-seat expiry remain unfinished.

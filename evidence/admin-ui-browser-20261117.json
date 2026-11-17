@@ -1,0 +1,75 @@
+{
+  "kind": "recorded-authenticated-browser-session",
+  "date": "2026-11-17",
+  "scope": "deployed rewritten admin UI rendering, contained tables, keyboard scrolling and pagination through an audit-empty page; not full history or Slice 4 acceptance",
+  "browser": "Firefox 160.0 on Windows, headed fresh profile",
+  "url": "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/admin",
+  "deployment": "b88f5f87095a7c72315558539c8c67d448134fc3",
+  "authentication": {"method": "Oliver signed in through GitHub; fresh /seats restarted expired sign-in state", "rendered_login_matches_bugabinga": true, "credential_values_recorded": false},
+  "observations": [
+    {
+      "bidi_response": 1462,
+      "health_version_matches": true,
+      "authenticated_html_status": 200,
+      "sections": ["Runs", "Usage", "Health", "Seats", "Repositories"],
+      "run_rows": 2,
+      "seat_rows": 2,
+      "repository_sections": 1,
+      "viewport_width": 1440,
+      "document_scroll_width": 1440,
+      "stylesheet_loaded": true,
+      "stylesheet_referenced": true,
+      "csp_permits_same_origin_styles": true,
+      "history_explicitly_incomplete": true
+    },
+    {
+      "bidi_response": 1465,
+      "viewport_width": 390,
+      "document_scroll_width": 390,
+      "undispatched_status_outside_details": true,
+      "table_regions": [
+        {"label": "Run results", "width": 358, "scroll_width": 1024, "overflow_x": "auto", "keyboard_focusable": true},
+        {"label": "Seat usage", "width": 358, "scroll_width": 576, "overflow_x": "auto", "keyboard_focusable": true},
+        {"label": "Registered seats", "width": 358, "scroll_width": 768, "overflow_x": "auto", "keyboard_focusable": true}
+      ]
+    },
+    {
+      "bidi_responses": [1470,1471,1472],
+      "action": "Focus run-results region, WebDriver keyboard ArrowRight, observe settled scroll position",
+      "scroll_left_before": 0,
+      "scroll_left_after": 43.16666793823242,
+      "document_overflow": false
+    },
+    {
+      "bidi_response": 1480,
+      "action": "DOM click Load more runs and Load next repository, await request completion",
+      "both_controls_disabled_during_requests": true,
+      "requests_completed": true,
+      "retry_offered": false,
+      "repository_sections_before": 1,
+      "repository_sections_after": 2,
+      "audited_rows_before": 2,
+      "audited_rows_after": 2,
+      "run_log_ids_after": ["44089143230","43428751065"],
+      "unique_run_logs_after": 2,
+      "completed_workflows_before": 10,
+      "completed_workflows_after": 20,
+      "missing_audits_before": 8,
+      "missing_audits_after": 18,
+      "reported_workflows_total": 89,
+      "reported_repositories_total": 37,
+      "refreshing_seat_expiry": "unknown",
+      "viewport_width": 390,
+      "document_scroll_width": 390,
+      "interpretation": "Successful pagination through an audit-empty workflow page; this live step does not establish new audited-row appending."
+    }
+  ],
+  "screenshots": {"bidi_responses": [1463,1466], "desktop_and_mobile_inspected": true, "storage": "private OS temp only; not published because repository metadata is private"},
+  "automated_append_coverage": "router/tests/admin-page.mjs supplies page 1 IDs 1 and 2, then overlapping page 2 IDs 1 and 3; current DOM regression passed explicit existing-link uniqueness and new-row identity assertions.",
+  "limitations": [
+    "Only the first 20 reported workflow records and two repository pages were traversed.",
+    "New audited-row appending is automated fixture evidence, not evidence from this audit-empty live page.",
+    "One rendered audit is a genuinely blocked run; no fresh successful agent execution is claimed.",
+    "Historical backfill, refreshing-seat expiry and full Slice 4 acceptance remain incomplete."
+  ]
+}
