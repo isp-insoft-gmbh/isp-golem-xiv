@@ -20,7 +20,14 @@ Each entry: date, decision, reason, and evidence where it exists.
   These are invented fixture records, not live execution evidence.
   Keyboard focusability is verified, but native ArrowRight scrolling was not established after a headed-browser redraw timeout.
 - PR #40 deployment and trunk CI subsequently passed; live health matched `0c06d46`, and authenticated browser/API checks showed historical run `43428751065` as model null/rendered unknown.
-  The rewritten UI itself is not deployed yet; no full Slice 4 acceptance or judge change is claimed.
+  At the local-review milestone the rewritten UI was not deployed; no full Slice 4 acceptance or judge change was claimed.
+- Subsequent publication: PR #41 merged `b88f5f8` after exact-head CI `44108681183`; trunk CI `44110999820` and deployment `44111000121` passed.
+  Actual deployed HTTP probe exited 0 with matching health/CSS/JS hashes, method/cache/MIME/auth guards and four member APIs; sanitized record `evidence/admin-ui-http-20261117.json`.
+  Fresh `/seats` navigation recovered expired sign-in state; actual authenticated browser verification then matched `b88f5f8`, with HTML status 200, loaded CSS, same-origin style CSP, all five sections and private desktop/mobile screenshots inspected.
+  Document widths matched 1440 px and 390 px viewports; native ArrowRight moved the focused table by 43.17 px without document overflow.
+  Live pagination traversed an audit-empty page: two audited rows remained unique while workflow metadata advanced 10→20, missing audits 8→18 and repository sections 1→2.
+  This does not establish new audited-row appending live; the existing automated overlapping-page scenario now explicitly asserts the new row appears once and existing run links remain unique.
+  Sanitized record: `evidence/admin-ui-browser-20261117.json`; historical/expiry gaps and full Slice 4 acceptance remain incomplete.
 
 ## 2026-11-17: Live admin projection and unknown model correction
 

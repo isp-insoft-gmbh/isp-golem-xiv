@@ -2,15 +2,26 @@
 
 - **Current slice:** 4, in progress; not accepted.
   Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
-- **Current task: admin UI rewrite (local, not deployed):** branch `feat/plain-admin-ui` preserves the plain document style with semantic navigation, readable tables and health metrics, concise coverage warnings, visible retry/reload actions and about-data disclosures.
+- **Current task: admin UI rewrite (deployed and live-verified):** PR #41 merged `b88f5f87095a7c72315558539c8c67d448134fc3` after exact-head CI `44108681183` on `c498383c9e779c2297f6b2b96f999d817a8a9648`; clean merge state and no review threads confirmed.
+  Trunk CI `44110999820` and production deployment `44111000121` completed successfully on the merge SHA; watchers -25/-24 each completed exit 0.
+  Live HTTP probe exited 0: health matches `b88f5f8`, CSS/JS bytes match reviewed source hashes, CSS MIME/no-store/POST 405, anonymous redirect/API denial and all four member APIs verified.
+  Sanitized deployed evidence: `evidence/admin-ui-http-20261117.json`.
+  Fresh `/seats` navigation recovered expired OAuth state; authenticated Firefox rendered the rewritten admin page as `bugabinga` on `b88f5f8`.
+  Desktop 1440 px and mobile 390 px had matching document widths, actual stylesheet/CSP checks passed, and private screenshots were inspected.
+  Native ArrowRight scrolled the focused run table from 0 to 43.17 px without document overflow.
+  Live pagination traversed an audit-empty second page: workflow metadata 10→20, missing audits 8→18, two audited rows retained uniquely, repositories 1→2.
+  This live step does not prove a new audited row appends; the automated overlapping-page fixture now explicitly asserts new-row identity and existing-link uniqueness.
+  Browser record: `evidence/admin-ui-browser-20261117.json`.
+  The deployed UI preserves the plain document style with semantic navigation, readable tables and health metrics, concise coverage warnings, visible retry/reload actions and about-data disclosures.
   Static CSS is about 2 KB; no framework, external fonts, animation or polling.
   Admin HTML alone permits same-origin stylesheet loading; API/auth logic and guards are unchanged.
-  Final full Worker gate `activity-26d024ae-21` completed with exit 0 in 60.21 s; all four suite summaries confirmed, including CSS 200/MIME/no-store/reference/CSP and non-GET 405 checks.
+  UI implementation gate `activity-26d024ae-21` completed exit 0/60.21 s with all four suite summaries, including CSS/MIME/no-store/CSP/method checks.
+  Follow-up full Worker gate `activity-26d024ae-26` completed exit 0/64.84 s with all four suite summaries; current order-independent append/uniqueness DOM regression also passed separately.
   Current DOM regressions cover mixed-source failures, retry disabling/recovery, membership revoked during pagination, expired pagination, unknowns, counts and deduplication.
   Firefox 160 local HTTP fixture rendered actual Rust HTML/JS/CSS at 1440 px and 390 px with no document overflow; mobile tables scroll within labelled focusable regions instead of squeezing labels into letters.
   Browser retry terminal state verified: error cleared, one undispatched row added, original dispatched row retained once, usage count unchanged; pagination also verified.
-  Independent review's hidden-status finding resolved; actual native keyboard scrolling remains unverified (headed redraw timeout), not claimed passed.
-  Next: PR, exact-head CI, deployment and live verification of the rewritten UI.
+  Independent review's hidden-status finding resolved; the earlier local keyboard-redraw limitation was closed by the successful live ArrowRight check.
+  Next: publish deployed verification notes and the strengthened append/uniqueness regression; then resume unfinished Slice 4 work.
 - **Admin dashboard (first increment deployed):** PR #39 merged `da28fd64545e3a7cdde68b3efc2b4d13c38f6db4` after exact-head CI `44084644483`; trunk CI `44086507038` and deploy `44086507106` succeeded.
   Live health matches `da28fd6`; authenticated runs/seats/repositories/undispatched APIs return 200 with private/no-store responses.
   Runs page 1 contains one verified audit, nine missing audits, zero malformed audits, with 88 workflows total and explicit pagination.
@@ -31,14 +42,14 @@
   `admin-page` evidence is recorded in `evidence/admin-page-20261117.json`; screenshot inspected privately, no private repository names or credentials in the committed trace.
   Initial browser evidence predates the model correction; subsequent authenticated verification matched live `0c06d46`, API model null and rendered unknown for historical run `43428751065`.
   Full history and refreshing-seat expiry remain explicitly incomplete.
-  A network event accidentally exposed the temporary browser-session cookie in private tool output; no provider credential was exposed, network subscription was disabled, cookie expires 2026-11-17 14:41:28 UTC; never copy the value into files or reports.
+  A network event accidentally exposed the temporary browser-session cookie in private tool output; no provider credential was exposed, network subscription was disabled, cookie expired 2026-11-17 14:41:28 UTC; never copy the value into files or reports.
   Placeholder-model correction merged as PR #40 `0c06d46e5b07db04d28ea49769023a12191d238f` after exact-head CI `44096517493`; trunk CI `44098456881` and deployment `44098456622` passed (activity `activity-26d024ae-13`).
   Live health matches `0c06d46`; authenticated legacy-placeholder normalization is verified live.
   Legacy `model: default` means unknown, not an observed model; red Rust regression confirmed, producer/read projection fixed without rewriting immutable audits.
   Full gate `activity-26d024ae-11` passed exit 0 in 73.53 s; all four suite summaries retained in `C:/Users/okr/AppData/Local/Temp/golem-admin-model-20261117.log`; pinned host/wasm Clippy, four admin tests and repair/digest checks passed.
   Narrow independent review found no new provenance/safety blocker; this correction does not claim universal observed-model provenance for every harness.
-  Mobile fixture viewport (390 px) has horizontal table overflow (567 px); desktop (1440 px) does not.
-  Operator guide drafted at `OPERATIONS.md`; authenticated rendering and the placeholder-model correction are verified on the deployed system, while the new UI rewrite is local only.
+  Pre-rewrite fixture: 390 px viewport had document width 567 px; desktop at 1440 px had no document overflow.
+  Operator guide drafted at `OPERATIONS.md`; authenticated rendering, placeholder-model correction and the new UI's desktop/mobile behavior are verified; full Slice 4 acceptance remains pending.
 - **Slice 3 progress (live unless noted):**
   PR #19 fixed the `app-oauth` probe; secret valid, blocked on Oliver registering callback `https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/auth/github/callback`.
   PR #20 (`27e847f`): help and seat replies live-verified (core sandbox issue 10, comments `6786466094`, `6786465986`); `/seats` and `/admin` sign-in redirect; `seat-page` gate green.
@@ -84,11 +95,11 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `feat/plain-admin-ui`.
+- **Current branch:** `docs/admin-ui-live-proof`.
 - **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
-- **Deployed Worker (verified 2026-11-17):** PR #40 merge `0c06d46e5b07db04d28ea49769023a12191d238f`; live health matches, trunk CI `44098456881` and deploy `44098456622` succeeded.
+- **Last UI implementation deployment verified (2026-11-17):** PR #41 merge `b88f5f87095a7c72315558539c8c67d448134fc3`; live health and asset hashes match, trunk CI `44110999820` and deploy `44111000121` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
-  Deployed coordinator source matches PR #40; digest `57d91fc2d7a65c0e7a124bb37c83876ef399408a2f08b3db9f9d2f4545f10462` is pinned in `tools/repair-unbound.mjs`.
+  Deployed coordinator source is unchanged by PR #41; digest `57d91fc2d7a65c0e7a124bb37c83876ef399408a2f08b3db9f9d2f4545f10462` is pinned in `tools/repair-unbound.mjs`.
 - **Released native source (current):** PR #35 commit `e32c6e305505c2963d51c4c0ae9acd10fa9f92bb`, release v11 from successful workflow `43421782938`.
   Native asset `743524944`, SHA-256 `b825e931bdc35523f53e2195218cc4141bec01b56c48214efeb598c7e22c6c71`; GitHub release metadata independently rechecked.
 - **Historical v5 artifact verification:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.

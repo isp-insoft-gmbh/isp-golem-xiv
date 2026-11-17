@@ -1,0 +1,28 @@
+{
+  "kind": "recorded-live-http-check",
+  "date": "2026-11-17",
+  "scope": "deployed assets, auth guards and member-authenticated APIs; not browser rendering or full Slice 4 acceptance",
+  "pull_request": 41,
+  "reviewed_head": "c498383c9e779c2297f6b2b96f999d817a8a9648",
+  "deployment": "b88f5f87095a7c72315558539c8c67d448134fc3",
+  "ci": {"pull_request": 44108681183, "trunk": 44110999820, "deploy": 44111000121, "conclusion": "success"},
+  "probe": {"exit_code": 0, "health_version_matches": true, "credential_values_recorded": false},
+  "assets": [
+    {"path": "/admin.css", "status": 200, "type": "text/css", "cache_control_no_store": true, "source_hash_matches": true, "sha256": "7bc94a1352793d642bdec07939f8230c4e7892933f6caa370763b316239fe8ad"},
+    {"path": "/admin.js", "status": 200, "type": "text/javascript", "cache_control_no_store": true, "source_hash_matches": true, "sha256": "2e555145e642ed3ee35080caca2d9e7526dc8c42cf1ea3e83ca060bdabc56835"}
+  ],
+  "guards": {"post_stylesheet": 405, "anonymous_admin": 302, "anonymous_admin_redirect_origin": "https://github.com", "anonymous_runs_api": 403},
+  "api_auth": "existing tester GitHub bearer, never printed or persisted; fresh membership enforced by deployed API",
+  "api": [
+    {"section": "runs", "status": 200, "rows": 2, "next_page": 2},
+    {"section": "undispatched", "status": 200, "rows": 0, "next_page": null},
+    {"section": "seats", "status": 200, "rows": 2, "next_page": null},
+    {"section": "repositories", "status": 200, "rows": 1, "next_page": 2}
+  ],
+  "all_authenticated_api_responses_private_no_store": true,
+  "limitations": [
+    "Live authenticated browser rendering of the rewritten UI is not established by this HTTP probe.",
+    "Historical audit coverage and refreshing-seat expiry remain incomplete.",
+    "No new agent execution or full Slice 4 acceptance is established."
+  ]
+}
