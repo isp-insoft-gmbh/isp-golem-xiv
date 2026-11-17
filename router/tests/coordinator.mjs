@@ -849,7 +849,7 @@ await scenario('gone predispatch target and cancelled bound run retain authorita
   assert.equal(stopped.duration_s, null); assert.equal(stopped.model, null);
 });
 
-for (const model of ['unsafe model secret', 'unobserved', 'x'.repeat(129), 'gpt-6.1-sol']) {
+for (const model of ['unsafe model secret', 'unobserved', 'default', 'x'.repeat(129), 'gpt-6.1-sol']) {
   await scenario(`admin model alphabet bounds ${model.slice(0, 20)} with unknown duration`, async f => {
     const req = request(); await f.enqueue(req); await f.bind(req, 9103); await f.complete(req);
     f.checkState.get(10).output.summary = f.checkState.get(10).output.summary.replace('model: observed-model', `model: ${model}`);
@@ -859,6 +859,20 @@ for (const model of ['unsafe model secret', 'unobserved', 'x'.repeat(129), 'gpt-
     assert.equal(audit.model, model === 'gpt-6.1-sol' ? model : null); assert.equal(audit.duration_s, null);
   });
 }
+
+await scenario('historical default-model audit stays immutable and does not block retirement', async f => {
+  const req = request(); await f.enqueue(req); await f.bind(req, 9106); await f.complete(req);
+  await f.call('tick');
+  const sha = f.refs.get('refs/tags/golem-run/9106');
+  const tag = f.tags.get(sha);
+  const legacy = JSON.parse(tag.message); legacy.model = 'default';
+  tag.message = JSON.stringify(legacy);
+  const originalMessage = tag.message;
+  await f.restart(); await f.enqueue(request('other', 'next', {check_run_id: 11}));
+  assert.equal(f.row(req.delivery_id), undefined, 'placeholder normalization cannot strand a terminal row');
+  assert.equal(f.tags.get(sha).message, originalMessage, 'existing audit is never rewritten');
+  assert.equal(f.refs.get('refs/tags/golem-run/9106'), sha);
+});
 
 for (const gone of [false, true]) {
   await scenario(`predispatch stop ${gone ? 'gone' : 'present'} has durable no-run admin audit`, async f => {

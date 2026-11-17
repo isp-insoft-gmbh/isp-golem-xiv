@@ -44,7 +44,7 @@ pub fn sha(value: &str) -> bool {
 pub fn model(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
-        && value != "unobserved"
+        && !matches!(value, "unobserved" | "default")
         && value
             .as_bytes()
             .first()
@@ -114,7 +114,12 @@ impl Audit {
         if fields.as_object()?.len() != 17 {
             return None;
         }
-        let audit: Self = serde_json::from_value(fields).ok()?;
+        let mut audit: Self = serde_json::from_value(fields).ok()?;
+        // Early v3 audits copied the runner's placeholder; preserve immutable history
+        // while making its lack of a model observation explicit to consumers.
+        if audit.model.as_deref() == Some("default") {
+            audit.model = None;
+        }
         let (login, provider) = audit.seat.split_once('/')?;
         if audit.version != 3
             || !valid_delivery(&audit.request_id)

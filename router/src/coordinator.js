@@ -17,7 +17,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const states = new Set(['pending', 'reserved', 'dispatching', 'bound', 'dispatch_uncertain', 'stop_requested', 'terminal']);
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const utc = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value.replace(/Z$/, value.includes('.') ? 'Z' : '.000Z');
-const observedModel = value => typeof value === 'string' && value !== 'unobserved' && /^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$/.test(value);
+const observedModel = value => typeof value === 'string' && !['unobserved', 'default'].includes(value) && /^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$/.test(value);
 const outcomes = {changed: 'success', replied: 'success', no_change: 'success', incomplete: 'neutral', blocked: 'failure', stopped: 'cancelled'};
 const shares = (a, b) => a.seat === b.seat || a.resource === b.resource;
 const dispatchEligible = (row, i, records) => ['pending', 'reserved'].includes(row.state) && !row.dispatched && row.run_id === null
@@ -441,9 +441,12 @@ export class Coordinator {
       const tag = await this.api(`${ops}/git/tags/${prior.object.sha}`);
       if (tag.sha !== prior.object.sha || tag.tag !== name || tag.object?.type !== 'tag' || tag.object.sha !== row.tag || typeof tag.message !== 'string' || tag.message.length > 4096) throw new Failure(503);
       const audit = JSON.parse(tag.message);
+      // Early v3 records copied this placeholder. It is unknown, not an observation;
+      // never rewrite an immutable audit merely to normalize the read representation.
+      const reportedModel = audit.model === 'default' ? null : audit.model;
       const keys = [...Object.keys(identity), 'outcome', 'model', 'duration_s', 'completed_at', 'log'];
       if (Object.keys(audit).length !== keys.length || !keys.every(key => Object.hasOwn(audit, key)) || !Object.entries(identity).every(([key, value]) => audit[key] === value)
-        || (audit.outcome !== null && !Object.hasOwn(outcomes, audit.outcome)) || (audit.model !== null && (!observedModel(audit.model) || row.check_repaired))
+        || (audit.outcome !== null && !Object.hasOwn(outcomes, audit.outcome)) || (reportedModel !== null && (!observedModel(reportedModel) || row.check_repaired))
         || (audit.duration_s !== null && (row.run_id === null || typeof audit.duration_s !== 'number' || !Number.isFinite(audit.duration_s) || audit.duration_s < 0)) || !utc(audit.completed_at) || audit.log !== log) throw new Failure(503);
       sha = tag.sha;
     } else {
