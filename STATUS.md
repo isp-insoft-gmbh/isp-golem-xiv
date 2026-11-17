@@ -2,6 +2,15 @@
 
 - **Current slice:** 4, in progress; not accepted.
   Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
+- **Current task: admin UI rewrite (local, not deployed):** branch `feat/plain-admin-ui` preserves the plain document style with semantic navigation, readable tables and health metrics, concise coverage warnings, visible retry/reload actions and about-data disclosures.
+  Static CSS is about 2 KB; no framework, external fonts, animation or polling.
+  Admin HTML alone permits same-origin stylesheet loading; API/auth logic and guards are unchanged.
+  Final full Worker gate `activity-26d024ae-21` completed with exit 0 in 60.21 s; all four suite summaries confirmed, including CSS 200/MIME/no-store/reference/CSP and non-GET 405 checks.
+  Current DOM regressions cover mixed-source failures, retry disabling/recovery, membership revoked during pagination, expired pagination, unknowns, counts and deduplication.
+  Firefox 160 local HTTP fixture rendered actual Rust HTML/JS/CSS at 1440 px and 390 px with no document overflow; mobile tables scroll within labelled focusable regions instead of squeezing labels into letters.
+  Browser retry terminal state verified: error cleared, one undispatched row added, original dispatched row retained once, usage count unchanged; pagination also verified.
+  Independent review's hidden-status finding resolved; actual native keyboard scrolling remains unverified (headed redraw timeout), not claimed passed.
+  Next: PR, exact-head CI, deployment and live verification of the rewritten UI.
 - **Admin dashboard (first increment deployed):** PR #39 merged `da28fd64545e3a7cdde68b3efc2b4d13c38f6db4` after exact-head CI `44084644483`; trunk CI `44086507038` and deploy `44086507106` succeeded.
   Live health matches `da28fd6`; authenticated runs/seats/repositories/undispatched APIs return 200 with private/no-store responses.
   Runs page 1 contains one verified audit, nine missing audits, zero malformed audits, with 88 workflows total and explicit pagination.
@@ -12,18 +21,24 @@
   Unpinned Clippy selected inherited Rust 1.100 and failed on existing newer lints; explicit `mise exec -- rustup run 1.99.1 cargo clippy …` passed without source changes for those lints.
   Earlier gates failed integrated fixtures; assertions were preserved and fixtures corrected; independent review also found audit-maintenance starvation and retry-budget exhaustion, now covered by red→green coordinator regressions.
   Independent review findings are resolved within inspected scope; Firefox 160 local HTTP fixture populated all five sections and exercised runs/repository pagination.
-  Remaining before completion: authenticated live browser and successful fresh run proof, historical audit backfill, seat-expiry metadata, explicit `mise run accept -- --slice 4`.
+  Remaining before completion: successful fresh run proof, historical audit backfill, seat-expiry metadata, explicit `mise run accept -- --slice 4`.
   Read-only historical recovery candidate verified for run `43428751065`: request tag `5aa18f1c36ed5752611de04281976b5ba4791324`, bound snapshot `08775555fe6e874b208704a899a1bd196b391aa5`, terminal snapshot `a321c61112bcfaa4e13f9c8ae2326f08a40fb2c5`, target check `131896504858`, matching identities; 387 s duration, reported model `default` means actual model unknown.
   Coverage: one historical join only, not all 88; no backfill writes made.
   Fresh `claudeconv` mention in native-config sandbox issue #7, comment `6948843571`: run `44089143230`, check `134059245652` blocked with native error `container execution failed`; request tag `74a936bba9d36cc37cfcb1b5e00d251a8d18e143` and admin/API v3 audit bindings verified, model null, outcome blocked, duration 367 s.
   This proves blocked-run audit projection, not successful agent execution; stage of container failure remains unknown because existing diagnostics discard stage/exit details.
   Read-only comparison against successful Claude check `131769403103` shows only `.golems/pioncodex.md` and `README.md` changed; harness/toolchain configuration did not change.
-  Oliver agreed to sign into a fresh headed Firefox window for live admin-page proof; wait for `done` before inspecting the page.
-  Local correction: legacy `model: default` means unknown, not an observed model; red Rust regression confirmed, producer/read projection fixed without rewriting immutable audits.
+  Oliver completed GitHub sign-in in fresh headed Firefox 160; the live page rendered all five populated sections as `bugabinga`, and pagination loaded two repository sections and 20 workflow metadata entries.
+  `admin-page` evidence is recorded in `evidence/admin-page-20261117.json`; screenshot inspected privately, no private repository names or credentials in the committed trace.
+  Initial browser evidence predates the model correction; subsequent authenticated verification matched live `0c06d46`, API model null and rendered unknown for historical run `43428751065`.
+  Full history and refreshing-seat expiry remain explicitly incomplete.
+  A network event accidentally exposed the temporary browser-session cookie in private tool output; no provider credential was exposed, network subscription was disabled, cookie expires 2026-11-17 14:41:28 UTC; never copy the value into files or reports.
+  Placeholder-model correction merged as PR #40 `0c06d46e5b07db04d28ea49769023a12191d238f` after exact-head CI `44096517493`; trunk CI `44098456881` and deployment `44098456622` passed (activity `activity-26d024ae-13`).
+  Live health matches `0c06d46`; authenticated legacy-placeholder normalization is verified live.
+  Legacy `model: default` means unknown, not an observed model; red Rust regression confirmed, producer/read projection fixed without rewriting immutable audits.
   Full gate `activity-26d024ae-11` passed exit 0 in 73.53 s; all four suite summaries retained in `C:/Users/okr/AppData/Local/Temp/golem-admin-model-20261117.log`; pinned host/wasm Clippy, four admin tests and repair/digest checks passed.
   Narrow independent review found no new provenance/safety blocker; this correction does not claim universal observed-model provenance for every harness.
   Mobile fixture viewport (390 px) has horizontal table overflow (567 px); desktop (1440 px) does not.
-  Operator guide drafted at `OPERATIONS.md`; authenticated live page verification remains pending.
+  Operator guide drafted at `OPERATIONS.md`; authenticated rendering and the placeholder-model correction are verified on the deployed system, while the new UI rewrite is local only.
 - **Slice 3 progress (live unless noted):**
   PR #19 fixed the `app-oauth` probe; secret valid, blocked on Oliver registering callback `https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/auth/github/callback`.
   PR #20 (`27e847f`): help and seat replies live-verified (core sandbox issue 10, comments `6786466094`, `6786465986`); `/seats` and `/admin` sign-in redirect; `seat-page` gate green.
@@ -69,10 +84,11 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `feat/admin-live-proof`.
-- **Deployed Worker (verified 2026-11-17):** PR #39 merge `da28fd64545e3a7cdde68b3efc2b4d13c38f6db4`; live health matches, trunk CI `44086507038` and deploy `44086507106` succeeded.
+- **Current branch:** `feat/plain-admin-ui`.
+- **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
+- **Deployed Worker (verified 2026-11-17):** PR #40 merge `0c06d46e5b07db04d28ea49769023a12191d238f`; live health matches, trunk CI `44098456881` and deploy `44098456622` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
-  Deployed coordinator source matches PR #39; its digest is pinned in `tools/repair-unbound.mjs`.
+  Deployed coordinator source matches PR #40; digest `57d91fc2d7a65c0e7a124bb37c83876ef399408a2f08b3db9f9d2f4545f10462` is pinned in `tools/repair-unbound.mjs`.
 - **Released native source (current):** PR #35 commit `e32c6e305505c2963d51c4c0ae9acd10fa9f92bb`, release v11 from successful workflow `43421782938`.
   Native asset `743524944`, SHA-256 `b825e931bdc35523f53e2195218cc4141bec01b56c48214efeb598c7e22c6c71`; GitHub release metadata independently rechecked.
 - **Historical v5 artifact verification:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.

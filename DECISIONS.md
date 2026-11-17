@@ -3,6 +3,25 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-17: Rewrite the admin UI as a plain, actionable document
+
+- Oliver likes the simple admin interface and requested a rewrite that is understandable, semantic, readable, pleasant, fast and actionable without elaborate CSS.
+  The rewrite uses native sections, navigation, tables, definition lists, buttons and details; no framework, remote font, animation or polling.
+- A roughly 2 KB same-origin stylesheet provides readable spacing and bounded horizontal table regions on small screens.
+  Only admin HTML adds `style-src 'self'`; existing script/connect/frame restrictions, fresh membership checks and API behavior remain unchanged.
+- Coverage gaps and source failures stay visible; explanatory implementation details are collapsed.
+  An independent review found undispatched failure/retry hidden in a disclosure; moving status and controls outside it resolved that finding.
+  Retry disables during requests; expired pagination offers reload rather than resending an expired cursor; empty metadata never claims there were no runs.
+- Current DOM regressions passed, including mixed-source recovery retaining existing rows without adding undispatched work to usage.
+  Final parent full Worker gate `activity-26d024ae-21` completed with exit 0 in 60.21 s; all four suite summaries confirmed; CSS delivery, MIME, no-store, HTML reference, scoped CSP and non-GET rejection are covered.
+- Firefox 160 local HTTP fixture served actual Rust-rendered HTML and current JS/CSS.
+  Desktop 1440 px and mobile 390 px had no document overflow; labelled tables keep their own horizontal overflow instead of making text unreadable.
+  Real retry terminal state showed two rows (one dispatched, one undispatched), one unique dispatched log and usage count 1; final pagination showed three audited records (two dispatched, one undispatched).
+  These are invented fixture records, not live execution evidence.
+  Keyboard focusability is verified, but native ArrowRight scrolling was not established after a headed-browser redraw timeout.
+- PR #40 deployment and trunk CI subsequently passed; live health matched `0c06d46`, and authenticated browser/API checks showed historical run `43428751065` as model null/rendered unknown.
+  The rewritten UI itself is not deployed yet; no full Slice 4 acceptance or judge change is claimed.
+
 ## 2026-11-17: Live admin projection and unknown model correction
 
 - PR #39 merged `da28fd6` after exact-head CI `44084644483`; trunk CI `44086507038` and deploy `44086507106` passed, and live health matches.

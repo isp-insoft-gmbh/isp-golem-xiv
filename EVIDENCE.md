@@ -11,6 +11,7 @@ One line per promise: `- <id>: <link to a run, comment, or screenshot, or path o
 - seat-refresh: [refreshing run 43206088999](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43206088999) Codex 0.167.1 refreshes when the access token is about to expire, not by `last_refresh` age, so the seeded seat had only its access-token `exp` claim set an hour in the past (and `last_refresh` 30 days old) and was stored via the API at 11:03:14Z. Run 1 (check `131140812786`, replied) logged `golem seat: refreshed`, and the stored seat's `updated_at` moved to 11:08:56Z. The next two runs, [43206718988](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43206718988) (check `131143483988`) and [43207333628](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43207333628) (check `131145603414`), replied on the refreshed seat with `golem seat: unchanged`.
 - seat-replace: [first run on the replaced seat 43206088999](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43206088999) `router/tests/worker.mjs` registers the same provider twice through the page and asserts the second write replaces the same secret name with the new ciphertext (`replaced: true`); live, `SEAT_BUGABINGA__OPENAI_CODEX` created at 10:39:09Z was replaced at 11:03:14Z (metadata `updated_at` > `created_at`), and every later run used the replacement.
 - seat-left-org: `router/tests/policy.rs` (`seat_holders_map_secret_names_to_members_and_report_people_who_left`, `dashboard_lists_sections_golems_disabled_and_seats_privately_only`) and the onboarding scenario in `router/tests/worker.mjs` render the private dashboard's Seats section from ops secret names matched to current members, listing an unmatched `SEAT_GONE_PERSON__OPENAI_CODEX` under "Seats of people who left the organization" and never showing non-seat secret names or values; public repositories list no seats.
+- admin-page: [recorded live Firefox session](evidence/admin-page-20261117.json) Oliver completed GitHub sign-in as `bugabinga`; the deployed page populated Runs, Usage, Health, Seats and Repositories, and live pagination loaded a second repository and another runs page; screenshot inspected privately, with historical gaps and unknown expiry explicitly visible; this proves rendering, not complete Slice 4 acceptance.
 - refused-not-member: [deployed refusal](https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-mw126nzr-2665e70b/issues/1#issuecomment-6613046125) The same harness signed the recorded delivery as verified non-member `octocat`, observed the App's `not-member` reply, with zero matching runner runs.
 
 Slice 1 full deployed acceptance passed three consecutive times with released runner `v1`:
@@ -238,3 +239,16 @@ Separately, seven read-only GETs established one historical recovery candidate: 
 App, repository/head, paying seat, harness, run and attempt identities matched.
 Outcome replied and duration 387 s are sourced; `model: default` leaves the actual model unknown.
 No historical audit was written; recoverability of the other 87 scoped workflows is undetermined.
+
+## Deployed placeholder correction and local UI rewrite
+
+PR #40 deployment `44098456622` and trunk CI `44098456881` passed.
+Authenticated Firefox verification matched `/health` version `0c06d46e5b07db04d28ea49769023a12191d238f`, API status 200 for historical run `43428751065` with model null, and its rendered model cell `unknown` (BiDi responses `1301`–`1302`).
+This verifies the model correction, independently of the earlier `da28fd6` rendering record.
+
+The subsequent UI rewrite is local only.
+Final parent full Worker gate `activity-26d024ae-21` completed with exit 0 in 60.21 s; terminal status and all four suite summaries confirmed from retained log `C:/Users/okr/AppData/Local/Temp/golem-admin-ui-final-regressions-20261117.log`, including the current DOM consumer, new stylesheet/CSP/method checks and 105 coordinator scenarios.
+Firefox 160 fixture verification used actual Rust-generated HTML plus current JS/CSS; 390 px viewport had document scroll width 390, with horizontal tables confined to labelled focusable regions.
+A populated retry scenario confirmed visible undispatched-source failure, disabled Retry during its request, then cleared error, one newly rendered undispatched record, one preserved dispatched record and unchanged dispatched usage count 1.
+Desktop pagination reached three displayed records (two dispatched, one undispatched) and two repositories without duplicated dispatched rows or document overflow at 1440 px.
+Those records are invented fixtures, not deployed runs; native keyboard horizontal scrolling remains unverified.

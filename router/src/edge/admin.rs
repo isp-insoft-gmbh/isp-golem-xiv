@@ -13,7 +13,15 @@ pub(super) async fn page(request: &Request, env: &Env) -> Result<Response> {
     if !github.member(&login).await? {
         return denied(403);
     }
-    registration::html(policy::page(&login))
+    let mut response = registration::html(policy::page(&login))?;
+    response.headers_mut().set(
+        "Content-Security-Policy",
+        &format!(
+            "{}; style-src 'self'",
+            crate::registration::CONTENT_SECURITY_POLICY
+        ),
+    )?;
+    Ok(response)
 }
 
 fn denied(status: u16) -> Result<Response> {

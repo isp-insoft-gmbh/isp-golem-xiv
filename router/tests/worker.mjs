@@ -899,9 +899,18 @@ async function seatRegistration() {
   const csrf = html.match(/<meta name="golem-csrf" content="([0-9a-f]{64})">/)[1];
   response = await worker.dispatchFetch(`${base}/admin`, {headers:{Cookie:session}});
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get('Content-Security-Policy'), `${policy}; style-src 'self'`);
   const adminPage = await response.text();
   for (const heading of ['Runs','Usage','Health','Seats','Repositories']) assert.ok(adminPage.includes(`>${heading}</h2>`));
   assert.ok(adminPage.includes('/admin.js') && !adminPage.includes('Slice 4'));
+  assert.ok(adminPage.includes('<link rel="stylesheet" href="/admin.css">'));
+  const adminStyle = await worker.dispatchFetch(`${base}/admin.css`);
+  assert.equal(adminStyle.status, 200);
+  assert.match(adminStyle.headers.get('Content-Type'), /^text\/css/);
+  assert.match(adminStyle.headers.get('Cache-Control'), /no-store/);
+  const css = await adminStyle.text();
+  assert.ok(css.includes('.table-region') && css.includes('overflow-x: auto') && css.includes('.metrics'));
+  assert.equal((await worker.dispatchFetch(`${base}/admin.css`, {method:'POST'})).status, 405);
   // Consumer boundary: real Worker auth, metadata projection, pagination and no credential reads.
   const adminScript = await worker.dispatchFetch(`${base}/admin.js`);
   assert.match(adminScript.headers.get('Cache-Control'),/no-store/);

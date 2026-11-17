@@ -102,7 +102,8 @@ pub(super) async fn route(
     path: &str,
 ) -> Option<Result<Response>> {
     let method = request.method();
-    let admin_path = path == "/admin" || path == "/admin.js" || path.starts_with("/v1/admin/");
+    let admin_path =
+        matches!(path, "/admin" | "/admin.js" | "/admin.css") || path.starts_with("/v1/admin/");
     if admin_path && method != Method::Get {
         return Some(
             Response::error("Method not allowed", 405)
@@ -116,6 +117,8 @@ pub(super) async fn route(
         (Method::Get, "/admin") => bounded(super::admin::page(request, env), 25_000).await,
         (Method::Get, "/admin.js") => Response::ok(include_str!("../admin.js"))
             .and_then(|script| secured(script, "text/javascript; charset=utf-8")),
+        (Method::Get, "/admin.css") => Response::ok(include_str!("../admin.css"))
+            .and_then(|style| secured(style, "text/css; charset=utf-8")),
         (Method::Get, "/v1/admin/runs") => {
             bounded(super::admin::data(request, env, "runs"), 25_000).await
         }
