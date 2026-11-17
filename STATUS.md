@@ -1,6 +1,17 @@
 # Status
 
-- **Current slice:** 3, in progress. Slice 2 passed unchanged full acceptance (32/32, see below); Slice 1 passed earlier.
+- **Current slice:** 4, in progress; not accepted.
+  Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
+- **Admin dashboard (local; not deployed):** branch `feat/admin-dashboard` implements member-authenticated runs, usage, health, seats and repository views, plus sanitized durable coordinator audits before retirement.
+  Live red before implementation: tester-authorized `GET /v1/admin/runs` returned 404 on 2026-11-17.
+  Final parent full Worker gate `activity-26d024ae-6` passed exit 0 (42.17 s), including the repository-pagination correction and all four unchanged suites; retained log `C:/Users/okr/AppData/Local/Temp/golem-slice4-worker-final-20261117.log`.
+  Pinned Rust 1.99.1 host/wasm Clippy, 39 router tests, DOM consumer and repair/digest tests passed.
+  Unpinned Clippy selected inherited Rust 1.100 and failed on existing newer lints; explicit `mise exec -- rustup run 1.99.1 cargo clippy …` passed without source changes for those lints.
+  Earlier gates failed integrated fixtures; assertions were preserved and fixtures corrected; independent review also found audit-maintenance starvation and retry-budget exhaustion, now covered by red→green coordinator regressions.
+  Independent review findings are resolved within inspected scope; Firefox 160 local HTTP fixture populated all five sections and exercised runs/repository pagination.
+  Remaining before completion: PR/CI/deploy, authenticated live browser and run proof, historical audit backfill, seat-expiry metadata, explicit `mise run accept -- --slice 4`.
+  Mobile fixture viewport (390 px) has horizontal table overflow (567 px); desktop (1440 px) does not.
+  Operator guide drafted at `OPERATIONS.md`; its admin section explicitly remains pending deployment.
 - **Slice 3 progress (live unless noted):**
   PR #19 fixed the `app-oauth` probe; secret valid, blocked on Oliver registering callback `https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/auth/github/callback`.
   PR #20 (`27e847f`): help and seat replies live-verified (core sandbox issue 10, comments `6786466094`, `6786465986`); `/seats` and `/admin` sign-in redirect; `seat-page` gate green.
@@ -39,20 +50,25 @@
 - **Pi on OpenAI Codex seats:** PR #35 (runner) merged `e32c6e3`; release v11 (run `43421782938`, native asset `743524944`, SHA-256 `b825e931bdc35523f53e2195218cc4141bec01b56c48214efeb598c7e22c6c71`) pinned by ops PR #17 (`8859012`, CI `43423147818`, byte-matched); router PR #36 merged `acc2045` enables dispatch.
   Live on the real `SEAT_BUGABINGA__OPENAI_CODEX` in `isp-insoft-gmbh/isp-golem-xiv-test-nativeconfig-20261113090534`: `pioncodex` (pi) run `43427764438`, check `131893226478` replied, `harness: pi`, observed `gpt-6.1-sol`; then `codexconv` (codex) run `43428751065`, check `131896504858` replied on the same seat; both logged `golem seat: unchanged` (token not near expiry).
   Not yet observed live: Pi refreshing the seat and the next Codex run accepting the written-back format; expected once the access token nears expiry (~2026-11-22).
-- **Windows Worker tests:** Oliver completed WSL trust and tool installation; branch `fix/windows-worker-wsl` restores the `x` routing change.
+- **Windows Worker tests:** PR #38 merged `9ca67f4` after exact-head Linux CI `44066584742`; trunk CI `44068374065` and deploy `44068374290` also passed.
+  Oliver completed WSL trust and tool installation; the `x` routing change is merged.
   `mise run test-worker` passed (activity `activity-26d024ae-1`, exit 0, 210.41 s): native Worker build followed by all four unchanged suites in WSL, including the oversized-body 413 assertion in `router/tests/worker.mjs`.
-  Fmt, `x` Clippy, its three unit tests and Markdown checks passed; Linux PR CI remains required before merge.
+  Fmt, `x` Clippy, its three unit tests and Markdown checks passed.
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `fix/windows-worker-wsl`.
-- **Deployed Worker:** PR #29 merge `7fecb9bc57390fc619900ede541fbab14fb07c57`; live health verified. Runtime pins native v8 (ops PR #14). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
-- **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
+- **Current branch:** `feat/admin-dashboard`.
+- **Deployed Worker (verified 2026-11-17):** PR #38 merge `9ca67f459908160a9cc6751ea6219733af1b1035`; live health matches, trunk CI `44068374065` and deploy `44068374290` succeeded.
+  Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
+  Deployed coordinator digest `75a4dd6bc151592ed10d3b5d8168ff65c92e2074e071748a29e29d5e41e123c0`; local Slice 4 coordinator changes are not deployed.
+- **Released native source (current):** PR #35 commit `e32c6e305505c2963d51c4c0ae9acd10fa9f92bb`, release v11 from successful workflow `43421782938`.
+  Native asset `743524944`, SHA-256 `b825e931bdc35523f53e2195218cc4141bec01b56c48214efeb598c7e22c6c71`; GitHub release metadata independently rechecked.
+- **Historical v5 artifact verification:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
   All seven declared assets downloaded and verified against GitHub digests; aggregate/native checksums, archived-vs-standalone binary and license source bytes matched; scratch removed.
   Native asset `713835375`, SHA-256 `a97b865e9a12a921841e7e71b686154229c363b60c2933187ebe590894dbca2f`.
   Release container remains mutable; no independent build attestation or immutable-container claim.
-- **Private ops:** PR #10 merged as `b0ceede98f7495c86852baa88f4868eb40262aae` after exact-head CI `42054652720` on `a3efde5a108ff57e18027d1ea68fa2c377c74193`.
+- **Historical v5 private ops:** PR #10 merged as `b0ceede98f7495c86852baa88f4868eb40262aae` after exact-head CI `42054652720` on `a3efde5a108ff57e18027d1ea68fa2c377c74193`.
   Runtime workflow byte-compared with reviewed v5 template; SHA-256 `21f209196050f761bedebb4e27fd0a81b285b0bc14030d19c01061ec43072cc4`.
   Public template/historical-fixture PR #13 merged as `976a4fd900336006a1293b2818c7aa2ebe8c056b`; trunk CI/deployment succeeded and live identity verified.
   `GOLEM_PROTOCOL_VERSION=2` remains enabled.

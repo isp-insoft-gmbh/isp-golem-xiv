@@ -2,7 +2,8 @@
 
 Unattended agents for GitHub repositories, driven by Markdown files in `.golems/`.
 
-Not implemented yet.
-[SPEC.md](SPEC.md) says what it does, [PLAN.md](PLAN.md) how it gets built, and [contract.nuon](contract.nuon) what the acceptance test checks.
+[OPERATIONS.md](OPERATIONS.md) covers onboarding, seats, running golems and troubleshooting.
+[STATUS.md](STATUS.md) records deployed progress and unfinished work.
+[SPEC.md](SPEC.md) defines behavior, [PLAN.md](PLAN.md) the implementation sequence, and [contract.nuon](contract.nuon) the acceptance promises.
 
 Licensed under the [MIT License](LICENSE).

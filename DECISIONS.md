@@ -3,6 +3,34 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-17: Organization dashboard and durable sanitized audits
+
+- Red before implementation: tester-authorized `GET /v1/admin/runs` returned HTTP 404 on the deployed system.
+  `admin-auth` already redirected to GitHub; `admin-page` evidence is still missing.
+- Coordinator publishes an immutable v3 annotated `golem-admin/<request-id>` tag targeting the original request tag, plus a `golem-run/<run-id>` alias for dispatched work, before retirement.
+  The closed audit schema includes request/run identity, repository, golem, trigger, seat, observed model, outcome, duration, completion time and fixed ops log URL; request instructions and credential values are never projected into dashboard output.
+  Unknown observations stay null, not requested models or inferred successful outcomes.
+- Duration means Actions `run_started_at` to final target check completion, not billing time.
+  Check App/name/head/seat/harness/budget/log and repository identity are validated before audit construction; retries validate existing immutable records and never overwrite conflicts.
+- Every admin data request checks current organization membership; bearer identity comes from GitHub `/user`, never from caller claims.
+  Cookie sign-in reuses the existing OAuth session, returns to the fixed `/admin` destination, and also rechecks membership.
+  Responses are private/no-store, text rendering is escaped, and log URLs remain fixed to ops.
+- Pagination is bounded per request, with explicit missing/malformed/pending coverage and partial-page messages.
+  A repository-specific metadata failure preserves pagination and is shown as unavailable, never as a disabled repository.
+  Usage and health describe loaded verified records, not silently claimed whole-window totals.
+- Historical retired runs lack the new sanitized audits and require verified backfill; no synthetic history is created.
+  Refreshing-seat expiry is unknown because GitHub secret names do not contain expiry; secret update time is not expiry.
+  Both gaps remain unresolved spec work, not accepted omissions.
+- Independent review found audit maintenance could starve unrelated pending execution, and journal retries could exhaust the call budget after persisting dispatch intent.
+  Reproductions went red before fixes: maintenance now leaves dispatch headroom, validated immutable requests are reused only within an operation, and dispatch-intent publication checks retry headroom after reservation.
+  Unknown-dispatch fencing and late-bind refusal remain intact.
+- Two parent full Worker gates failed integrated fixtures (selected-repository mismatch, then unsupported new check metadata reads exhausting the existing mock bound).
+  Fixture resources were corrected; original scenarios, assertions and limits remain.
+  Parent gate `activity-26d024ae-5` then passed exit 0 in 69.84 s.
+  After the repository-pagination correction, final parent gate `activity-26d024ae-6` passed exit 0 in 42.17 s with all four suite summaries retained in `C:/Users/okr/AppData/Local/Temp/golem-slice4-worker-final-20261117.log`.
+  Pinned Rust 1.99.1 Clippy passed on host and wasm; inherited Rust 1.100 had reported newer lints in unchanged code, so verification used explicit `rustup run 1.99.1` rather than modifying source for that environment.
+  No judge changes, deployment or full Slice 4 acceptance claimed.
+
 ## 2026-11-17: Run Windows Worker suites in WSL
 
 - Oliver selected WSL rather than skipping oversized-body assertions or draining unauthenticated request bodies.

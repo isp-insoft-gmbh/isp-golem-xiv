@@ -24,8 +24,10 @@ const head = "a".repeat(40);
 const files = new Map(["hello", "second"].map(name => [`${name}.md`, "---\n---\nReply without changing files."]));
 const json = (status, value = {}) => new Answer(status === 204 ? null : JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 // GitHub Contents CAS + immutable refs/tags, translated from coordinator.mjs.
-const refs = new Map(), tags = new Map(), runs = new Map(), continuations = new Map();
+const refs = new Map(), tags = new Map(), runs = new Map(), continuations = new Map(), checkResources = new Map();
+const startedAt = '2026-11-13T01:00:00Z', completedAt = '2026-11-13T01:00:42Z';
 const dispatches = [], checks = [], reactions = [], writes = [], refEvents = [];
+const unsupported = [];
 let index = null, initial = null, counter = 1, calls = 0, journalReads = 0;
 let failEventIndexWrites = 0, interruption = null, journalConflicts = 0;
 const sha = () => (counter++).toString(16).padStart(40, "0");
@@ -59,7 +61,20 @@ async function githubFixture(request) {
   }
   if (path === "/orgs/isp-insoft-gmbh/memberships/member") return json(200, { state: "active" });
   if (path === `${ops}/actions/secrets/SEAT_MEMBER__ANTHROPIC`) return json(200);
-  if (path === `${target}/check-runs` && method === "POST") { checks.push(body); return json(201, { id: checks.length }); }
+  if (path === `${target}/check-runs` && method === "POST") {
+    checks.push(body);
+    const id = checks.length;
+    checkResources.set(id, {...body,id,app:{id:4605060},completed_at:null});
+    return json(201, {id});
+  }
+  const checkId = path.match(new RegExp(`^${target}/check-runs/(\\d+)$`))?.[1];
+  if (checkId) {
+    const check = checkResources.get(Number(checkId));
+    if (!check) return json(404);
+    if (method === "PATCH") Object.assign(check, body, {completed_at:body.completed_at ?? completedAt});
+    else assert.equal(method,"GET");
+    return json(200,check);
+  }
   if (path.endsWith("/reactions") && method === "POST") { reactions.push(body); return json(201, { id: reactions.length }); }
   if (path === `${ops}/contents/scheduler-v2.json`) return json(500);
   if (path === `${ops}/contents/events-v2.json` || path.startsWith(`${ops}/contents/events-v2/`)) {
@@ -120,7 +135,7 @@ async function githubFixture(request) {
     return value ? json(200, { ref, object: { sha: value, type: ref.startsWith("refs/tags/") ? "tag" : "commit" } }) : json(404);
   }
   if (path === `${ops}/git/tags` && method === "POST") {
-    const value = sha(); tags.set(value, { ...body, sha: value }); return json(201, { sha: value });
+    const value = sha(); tags.set(value, { ...body, object: {type:body.type,sha:body.object}, sha: value }); return json(201, { sha: value });
   }
   if (path.startsWith(`${ops}/git/tags/`)) { assert.ok(tags.has(path.split("/").at(-1))); return json(200, tags.get(path.split("/").at(-1))); }
   if (path === `${ops}/actions/workflows/runner.yml/runs`) {
@@ -142,6 +157,7 @@ async function githubFixture(request) {
   }
   const run = path.match(/\/actions\/runs\/(\d+)$/);
   if (run) return runs.has(Number(run[1])) ? json(200, runs.get(Number(run[1]))) : json(404);
+  unsupported.push(`${method} ${path}`);
   assert.fail(`Unexpected fixture API: ${method} ${path}`);
 }
 const config = {
@@ -186,6 +202,13 @@ async function callback(action, sent, runId, fields = {}, status = 200, signingK
   const text = await response.text();
   assert.equal(response.status, status, text);
   return status === 200 ? JSON.parse(text) : text;
+}
+// Model the native publisher before its successful completion callback, not an inferred outcome.
+function finishRun(sent, runId) {
+  Object.assign(runs.get(runId), {status:"completed",conclusion:"success",created_at:startedAt,run_started_at:startedAt,updated_at:completedAt});
+  const check = checkResources.get(sent.check_run_id);
+  assert.ok(check);
+  Object.assign(check, {status:"completed",conclusion:"success",completed_at:completedAt,output:{title:"replied",summary:`outcome: replied\nseat: ${sent.seat_login}/${sent.provider}\nharness: ${sent.harness}\nmodel: fixture-observed-model\nbudget: ${sent.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${runId}`}});
 }
 try {
   const response = await worker.dispatchFetch("https://fixture.invalid/health");
@@ -275,7 +298,7 @@ try {
   assert.equal(dispatches.length, 1);
   // Match coordinator.mjs's finished-run double. An in-progress Actions run
   // remains a legacy-active fence even after protocol completion.
-  Object.assign(runs.get(1001), { status: "completed", conclusion: "success" });
+  finishRun(first,1001);
   assert.deepEqual(await callback("complete", first, 1001, attestations), { state: "terminal" });
   assert.equal(row(firstId).state, "terminal");
   assert.equal(dispatches.length, 2);
@@ -288,7 +311,7 @@ try {
   await callback("complete", first, 1001, { ...attestations, generation: randomUUID() }, 409);
   assert.equal(row(secondId).state, "bound", "stale prior callback cannot release next owner");
   assert.equal(dispatches.length, 2);
-  Object.assign(runs.get(1002), { status: "completed", conclusion: "success" });
+  finishRun(dispatches[1],1002);
   assert.deepEqual(await callback("complete", dispatches[1], 1002, attestations), { state: "terminal" });
 
   // Source publication succeeds but all index CAS attempts fail: restart must
@@ -378,6 +401,7 @@ try {
   await worker.dispose();
   worker = new Miniflare(config);
   await scheduled();
+  assert.equal(unsupported.length, 0, `unsupported fixture routes before healthy admission (calls=${calls}): ${JSON.stringify(unsupported)}`);
   assert.equal(queue().records.filter(record => record.id === healthyId).length, 1, "healthy indexed peer admitted across restart");
   assert.equal(row(healthyId).state, "pending", "existing seat owner still fences dispatch");
   for (let i = 0; i < 3; i++) await scheduled();
@@ -389,6 +413,14 @@ try {
   assert.equal(refs.has(`refs/tags/golem-event/${healthyId}`), false);
   assert.equal(dispatches.length, beforeLegacy);
   assert.equal(checks.length, 3);
+  for (const sent of [first,dispatches[1]]) {
+    const original = refs.get(`refs/tags/golem-request/${sent.delivery_id}`);
+    assert.equal(refs.get(`refs/tags/golem-terminal/${sent.delivery_id}`),original,"terminal receipt survives sanitized audit retirement");
+    const audit = JSON.parse(tags.get(refs.get(`refs/tags/golem-admin/${sent.delivery_id}`)).message);
+    assert.equal(audit.outcome,"replied");
+    assert.equal(audit.model,"fixture-observed-model");
+    assert.equal(audit.duration_s,42);
+  }
   console.log("Worker artifact: cold mention, orphan restart, legacy dedup, retirement boundaries, event-index restart fairness, signed callbacks and shared-seat release passed (mock GitHub; no live proof)");
 } finally {
   await worker.dispose();

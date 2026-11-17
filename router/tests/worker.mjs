@@ -2,6 +2,7 @@
 // Usage: node router/tests/worker.mjs <miniflare module path> <worker-build output>
 // GitHub is a stateful HTTP double; this proves runtime wiring, not live GitHub behavior.
 import assert from 'node:assert/strict';
+import {verifyAdminPage} from './admin-page.mjs';
 import {createHash, createHmac, generateKeyPairSync} from 'node:crypto';
 import {readdir, readFile} from 'node:fs/promises';
 import {join, relative, resolve} from 'node:path';
@@ -37,6 +38,8 @@ let installation = [{id:99, full_name:repository, default_branch:'trunk', topics
 const repository2 = 'isp-insoft-gmbh/isp-golem-xiv-test-second';
 const repository3 = 'isp-insoft-gmbh/isp-golem-xiv-test-late';
 const repositoryFiles = new Map([[repository, files]]);
+const adminRepositoryFailures = new Set();
+let adminInstallationFailure = false;
 const metadata = name => ({id:name === repository ? 99 : name === repository2 ? 100 : 101, full_name:name, default_branch:'trunk', topics:allowed ? ['isp-golem-xiv-test'] : []});
 let allowed = true;
 let dispatchStatus = 204;
@@ -82,9 +85,10 @@ async function github(request) {
   if (path.startsWith(`/repos/${ops}/contents/`) && ['PUT','DELETE'].includes(method) && body?.branch === 'golem-state' && !state.refs.has('refs/heads/golem-state')) return answer(404, {message:'Branch not found'});
   if (path === `/repos/${ops}/actions/variables/GOLEM_PROTOCOL_VERSION`) return answer(protocol2 ? 200 : 404, {value:'2'});
   if (path === '/installation/repositories') {
+    if (adminInstallationFailure) return answer(503,{});
     assert.equal(url.searchParams.get('per_page'), '1');
     const page = Number(url.searchParams.get('page'));
-    return answer(200, {repositories:installation.slice(page-1,page)});
+    return answer(200, {total_count:installation.length, repositories:installation.slice(page-1,page)});
   }
   if (path === `/repos/${ops}/contents/scheduler-v2.json` || path === `/repos/${ops}/contents/events-v2.json` || path.startsWith(`/repos/${ops}/contents/events-v2/`)) {
     const previous = state.documents.get(path);
@@ -122,19 +126,30 @@ async function github(request) {
     const comments = sub.match(/^\/issues\/(\d+)\/comments$/);
     if (comments && method === 'POST') {o.comments.push({issue:Number(comments[1]), body:body.body}); return answer(201, {id:o.comments.length});}
   }
+  if (path === '/graphql' && method === 'POST' && body.query.includes('refs(refPrefix: "refs/tags/golem-admin/"')) {
+    assert.ok(!body.query.includes('instructions') && !body.query.includes('target { __typename oid message'), 'never select original request message');
+    if (state.adminAuditErrors) return answer(200,{errors:[{message:'DO NOT EXPOSE GRAPHQL ERROR'}]});
+    return answer(200,{data:{repository:{refs:state.adminAuditPages?.[body.variables.after ?? 'first'] ?? {nodes:[],pageInfo:{hasNextPage:false,endCursor:null}}}}});
+  }
   if (path === '/graphql' && method === 'POST') {state.onboard.pins.push(body.variables.id); return answer(200, {data:{pinIssue:{issue:{id:body.variables.id}}}});}
   if (path === `/repos/${ops}/actions/secrets`) return answer(200, {total_count:3, secrets:[{name:'APP_PRIVATE_KEY'},{name:'SEAT_MEMBER__ANTHROPIC'},{name:'SEAT_GONE_PERSON__OPENAI_CODEX'}]});
   if (path === '/orgs/isp-insoft-gmbh/members') return answer(200, [{login:'member'},{login:'other'}]);
   const target = [repository,repository2,repository3].find(name => path.startsWith(`/repos/${name}/`) || path === `/repos/${name}`);
   if (target) {
     if (path === `/repos/${target}`) return answer(200, metadata(target));
-    if (path === `/repos/${target}/commits/trunk`) return answer(200, {sha:head});
+    if (path === `/repos/${target}/commits/trunk`) return adminRepositoryFailures.has(target) ? answer(404,{message:'Not Found'}) : answer(200, {sha:head});
     const targetFiles = repositoryFiles.get(target) ?? new Map();
     if (path === `/repos/${target}/contents/.golems`) return answer(200, [...targetFiles].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)})));
     if (path.startsWith(`/repos/${target}/contents/.golems/`)) {
       const content = targetFiles.get(path.split('/').at(-1));
       return content === undefined ? answer(404,{}) : answer(200,{type:'file',encoding:'base64',content:Buffer.from(content).toString('base64')});
     }
+  }
+  if (path === `/repos/${ops}/actions/workflows/runner.yml/runs`) {
+    assert.equal(url.searchParams.get('per_page'), '10');
+    assert.match(url.searchParams.get('created'), /^\d{4}-\d\d-\d\dT\d\d:\d\d:00Z\.\.\d{4}-\d\d-\d\dT\d\d:\d\d:00Z$/);
+    const page = Number(url.searchParams.get('page'));
+    return answer(200, state.adminRunList ?? {total_count:state.adminRuns?.length ?? 0, workflow_runs:(state.adminRuns ?? []).slice((page-1)*10,page*10)});
   }
   if (path === '/user') {
     const oauthLogin = {'Bearer oauth-member-token':'member', 'Bearer oauth-outsider-token':'outsider'}[request.headers.get('Authorization')];
@@ -251,6 +266,13 @@ async function deliver(id, value, signatureValid = true, malformedId = false, ev
   return worker.dispatchFetch(`${base}/webhook`, {method:'POST', body, headers:{'Content-Type':'application/json', 'X-GitHub-Event':event, 'X-GitHub-Delivery':malformedId ? id : deliveryId(id), 'X-Hub-Signature-256':`sha256=${signature}`}});
 }
 try {
+  if (process.argv.includes('--admin-only')) {
+    // Match full-suite scheduler discovery: the first installed repo need not be `repository`.
+    repositoryFiles.set(repository2,new Map([['beta.md','---\nschedule: daily\nowner: member\n---\nSecond repo task.']]));
+    installation = [metadata(repository2),metadata(repository)];
+    await seatRegistration();
+  }
+  else {
   const health = await worker.dispatchFetch(`${base}/health`);
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), {app:'isp-golem-xiv', version:'fixture-version'});
@@ -264,7 +286,7 @@ try {
     assert.equal(location.searchParams.get('redirect_uri'), 'https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/auth/github/callback');
     const state = location.searchParams.get('state');
     assert.match(state, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    assert.equal(signIn.headers.get('Set-Cookie'), `golem_oauth_state=${state}; Path=/auth/github; Max-Age=600; HttpOnly; Secure; SameSite=Lax`);
+    assert.equal(signIn.headers.get('Set-Cookie'), `golem_oauth_state=${state}${page === '/admin' ? '.admin' : ''}; Path=/auth/github; Max-Age=600; HttpOnly; Secure; SameSite=Lax`);
     assert.match(signIn.headers.get('Cache-Control'), /no-store/);
     states.add(state);
   }
@@ -746,6 +768,7 @@ try {
   assert.equal(roaming.model, null);
   assert.equal(roaming.fallback, 'asked for anthropic/pi, used openai-codex/pi with its default model, because there is no anthropic seat');
   console.log('Built Workers artifact: released v1 regressions; v2 mention/config, signed comment context and bounded rejection/recovery, native HMAC, stop handoff, bot/member owner selection, twenty-event restart continuation, real scheduled handler, selected identity and reordered installation continuation passed.');
+  }
 } finally {await worker.dispose();}
 
 // Last results survive push re-renders; run boxes start runs like mentions, on the ticker's seat.
@@ -849,6 +872,12 @@ async function seatRegistration() {
   assert.match(sessionCookie, /^golem_session=member\.\d+\.[0-9a-f]{64}; Path=\/; Max-Age=3600; HttpOnly; Secure; SameSite=Lax$/);
   assert.ok(!sessionCookie.includes('oauth-member-token'), 'user token is never stored');
   assert.ok(cookies.includes('golem_oauth_state=; Path=/auth/github; Max-Age=0; HttpOnly; Secure; SameSite=Lax'), 'state cookie cleared on its own path');
+  const adminSignIn = await worker.dispatchFetch(`${base}/admin`,{redirect:'manual'});
+  const adminState = new URL(adminSignIn.headers.get('Location')).searchParams.get('state');
+  const adminCallback = await callback('member-code',adminState,`golem_oauth_state=${adminState}.admin`);
+  assert.equal(adminCallback.status,302);
+  assert.equal(adminCallback.headers.get('Location'),'/admin','admin sign-in returns to dashboard');
+  assert.equal((await callback('member-code',adminState,`golem_oauth_state=${adminState}.https://attacker.invalid`)).status,400,'only fixed local destination suffix allowed');
   const session = sessionCookie.split(';')[0];
   const tampered = session.replace('golem_session=member.', 'golem_session=other.');
   response = await worker.dispatchFetch(`${base}/seats`, {redirect:'manual', headers:{Cookie:tampered}});
@@ -870,7 +899,153 @@ async function seatRegistration() {
   const csrf = html.match(/<meta name="golem-csrf" content="([0-9a-f]{64})">/)[1];
   response = await worker.dispatchFetch(`${base}/admin`, {headers:{Cookie:session}});
   assert.equal(response.status, 200);
-  assert.match(await response.text(), /Slice 4/);
+  const adminPage = await response.text();
+  for (const heading of ['Runs','Usage','Health','Seats','Repositories']) assert.ok(adminPage.includes(`>${heading}</h2>`));
+  assert.ok(adminPage.includes('/admin.js') && !adminPage.includes('Slice 4'));
+  // Consumer boundary: real Worker auth, metadata projection, pagination and no credential reads.
+  const adminScript = await worker.dispatchFetch(`${base}/admin.js`);
+  assert.match(adminScript.headers.get('Cache-Control'),/no-store/);
+  await verifyAdminPage(await adminScript.text());
+  const adminReads = state.secretReads.length;
+  const adminRequest = async (section, headers = {Cookie:session}) => {
+    const before = state.calls;
+    const reply = await worker.dispatchFetch(`${base}/v1/admin/${section}`, {headers});
+    assert.match(reply.headers.get('Cache-Control'), /no-store/);
+    assert.ok(state.calls - before <= 45, 'admin section stays inside Workers subrequest budget');
+    return reply;
+  };
+  for (const headers of [{}, {Authorization:'Bearer bad'}, {Authorization:'Bearer oauth-outsider-token'}, {Authorization:'Bearer redirect-fixture-token'}, {Cookie:tampered}, {Cookie:session, Authorization:'Bearer bad'}]) {
+    assert.equal((await adminRequest('runs',headers)).status,403);
+  }
+  const completed = new Date(Math.floor(Date.now()/60000)*60000-60000).toISOString();
+  const created = new Date(Date.parse(completed)-42000).toISOString();
+  const fixtureAudit = (id, unknown = false) => {
+    const requestId = `00000000-0000-4000-8000-${String(id).padStart(12,'0')}`;
+    const audit = {version:3, request_id:requestId, request_tag:'a'.repeat(40), generation:'11111111-1111-4111-8111-111111111111', repository, repository_id:99, golem:'hello', trigger:'mention', check_run_id:id+1000, run_id:id, attempt:1, seat:'member/anthropic', outcome:id === 100 ? 'blocked' : 'replied', model:unknown ? null : 'claude-sonnet-5-5', duration_s:unknown ? null : 42, completed_at:completed, log:`https://github.com/${ops}/actions/runs/${id}`};
+    const sha = id.toString(16).padStart(40,'0');
+    state.refs.set(`refs/tags/golem-run/${id}`,sha);
+    state.tags.set(sha,{sha,tag:`golem-admin/${requestId}`,object:{type:'tag',sha:audit.request_tag},message:JSON.stringify(audit)});
+    return {id,run_attempt:1,status:'completed',conclusion:'success',event:'workflow_dispatch',repository:{full_name:ops},path:'.github/workflows/runner.yml',display_title:`${repository} hello`,created_at:created,run_started_at:created};
+  };
+  state.adminRuns = Array.from({length:11},(_,i) => fixtureAudit(100+i,i === 1));
+  state.adminRuns.push({...state.adminRuns[0],id:200}); // retired historical run without v3 audit
+  state.adminRuns.push({...state.adminRuns[0],id:201,status:'in_progress'});
+  state.adminRuns.push(fixtureAudit(202));
+  const invalidTag = state.tags.get((202).toString(16).padStart(40,'0'));
+  invalidTag.message = JSON.stringify({...JSON.parse(invalidTag.message), instructions:'NEVER EXPOSE RAW REQUEST'});
+  let runReply = await adminRequest('runs',{Authorization:'Bearer valid-fixture-token'});
+  assert.equal(runReply.status,200);
+  const firstPage = await runReply.json();
+  assert.equal(firstPage.runs.length,10);
+  assert.equal(firstPage.next_page,2);
+  assert.equal(firstPage.history_complete,false,'first page is not the full 30 days');
+  assert.equal(firstPage.runs[0].duration_s,42);
+  assert.equal(firstPage.runs[0].model,'claude-sonnet-5-5');
+  assert.equal(firstPage.runs[0].outcome,'blocked');
+  assert.equal(firstPage.workflow_health.length,10);
+  assert.equal(firstPage.runs[1].duration_s,null);
+  assert.equal(firstPage.runs[1].model,null,'unknown is not a requested model');
+  assert.deepEqual(Object.keys(firstPage.runs[0]).sort(),['completed_at','duration_s','golem','log','model','outcome','repo','run_id','seat','trigger']);
+  runReply = await adminRequest(`runs?page=2&as_of=${firstPage.as_of}`);
+  const secondPage = await runReply.json();
+  assert.equal(secondPage.runs.length,1);
+  assert.equal(secondPage.listing_complete,true);
+  assert.equal(secondPage.page_complete,false);
+  assert.equal(secondPage.missing_audits,1);
+  assert.equal(secondPage.malformed_audits,1);
+  assert.equal(secondPage.pending,1);
+  assert.equal(secondPage.next_page,null);
+  assert.ok(!JSON.stringify(secondPage).includes('NEVER EXPOSE RAW REQUEST'));
+  assert.match(secondPage.coverage_note,/backfill/);
+  // Immutable alias remains retrievable without live queue rows or the original request body.
+  assert.equal(state.queue.some(r => r.delivery_id === '00000000-0000-4000-8000-000000000100'),false);
+  for (const section of ['runs?page=0','runs?page=101','runs?page=1&page=2','runs?as_of=1','runs?unexpected=1']) assert.equal((await adminRequest(section)).status,400);
+  const node = audit => ({name:audit.request_id,target:{__typename:'Tag',oid:'e'.repeat(40),name:`golem-admin/${audit.request_id}`,message:JSON.stringify(audit),target:{__typename:'Tag',oid:audit.request_tag}}});
+  const stoppedAudit = {...JSON.parse(state.tags.get((100).toString(16).padStart(40,'0')).message),run_id:null,attempt:null,log:null,model:null,duration_s:null,outcome:'stopped'};
+  const unknownAudit = {...stoppedAudit,request_id:'22222222-2222-4222-8222-222222222222',outcome:null};
+  const badUndispatched = {...stoppedAudit,model:'requested-model'};
+  state.adminAuditPages = {first:{nodes:[node(stoppedAudit)],pageInfo:{hasNextPage:true,endCursor:'next-page'}},'next-page':{nodes:[node(unknownAudit),node(badUndispatched),node({...stoppedAudit,outcome:'replied'}),node({...stoppedAudit,instructions:'NEVER EXPOSE RAW REQUEST'})],pageInfo:{hasNextPage:false,endCursor:null}}};
+  const undispatchedPage = await (await adminRequest('undispatched')).json();
+  assert.equal(undispatchedPage.runs.length,1);
+  assert.equal(undispatchedPage.runs[0].outcome,'stopped');
+  assert.equal(undispatchedPage.runs[0].run_id,null);
+  assert.equal(undispatchedPage.runs[0].model,null);
+  assert.equal(undispatchedPage.listing_complete,false);
+  assert.equal(undispatchedPage.next_page,2);
+  assert.equal(undispatchedPage.after,'next-page');
+  const undispatchedNext = await (await adminRequest(`undispatched?page=2&as_of=${undispatchedPage.as_of}&after=${undispatchedPage.after}`)).json();
+  assert.equal(undispatchedNext.runs.length,1);
+  assert.equal(undispatchedNext.runs[0].outcome,null,'unknown terminal outcome is not inferred as stopped');
+  assert.equal(undispatchedNext.malformed_audits,3,'execution model, dispatched outcome and raw-request fields are rejected');
+  assert.ok(!JSON.stringify(undispatchedNext).includes('NEVER EXPOSE RAW REQUEST'));
+  assert.equal((await adminRequest('undispatched',{Authorization:'Bearer valid-fixture-token'})).status,200);
+  assert.equal(undispatchedNext.listing_complete,true);
+  state.adminAuditErrors = true;
+  const graphError = await adminRequest('undispatched');
+  assert.equal(graphError.status,502);
+  assert.equal(await graphError.text(),'Temporarily unavailable');
+  delete state.adminAuditErrors; delete state.adminAuditPages;
+  const adminSeats = await (await adminRequest('seats')).json();
+  assert.equal(adminSeats.complete,true);
+  assert.ok(adminSeats.seats.some(s => s.person === 'member' && s.membership === 'active'));
+  assert.ok(adminSeats.seats.some(s => s.person === 'GONE_PERSON' && s.membership === 'left organization'));
+  assert.ok(adminSeats.seats.every(s => s.expires_at === null));
+  assert.match(adminSeats.expiry_note,/unknown/);
+  const adminRepositoryFiles = repositoryFiles.get(installation[0].full_name);
+  assert.ok(adminRepositoryFiles, 'selected installation repository has its own index fixture');
+  assert.ok(!adminRepositoryFiles.has('admin-invalid.md'));
+  adminRepositoryFiles.set('admin-invalid.md','---\nschedule: someday\n---\nInvalid definition fixture.');
+  let adminRepos;
+  try { adminRepos = await (await adminRequest('repositories')).json(); }
+  finally { adminRepositoryFiles.delete('admin-invalid.md'); }
+  assert.equal(adminRepos.repositories[0].repo,installation[0].full_name);
+  assert.ok(adminRepos.repositories[0].golems.some(g => !g.enabled), 'disabled definitions are listed');
+  assert.equal(adminRepos.repositories[0].golems.find(g => g.name === 'admin-invalid')?.enabled,false);
+  // Listing failures remain endpoint failures; only repository-specific metadata is isolated.
+  adminInstallationFailure = true;
+  try {
+    const failedListing = await adminRequest('repositories');
+    assert.equal(failedListing.status,502);
+    assert.equal(await failedListing.text(),'Temporarily unavailable');
+  } finally { adminInstallationFailure = false; }
+  // An empty repository may have no default-branch commit; it must not hide later healthy pages.
+  const previousInstallation = installation;
+  const unavailableRepository = repository2;
+  installation = [metadata(unavailableRepository),metadata(repository)];
+  adminRepositoryFailures.add(unavailableRepository);
+  try {
+    const unavailablePage = await (await adminRequest('repositories')).json();
+    assert.equal(unavailablePage.repositories[0].repo,unavailableRepository);
+    assert.equal(unavailablePage.repositories[0].repository_id,100);
+    assert.equal(unavailablePage.repositories[0].enabled,null);
+    assert.equal(unavailablePage.repositories[0].metadata_status,'unavailable');
+    assert.deepEqual(unavailablePage.repositories[0].golems,[]);
+    assert.equal(unavailablePage.next_page,2);
+    const healthyPage = await (await adminRequest('repositories?page=2')).json();
+    assert.equal(healthyPage.repositories[0].repo,repository);
+    assert.equal(healthyPage.repositories[0].metadata_status,'available');
+    assert.equal(healthyPage.repositories[0].enabled,true);
+    assert.equal(healthyPage.next_page,null);
+  } finally {
+    installation = previousInstallation;
+    adminRepositoryFailures.delete(unavailableRepository);
+  }
+  assert.equal(state.secretReads.length,adminReads,'admin never reads individual secrets');
+  state.removedMembers.add('member');
+  assert.equal((await adminRequest('runs')).status,403);
+  assert.equal((await adminRequest('undispatched')).status,403);
+  assert.equal((await adminRequest('runs',{Authorization:'Bearer valid-fixture-token'})).status,403);
+  const revokedPage = await worker.dispatchFetch(`${base}/admin`,{headers:{Cookie:session}});
+  assert.equal(revokedPage.status,403);
+  assert.match(revokedPage.headers.get('Cache-Control'),/no-store/);
+  state.removedMembers.delete('member');
+  state.adminRunList = {total_count:2,workflow_runs:'bad upstream shape'};
+  const failedAdmin = await adminRequest('runs');
+  assert.equal(failedAdmin.status,502);
+  assert.equal(await failedAdmin.text(),'Temporarily unavailable');
+  delete state.adminRunList; delete state.adminRuns;
+  console.log('Admin: bearer/session membership, revoked denial, all sections, retired and undispatched audit retrieval, pagination, unknown and malformed metadata passed.');
+  if (process.argv.includes('--admin-only')) return;
   assert.equal((await worker.dispatchFetch(`${base}/v1/seats/key`)).status, 401);
   response = await worker.dispatchFetch(`${base}/v1/seats/key`, {headers:{Cookie:session}});
   assert.equal(response.status, 200);

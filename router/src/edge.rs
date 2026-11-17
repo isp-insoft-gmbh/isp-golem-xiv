@@ -35,6 +35,7 @@ extern "C" {
     fn random_state() -> String;
 }
 
+mod admin;
 mod registration;
 
 type Result<T> = std::result::Result<T, worker::Error>;

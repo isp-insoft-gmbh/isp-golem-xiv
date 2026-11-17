@@ -203,4 +203,23 @@ Kept sandboxes and App check runs, harvested read-only after the run:
 - `isp-insoft-gmbh/isp-golem-xiv-test-core-20261111033454`: hello replied (`130282306450`, run `42947096710`); changer changed (`130284060122`, run `42947630773`) and continuation changed (`130284594447`, run `42947791952`) on the single App PR #4 at `77192308d6cf566bf1a65acbbb7f682021ba432a`; sneaky blocked (`130285106537`, run `42947946715`); serial hello/hello/hi replied (`130285653317`/`130285655846`/`130285657374`, runs `42948398974`/`42948596050`/`42948119399`); slow stopped/cancelled (`130287774046`, run `42948779907`).
 - `isp-insoft-gmbh/isp-golem-xiv-test-events-20261111033454`: quiet no_change (`130288474757`, run `42948981421`); echo replied (`130288993679`, run `42949142583`).
 
-The gate table does not cover two known open gaps: a stopped row whose target repository is gone stays retained, and the Windows-only Miniflare/Undici reset in the oversized-body Worker test remains unexplained.
+At that Slice 2 milestone, the gate table did not cover two open gaps: a stopped row whose target repository is gone stays retained, and the Windows-only Miniflare/Undici reset in the oversized-body Worker test remained unexplained.
+
+## Pi and Codex on the same real Codex seat
+
+In `isp-insoft-gmbh/isp-golem-xiv-test-nativeconfig-20261113090534`, Pi golem `pioncodex` replied in [run 43427764438](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43427764438), check `131893226478`, with `seat: bugabinga/openai-codex`, `harness: pi`, observed model `gpt-6.1-sol`.
+The following Codex golem `codexconv` replied on the same seat in [run 43428751065](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43428751065), check `131896504858`, with `harness: codex`.
+Both native logs contained `golem seat: unchanged`; secret metadata stayed at `2026-11-12T11:08:56Z`.
+This proves authentication by both harnesses, not Pi refresh/write-back interoperability, which remains unobserved live.
+
+## Local Slice 4 verification, not deployed acceptance
+
+Final `mise run test-worker` activity `activity-26d024ae-6` exited 0 in 42.17 seconds after fixture and retry-budget corrections.
+The retained full log at `C:/Users/okr/AppData/Local/Temp/golem-slice4-worker-final-20261117.log` records all four unchanged suites, including admin authorization/pagination, seat registration and oversized-body rejection.
+`router/tests/worker.mjs` executes `verifyAdminPage` from `router/tests/admin-page.mjs`; merely running that export-only module directly would not execute its assertions.
+
+Firefox 160 rendered the actual Rust-generated page and actual `router/src/admin.js` through a local HTTP fixture with representative, invented API responses.
+All five sections populated; run pagination loaded a second record and updated health, and repository pagination advanced past unavailable metadata to a healthy repository with an invalid golem.
+Desktop 1440-pixel viewport had no document overflow; 390-pixel viewport had horizontal table overflow to 567 pixels, a remaining layout limitation.
+Fixture screenshots in OS temp are disposable local review artifacts, not `admin-page` evidence for a signed-in member on the deployed system.
+No Slice 4 evidence promise is marked complete here.
