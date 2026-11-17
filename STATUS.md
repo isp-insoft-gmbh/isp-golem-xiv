@@ -39,9 +39,13 @@
 - **Pi on OpenAI Codex seats:** PR #35 (runner) merged `e32c6e3`; release v11 (run `43421782938`, native asset `743524944`, SHA-256 `b825e931bdc35523f53e2195218cc4141bec01b56c48214efeb598c7e22c6c71`) pinned by ops PR #17 (`8859012`, CI `43423147818`, byte-matched); router PR #36 merged `acc2045` enables dispatch.
   Live on the real `SEAT_BUGABINGA__OPENAI_CODEX` in `isp-insoft-gmbh/isp-golem-xiv-test-nativeconfig-20261113090534`: `pioncodex` (pi) run `43427764438`, check `131893226478` replied, `harness: pi`, observed `gpt-6.1-sol`; then `codexconv` (codex) run `43428751065`, check `131896504858` replied on the same seat; both logged `golem seat: unchanged` (token not near expiry).
   Not yet observed live: Pi refreshing the seat and the next Codex run accepting the written-back format; expected once the access token nears expiry (~2026-11-22).
-- **Windows Worker tests:** Oliver chose to run them in WSL; the `x` change waits for Oliver to trust the repository's `mise.toml` inside WSL. A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
+- **Windows Worker tests:** Oliver completed WSL trust and tool installation; branch `fix/windows-worker-wsl` restores the `x` routing change.
+  `mise run test-worker` passed (activity `activity-26d024ae-1`, exit 0, 210.41 s): native Worker build followed by all four unchanged suites in WSL, including the oversized-body 413 assertion in `router/tests/worker.mjs`.
+  Fmt, `x` Clippy, its three unit tests and Markdown checks passed; Linux PR CI remains required before merge.
+  WSL errors fail the task; no automatic retry or body draining.
+  A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `docs/pi-codex-live`.
+- **Current branch:** `fix/windows-worker-wsl`.
 - **Deployed Worker:** PR #29 merge `7fecb9bc57390fc619900ede541fbab14fb07c57`; live health verified. Runtime pins native v8 (ops PR #14). Coordinator digest `999dc9687f55265d793dc054db2bf5814f39bbcf6b04a05de467f8fd18c7dad0` (stop fence).
 - **Released native source:** PR #14 commit `49be24620721baed5c0632395209503b1f81ef0b`, release v5 from successful matching release workflow `42051948501`.
   Annotated tag `ac0f538c3980ea33a73e967106b8adc3ad2e4c1a` points to this commit.
