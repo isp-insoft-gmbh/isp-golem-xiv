@@ -3,6 +3,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+pub mod admin;
 #[cfg(target_arch = "wasm32")]
 mod edge;
 pub mod registration;

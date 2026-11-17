@@ -847,7 +847,9 @@ mod registration {
         let empty = seats_page("member", &[], None, "ab12");
         assert!(empty.contains("You have no seats yet.") && !empty.contains("id=\"preferred\""));
         let admin = admin_page("member");
-        assert!(admin.contains("Slice 4") && !admin.contains("<script"));
+        assert!(admin.contains("<script src=\"/admin.js\" defer></script>"));
+        assert_eq!(admin.matches("<script").count(), 1);
+        assert!(!admin.contains("onclick") && !admin.contains("onsubmit"));
         // Refreshing sign-ins rotate: people must create a fresh, golem-only sign-in on any OS.
         assert!(empty.contains("fresh sign-in used only by golems"));
         assert!(empty.contains("Never paste the sign-in you use yourself"));

@@ -5,13 +5,23 @@ const indexPath = `${ops}/contents/queue.json`;
 const capacity = 32;
 const bodyLimit = 65536;
 const journalLimit = 131072;
+// Three PUT attempts and their readbacks per save. Check again after reservation:
+// the irreversible intent must leave room for its worst-case save plus the dispatch fetch.
+const saveCallsMax = 6;
+const preflightHeadroom = 2 + saveCallsMax;
+const intentHeadroom = saveCallsMax + 1;
 // A stopped, dispatched row with no persisted bind may retire only after its workflow
 // had time to appear and no matching runner run remains active to bind it.
 const fenceGraceMs = 15 * 60000;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const states = new Set(['pending', 'reserved', 'dispatching', 'bound', 'dispatch_uncertain', 'stop_requested', 'terminal']);
 const positive = value => Number.isSafeInteger(value) && value > 0;
+const utc = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value.replace(/Z$/, value.includes('.') ? 'Z' : '.000Z');
+const observedModel = value => typeof value === 'string' && value !== 'unobserved' && /^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$/.test(value);
+const outcomes = {changed: 'success', replied: 'success', no_change: 'success', incomplete: 'neutral', blocked: 'failure', stopped: 'cancelled'};
 const shares = (a, b) => a.seat === b.seat || a.resource === b.resource;
+const dispatchEligible = (row, i, records) => ['pending', 'reserved'].includes(row.state) && !row.dispatched && row.run_id === null
+  && !records.some((other, j) => other !== row && other.state !== 'terminal' && shares(row, other) && (j < i || other.state !== 'pending'));
 const encode = value => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 const decode = value => JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(Uint8Array.from(atob(value.replace(/\s/g, '')), c => c.charCodeAt(0))));
 class Failure extends Error {
@@ -52,7 +62,7 @@ export class Coordinator {
     this.tail = new Promise(resolve => { release = resolve; });
     await previous;
     try { return await fn(); }
-    finally { this.waiters--; release(); }
+    finally { this.requestCache?.clear(); this.waiters--; release(); }
   }
   async api(path, method = 'GET', body, missing = false, jwt = false, expectedStatus = null) {
     if (++this.calls > 45 || Date.now() >= this.deadline) throw new Failure(503, 'upstream');
@@ -68,6 +78,7 @@ export class Coordinator {
   }
   async connect() {
     this.calls = 0;
+    this.requestCache = new Map(); // Immutable request tags only, cleared when this operation exits.
     this.deadline = Date.now() + 25000;
     this.jwt = await appJwt(this.env.APP_PRIVATE_KEY);
     // No repository_ids or permissions override: preserve this installation's all-repo permissions.
@@ -144,11 +155,16 @@ export class Coordinator {
     if (!request || request.version !== 2 || !uuid.test(request.delivery_id) || !/^isp-insoft-gmbh\/[A-Za-z0-9_.-]{1,100}$/.test(request.repository) || !/^[A-Za-z0-9_-]{1,64}$/.test(request.golem) || !/^[A-Za-z0-9-]{1,39}$/.test(request.seat_login) || !['anthropic', 'openai-codex'].includes(request.provider) || !/^[0-9a-f]{40}$/.test(request.head_sha) || !positive(request.check_run_id) || (request.issue_number !== null && !positive(request.issue_number)) || (request.comment_id !== null && !positive(request.comment_id))) throw new Failure(400);
   }
   async request(row) {
-    const tag = await this.api(`${ops}/git/tags/${row.tag}`);
-    if (typeof tag.message !== 'string' || tag.message.length > bodyLimit) throw new Failure(503);
-    const request = JSON.parse(tag.message);
-    this.validate(request);
+    let request = this.requestCache.get(row.tag);
+    if (!request) {
+      const tag = await this.api(`${ops}/git/tags/${row.tag}`);
+      if (typeof tag.message !== 'string' || tag.message.length > bodyLimit) throw new Failure(503);
+      request = JSON.parse(tag.message);
+      this.validate(request);
+    }
+    // Cache hits still validate this row, not just the tag's shape.
     if (request.delivery_id !== row.id || request.queue_generation !== row.generation || `${request.repository.toLowerCase()}/${request.golem}` !== row.resource || `${request.seat_login.toLowerCase()}/${request.provider}` !== row.seat) throw new Failure(503);
+    this.requestCache.set(row.tag, Object.freeze(request));
     return request;
   }
   async enqueue(request) {
@@ -158,7 +174,18 @@ export class Coordinator {
     const receipt = await this.api(`${ops}/git/ref/tags/golem-terminal/${request.delivery_id}`, 'GET', undefined, true);
     if (receipt) return {id: request.delivery_id, state: 'terminal'};
     // Retire only durably terminal records, after an immutable deduplication receipt exists.
-    const retired = this.queue.records.filter(r => r.state === 'terminal').slice(0, 2);
+    const retired = [];
+    const terminal = this.queue.records.filter(r => r.state === 'terminal');
+    const start = Number.isSafeInteger(this.queue.retire_cursor) && this.queue.retire_cursor >= 0 && terminal.length ? this.queue.retire_cursor % terminal.length : 0;
+    const candidates = terminal.slice(start).concat(terminal.slice(0, start)).slice(0, 2);
+    if (candidates.length) {
+      this.queue.retire_cursor = (start + candidates.length) % terminal.length;
+      await this.save(); // Failed audit I/O must not pin the next admission to these candidates.
+    }
+    for (const row of candidates) {
+      try { if (await this.adminAudit(row)) retired.push(row); }
+      catch { /* Audit publication or validation failure forbids retirement. */ }
+    }
     for (const row of retired) {
       const path = `${ops}/git/ref/tags/golem-terminal/${row.id}`;
       const prior = await this.api(path, 'GET', undefined, true);
@@ -189,6 +216,7 @@ export class Coordinator {
       await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/golem-request/${request.delivery_id}`, sha: tag.sha});
     }
     const row = {id: request.delivery_id, generation: request.queue_generation, seat: `${request.seat_login.toLowerCase()}/${request.provider}`, resource: `${request.repository.toLowerCase()}/${request.golem}`, tag: tag.sha, state: 'pending', dispatched: false, run_id: null, attempt: null};
+    this.requestCache.set(row.tag, Object.freeze(request));
     this.queue.records.push(row);
     await this.save();
     return row;
@@ -220,9 +248,8 @@ export class Coordinator {
     for (let offset = 0; offset < count && dispatched < 2; offset++) {
       const i = (start + offset) % count;
       const row = this.queue.records[i];
-      if (!['pending', 'reserved'].includes(row.state) || row.dispatched || row.run_id !== null) continue;
-      if (this.queue.records.some((other, j) => other !== row && other.state !== 'terminal' && shares(row, other) && (j < i || other.state !== 'pending'))) continue;
-      if (this.calls > 38) {
+      if (!dispatchEligible(row, i, this.queue.records)) continue;
+      if (this.calls + preflightHeadroom > 45) {
         this.queue.advance_cursor = i;
         await this.save();
         break;
@@ -235,12 +262,15 @@ export class Coordinator {
         row.state = 'terminal';
         row.outcome = 'blocked';
         row.reason = 'target unavailable at dispatch preflight';
+        row.terminal_at = new Date().toISOString();
         await this.save();
         continue;
       }
       if (!positive(request.repository_id) || repository.id !== request.repository_id) continue;
       row.state = 'reserved';
-      await this.save(); // Both resources + generation are one guarded GitHub write.
+      this.queue.advance_cursor = i;
+      await this.save(); // Both resources + generation + retry cursor are one guarded GitHub write.
+      if (this.calls + intentHeadroom > 45) break; // Durable reservation can resume; an intent cannot.
       row.state = 'dispatching';
       row.dispatched = true;
       await this.save(); // A crash after this point must never redispatch.
@@ -251,7 +281,7 @@ export class Coordinator {
         await this.save();
       }
       dispatched++;
-      if (positive(request.comment_id)) {
+      if (positive(request.comment_id) && this.calls < 45) {
         try { await this.api(`/repos/${request.repository}/issues/comments/${request.comment_id}/reactions`, 'POST', {content: 'rocket'}); } catch { /* Feedback cannot revoke an execution reservation. */ }
       }
     }
@@ -295,7 +325,15 @@ export class Coordinator {
   }
   async stoppedCheck(row, reason = null, known = null) {
     const request = known ?? await this.request(row);
-    await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'PATCH', {status: 'completed', conclusion: 'cancelled', output: {title: 'stopped', summary: `outcome: stopped\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: ${request.model ?? 'default'}\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id ?? ''}${reason ? `\nreason: ${reason}` : ''}`}});
+    row.check_repaired = true;
+    await this.save(); // Persist non-observation before a repair can become externally visible.
+    row.outcome = 'stopped';
+    try { await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'PATCH', {status: 'completed', conclusion: 'cancelled', output: {title: 'stopped', summary: `outcome: stopped\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: unobserved\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id ?? ''}${reason ? `\nreason: ${reason}` : ''}`}}); }
+    catch (error) {
+      if (!(error instanceof Failure) || error.upstreamStatus !== 404 || !positive(request.repository_id)) throw error;
+      const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
+      if (repository !== null) throw error;
+    }
   }
   // Every v2 grant follows a persisted bind on a non-terminal row, and a stopped row
   // never grants. A durable stop fence with null run/attempt therefore proves no agent
@@ -343,6 +381,12 @@ export class Coordinator {
     const request = await this.request(row);
     const path = `/repos/${request.repository}/check-runs/${request.check_run_id}`;
     const check = await this.api(path, 'GET', undefined, true);
+    if (!check && run.conclusion === 'cancelled' && positive(request.repository_id)) {
+      const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
+      if (repository !== null) throw new Failure(503);
+      row.outcome = 'stopped';
+      return;
+    }
     if (!check) {
       if (run.conclusion !== 'failure' || !positive(request.repository_id)) throw new Failure(503);
       const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
@@ -368,7 +412,6 @@ export class Coordinator {
       return;
     }
     const lines = typeof check.output?.summary === 'string' ? check.output.summary.split('\n') : [];
-    const outcomes = {changed: 'success', replied: 'success', no_change: 'success', incomplete: 'neutral', blocked: 'failure', stopped: 'cancelled'};
     const outcome = lines.find(line => line.startsWith('outcome: '))?.slice(9);
     const valid = check.id === request.check_run_id && check.name === `golem/${request.golem}` && check.app?.id === 4605060 && check.status === 'completed' && Object.hasOwn(outcomes, outcome) && check.conclusion === outcomes[outcome]
       && lines.includes(`seat: ${request.seat_login}/${request.provider}`) && lines.includes(`harness: ${request.harness}`)
@@ -380,22 +423,102 @@ export class Coordinator {
       await this.stoppedCheck(row);
       return;
     }
-    await this.api(path, 'PATCH', {status: 'completed', conclusion: 'failure', output: {title: 'blocked', summary: `outcome: blocked\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: ${request.model ?? 'default'}\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id}\nreason: workflow ended (${run.conclusion}) without a valid completed native audit; execution/publication outcome unconfirmed`}});
+    row.check_repaired = true;
+    await this.save();
+    await this.api(path, 'PATCH', {status: 'completed', conclusion: 'failure', output: {title: 'blocked', summary: `outcome: blocked\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: unobserved\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id}\nreason: workflow ended (${run.conclusion}) without a valid completed native audit; execution/publication outcome unconfirmed`}});
+  }
+  async adminAudit(row) {
+    const request = await this.request(row);
+    if (!positive(request.repository_id) || !['mention', 'dashboard', 'event', 'schedule'].includes(request.trigger)) throw new Failure(503);
+    const log = row.run_id === null ? null : `https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id}`;
+    const identity = {version: 3, request_id: row.id, request_tag: row.tag, generation: row.generation, repository: request.repository, repository_id: request.repository_id, golem: request.golem, trigger: request.trigger, check_run_id: request.check_run_id, run_id: row.run_id, attempt: row.attempt, seat: row.seat};
+    if ((row.run_id === null) !== (row.attempt === null)) throw new Failure(503);
+    const name = `golem-admin/${row.id}`;
+    const prior = await this.api(`${ops}/git/ref/tags/${name}`, 'GET', undefined, true);
+    let sha;
+    if (prior) {
+      if (prior.object?.type !== 'tag' || !/^[0-9a-f]{40}$/.test(prior.object.sha)) throw new Failure(503);
+      const tag = await this.api(`${ops}/git/tags/${prior.object.sha}`);
+      if (tag.sha !== prior.object.sha || tag.tag !== name || tag.object?.type !== 'tag' || tag.object.sha !== row.tag || typeof tag.message !== 'string' || tag.message.length > 4096) throw new Failure(503);
+      const audit = JSON.parse(tag.message);
+      const keys = [...Object.keys(identity), 'outcome', 'model', 'duration_s', 'completed_at', 'log'];
+      if (Object.keys(audit).length !== keys.length || !keys.every(key => Object.hasOwn(audit, key)) || !Object.entries(identity).every(([key, value]) => audit[key] === value)
+        || (audit.outcome !== null && !Object.hasOwn(outcomes, audit.outcome)) || (audit.model !== null && (!observedModel(audit.model) || row.check_repaired))
+        || (audit.duration_s !== null && (row.run_id === null || typeof audit.duration_s !== 'number' || !Number.isFinite(audit.duration_s) || audit.duration_s < 0)) || !utc(audit.completed_at) || audit.log !== log) throw new Failure(503);
+      sha = tag.sha;
+    } else {
+      let run = null;
+      if (row.run_id !== null) {
+        run = await this.run(row, row.run_id);
+        if (!run || run.run_attempt !== row.attempt || run.status !== 'completed' || !['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral', 'skipped', 'startup_failure', 'stale'].includes(run.conclusion)) return false;
+      }
+      const check = await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'GET', undefined, true);
+      let outcome = null, model = null, duration = null, completed;
+      if (check) {
+        if (check.id !== request.check_run_id || check.name !== `golem/${request.golem}` || check.app?.id !== 4605060 || check.head_sha !== request.head_sha || check.status !== 'completed' || !utc(check.completed_at)) return false;
+        const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
+        if (repository?.id !== request.repository_id) throw new Failure(503);
+        const lines = typeof check.output?.summary === 'string' ? check.output.summary.split('\n') : [];
+        const single = prefix => { const found = lines.filter(line => line.startsWith(prefix)); return found.length === 1 ? found[0].slice(prefix.length) : null; };
+        if (single('seat: ') !== `${request.seat_login}/${request.provider}` || single('harness: ') !== request.harness || single('budget: ') !== `${request.timeout_seconds}s` || single('log: ') !== (log ?? 'https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/')) throw new Failure(503);
+        const reported = single('outcome: ');
+        if (Object.hasOwn(outcomes, reported) && check.conclusion === outcomes[reported] && (reported !== 'no_change' || lines.some(line => /^reason: \S/.test(line)))) outcome = reported;
+        const observed = single('model: ');
+        // Legacy stopped/repair checks can echo a preference without an observation.
+        const repaired = row.check_repaired || lines.some(line => /^reason: workflow ended \(.+\) without a valid completed native audit; execution\/publication outcome unconfirmed$/.test(line));
+        if (row.run_id !== null && !repaired && outcome !== null && outcome !== 'stopped' && observedModel(observed)) model = observed;
+        completed = check.completed_at;
+        if (utc(run?.run_started_at) && Date.parse(completed) >= Date.parse(run.run_started_at)) duration = (Date.parse(completed) - Date.parse(run.run_started_at)) / 1000;
+      } else {
+        const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
+        if (repository !== null) return false;
+        if (run && !(row.auditTag && row.outcome === 'blocked') && !(row.outcome === 'stopped' && (run.conclusion === 'cancelled' || (Number.isSafeInteger(row.stop_requested_at) && row.stop_requested_at > 0)))) return false;
+        outcome = Object.hasOwn(outcomes, row.outcome) ? row.outcome : null;
+        completed = run?.updated_at ?? row.terminal_at;
+        if (!completed && Number.isSafeInteger(row.stop_requested_at) && row.stop_requested_at > 0) completed = new Date(row.stop_requested_at).toISOString();
+        if (!utc(completed)) return false;
+      }
+      const audit = {...identity, outcome, model, duration_s: duration, completed_at: completed, log};
+      const tag = await this.api(`${ops}/git/tags`, 'POST', {tag: name, message: JSON.stringify(audit), object: row.tag, type: 'tag'});
+      if (!/^[0-9a-f]{40}$/.test(tag.sha)) throw new Failure(503);
+      const published = await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/${name}`, sha: tag.sha});
+      if (published?.object?.sha !== tag.sha) throw new Failure(503);
+      sha = tag.sha;
+    }
+    if (row.run_id !== null) {
+      const alias = `golem-run/${row.run_id}`;
+      const ref = await this.api(`${ops}/git/ref/tags/${alias}`, 'GET', undefined, true);
+      if (ref) { if (ref.object?.type !== 'tag' || ref.object.sha !== sha) throw new Failure(503); }
+      else {
+        const published = await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/${alias}`, sha});
+        if (published?.object?.sha !== sha) throw new Failure(503);
+      }
+    }
+    return true;
   }
   async reconcile() {
     const rows = this.queue.records;
     if (!rows.length) return;
     const start = Number.isSafeInteger(this.queue.cursor) ? this.queue.cursor % rows.length : 0;
     let checked = 0;
+    // An audit uses at most ten ordinary calls with immutable request reads reused.
+    // Leave the closing save + five legacy listings + reserve retries + seven intent calls.
+    // A resource-blocked successor needs reconciliation, not dispatch headroom yet.
+    const maintenanceLimit = rows.some((row, i) => dispatchEligible(row, i, rows)) ? 14 : 30;
     for (let offset = 0; offset < rows.length && checked < 4; offset++) {
+      if (this.calls > maintenanceLimit) break;
       const position = (start + offset) % rows.length;
       const row = rows[position];
       this.queue.cursor = (position + 1) % rows.length;
-      if (row.state === 'terminal' || (!row.run_id && row.state !== 'stop_requested')) continue;
+      if (!row.run_id && !['stop_requested', 'terminal'].includes(row.state)) continue;
       checked++;
       // Commit scan progress before fallible I/O, so one irreparable check cannot starve others.
       await this.save();
       try {
+        if (row.state === 'terminal') {
+          await this.adminAudit(row);
+          continue;
+        }
         if (!row.dispatched) {
           await this.stoppedCheck(row);
           row.state = 'terminal';
@@ -424,7 +547,7 @@ export class Coordinator {
     if (body.action === 'enqueue') {
       const row = await this.enqueue(body.request);
       await this.advance();
-      return {state: row.state === 'pending' ? 'pending' : 'dispatched', request_id: row.id};
+      return {state: ['pending', 'reserved'].includes(row.state) ? 'pending' : 'dispatched', request_id: row.id};
     }
     if (body.action === 'bind' || body.action === 'complete') return this.callback(body);
     if (body.action === 'stop') return this.stop(body);

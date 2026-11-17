@@ -58,7 +58,7 @@ fn session(request: &Request, env: &Env) -> Result<Option<Session>> {
     )
 }
 
-fn secured(mut response: Response, content_type: &str) -> Result<Response> {
+pub(super) fn secured(mut response: Response, content_type: &str) -> Result<Response> {
     let headers = response.headers_mut();
     headers.set("Content-Type", content_type)?;
     headers.set("Content-Security-Policy", CONTENT_SECURITY_POLICY)?;
@@ -68,23 +68,29 @@ fn secured(mut response: Response, content_type: &str) -> Result<Response> {
     Ok(response)
 }
 
-fn html(page: String) -> Result<Response> {
+pub(super) fn html(page: String) -> Result<Response> {
     secured(Response::ok(page)?, "text/html; charset=utf-8")
 }
 
-fn json_answer(value: &Value) -> Result<Response> {
+pub(super) fn json_answer(value: &Value) -> Result<Response> {
     secured(Response::from_json(value)?, "application/json")
 }
 
 /// Without a session every page sends the browser to GitHub sign-in; state binds the callback.
-fn sign_in() -> Result<Response> {
+pub(super) fn sign_in(admin: bool) -> Result<Response> {
     let state = random_state();
     let Some(location) = crate::sign_in_location(&state) else {
         return Response::error("Sign-in unavailable", 503);
     };
     let headers = Headers::new();
     headers.set("Location", &location)?;
-    headers.set("Set-Cookie", &policy::state_cookie(&state))?;
+    // Destination is a fixed local choice, never a caller-supplied return URL.
+    let cookie_state = if admin {
+        format!("{state}.admin")
+    } else {
+        state
+    };
+    headers.set("Set-Cookie", &policy::state_cookie(&cookie_state))?;
     headers.set("Cache-Control", "no-store")?;
     Ok(Response::empty()?.with_status(302).with_headers(headers))
 }
@@ -96,26 +102,52 @@ pub(super) async fn route(
     path: &str,
 ) -> Option<Result<Response>> {
     let method = request.method();
+    let admin_path = path == "/admin" || path == "/admin.js" || path.starts_with("/v1/admin/");
+    if admin_path && method != Method::Get {
+        return Some(
+            Response::error("Method not allowed", 405)
+                .and_then(|response| secured(response, "text/plain; charset=utf-8")),
+        );
+    }
     let result = match (method, path) {
         (Method::Get, "/seats.js") => Response::ok(SCRIPT)
             .and_then(|script| secured(script, "text/javascript; charset=utf-8")),
         (Method::Get, "/seats") => bounded(seats(request, env), 20_000).await,
-        (Method::Get, "/admin") => admin(request, env),
+        (Method::Get, "/admin") => bounded(super::admin::page(request, env), 25_000).await,
+        (Method::Get, "/admin.js") => Response::ok(include_str!("../admin.js"))
+            .and_then(|script| secured(script, "text/javascript; charset=utf-8")),
+        (Method::Get, "/v1/admin/runs") => {
+            bounded(super::admin::data(request, env, "runs"), 25_000).await
+        }
+        (Method::Get, "/v1/admin/undispatched") => {
+            bounded(super::admin::data(request, env, "undispatched"), 25_000).await
+        }
+        (Method::Get, "/v1/admin/seats") => {
+            bounded(super::admin::data(request, env, "seats"), 25_000).await
+        }
+        (Method::Get, "/v1/admin/repositories") => {
+            bounded(super::admin::data(request, env, "repositories"), 25_000).await
+        }
         (Method::Get, "/auth/github/callback") => bounded(callback(request, env), 20_000).await,
         (Method::Get, "/v1/seats/key") => bounded(key(request, env), 20_000).await,
         (Method::Post, "/v1/seats") => bounded(register(request, env), 20_000).await,
         (Method::Post, "/v1/seats/preferred") => bounded(prefer(request, env), 20_000).await,
+        _ if admin_path => Response::error("Not found", 404)
+            .and_then(|response| secured(response, "text/plain; charset=utf-8")),
         _ => return None,
     };
     Some(result.or_else(|_| {
         worker::console_error!("registration request failed (details suppressed)");
-        Response::error("Temporarily unavailable", 502)
+        secured(
+            Response::error("Temporarily unavailable", 502)?,
+            "text/plain; charset=utf-8",
+        )
     }))
 }
 
 async fn seats(request: &Request, env: &Env) -> Result<Response> {
     let Some(session) = session(request, env)? else {
-        return sign_in();
+        return sign_in(false);
     };
     let github = Github::installation(env).await?;
     let seats = seats_of(&github, &session.login).await?;
@@ -130,11 +162,8 @@ async fn seats(request: &Request, env: &Env) -> Result<Response> {
     ))
 }
 
-fn admin(request: &Request, env: &Env) -> Result<Response> {
-    match session(request, env)? {
-        Some(session) => html(policy::admin_page(&session.login)),
-        None => sign_in(),
-    }
+pub(super) fn signed_login(request: &Request, env: &Env) -> Result<Option<String>> {
+    Ok(session(request, env)?.map(|s| s.login))
 }
 
 fn query(request: &Request) -> Result<Option<(String, String)>> {
@@ -178,7 +207,7 @@ async fn exchange(form: String) -> Result<Option<String>> {
 }
 
 /// The user token proves identity once and is dropped; only the signed login is kept.
-async fn user_login(token: String) -> Result<Option<String>> {
+pub(super) async fn user_login(token: String) -> Result<Option<String>> {
     let user = Github::new(token);
     let (status, profile) = user.call(Method::Get, "/user", None).await?;
     if status != 200 {
@@ -194,6 +223,10 @@ async fn user_login(token: String) -> Result<Option<String>> {
 async fn callback(request: &Request, env: &Env) -> Result<Response> {
     let cookies = request.headers().get("Cookie")?.unwrap_or_default();
     let expected = policy::cookie(&cookies, STATE_COOKIE);
+    let (expected, admin) = match expected.and_then(|value| value.strip_suffix(".admin")) {
+        Some(state) => (Some(state), true),
+        None => (expected, false),
+    };
     let Some((code, state)) = query(request)? else {
         return Response::error("Sign-in failed; open /seats to start again.", 400);
     };
@@ -233,7 +266,7 @@ async fn callback(request: &Request, env: &Env) -> Result<Response> {
     let value = policy::session_value(&key, &login, now_s())
         .ok_or_else(|| failure("session signing failed"))?;
     let headers = Headers::new();
-    headers.set("Location", "/seats")?;
+    headers.set("Location", if admin { "/admin" } else { "/seats" })?;
     headers.append("Set-Cookie", &policy::session_cookie(&value))?;
     headers.append("Set-Cookie", policy::STATE_COOKIE_CLEAR)?;
     headers.set("Cache-Control", "no-store")?;

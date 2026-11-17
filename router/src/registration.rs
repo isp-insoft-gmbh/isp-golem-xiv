@@ -383,10 +383,5 @@ pub fn seats_page(login: &str, seats: &[&str], preferred: Option<&str>, csrf: &s
 
 #[must_use]
 pub fn admin_page(login: &str) -> String {
-    document(
-        "Admin",
-        &format!(
-            "</head>\n<body>\n<main>\n<h1>Admin</h1>\n<p>Signed in as <strong>@{login}</strong>.</p>\n<p>The admin dashboard arrives in Slice 4. Manage your seats on <a href=\"/seats\">the seats page</a>.</p>\n</main>\n</body>\n"
-        ),
-    )
+    crate::admin::page(login)
 }

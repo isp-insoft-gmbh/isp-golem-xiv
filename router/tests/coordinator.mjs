@@ -19,6 +19,8 @@ const key = generateKeyPairSync('rsa', {modulusLength: 2048}).privateKey.export(
 const ops = '/repos/isp-insoft-gmbh/isp-golem-xiv-ops';
 const repository = 'isp-insoft-gmbh/isp-golem-xiv-test-queue';
 const head = 'a'.repeat(40);
+const startedAt = '2026-11-13T01:00:00Z';
+const completedAt = '2026-11-13T01:00:42Z';
 const json = (status, value = {}) => new Answer(status === 204 ? null : JSON.stringify(value), {status, headers: {'Content-Type': 'application/json'}});
 function request(seat = 'member', golem = 'hello', extra = {}) {
   return {version: 2, delivery_id: randomUUID(), repository_id: 99, repository, head_sha: head, golem, issue_number: 1, comment_id: 100, actor_id: 42, actor_login: 'member', seat_login: seat, provider: 'anthropic', harness: 'claude', model: null, timeout_seconds: 1800, instructions: 'fixture', check_run_id: 10, trigger: 'mention', branch: `golems/${golem}`, verify: null, owner: null, ...extra};
@@ -46,6 +48,7 @@ class Fixture {
   queue() { return JSON.parse(Buffer.from(this.index.content, 'base64')); }
   row(id) { return this.queue().records.find(row => row.id === id); }
   async github(req) {
+    this.apiCalls = (this.apiCalls ?? 0) + 1;
     assert.equal(req.headers.get('X-GitHub-Api-Version'), '2022-11-28');
     this.origins ??= [];
     this.origins.push(new URL(req.url).origin);
@@ -82,7 +85,12 @@ class Fixture {
       if (this.conflicts) { this.conflicts--; this.readbackReady = true; return json(409); }
       if (this.failWrite === 'conflict') { this.failWrite = null; return json(422, {message: 'sensitive fixture error'}); }
       if (body.sha !== this.index?.sha) return json(409);
-      const records = JSON.parse(Buffer.from(body.content, 'base64')).records;
+      const journal = JSON.parse(Buffer.from(body.content, 'base64'));
+      const records = journal.records;
+      const faultIndex = this.journalFaults?.findIndex(fault => (fault.cursor === undefined || fault.cursor === journal.cursor) && records.some(r => r.id === fault.id && r.state === fault.state)) ?? -1;
+      const fault = faultIndex < 0 ? null : this.journalFaults.splice(faultIndex, 1)[0];
+      if (fault) (this.journalFaultEvents ??= []).push(fault);
+      if (fault?.mode === 'transient') return json(503);
       for (const record of records) {
         if (record.state === 'terminal' && record.auditTag) {
           assert.equal(this.refs.get(`refs/tags/golem-audit/${record.id}`), record.auditTag, 'durable private audit ref must precede terminal journal write');
@@ -93,6 +101,7 @@ class Fixture {
       const fail = this.failWrite && (this.failWrite.state === undefined || records.some(r => r.state === this.failWrite.state));
       this.index = {sha: this.sha(), content: body.content};
       this.puts.push(structuredClone(records));
+      if (fault?.mode === 'committed') return json(503);
       if (this.transportAfterCommit && records.some(r => r.state === 'bound')) {
         this.transportAfterCommit = false;
         this.transportCommittedBytes = this.index.content;
@@ -109,9 +118,11 @@ class Fixture {
     }
     if (p === `${ops}/git/commits`) return json(201, {sha: this.sha()});
     if (p === `${ops}/git/refs`) {
+      if (this.failAdmin && (body.ref.startsWith('refs/tags/golem-admin/') || body.ref.startsWith('refs/tags/golem-run/'))) return json(503);
       if (this.failAudit && body.ref.startsWith('refs/tags/golem-audit/')) return json(typeof this.failAudit === 'number' ? this.failAudit : 503);
       if (this.refs.has(body.ref)) return json(422);
       this.refs.set(body.ref, body.sha);
+      if (this.loseAdminRef && body.ref.startsWith('refs/tags/golem-admin/')) { this.loseAdminRef = false; return json(503); }
       if (this.loseAuditRef && body.ref.startsWith('refs/tags/golem-audit/')) { this.loseAuditRef = false; return json(503); }
       if (this.failReceipt && body.ref.startsWith('refs/tags/golem-terminal/')) { this.failReceipt = false; return json(500); }
       if (body.ref === 'refs/heads/golem-state') {
@@ -162,7 +173,7 @@ class Fixture {
       if (this.checkFailure === id) return json(404);
       this.onCheckPatch?.(id, body);
       this.checks.push(body);
-      this.checkState.set(id, {...this.checkState.get(id), ...body});
+      this.checkState.set(id, {...this.checkState.get(id), ...body, completed_at: body.completed_at ?? completedAt});
       return json(200);
     }
     assert.fail(`Unexpected GitHub API ${req.method} ${p}`);
@@ -180,18 +191,20 @@ class Fixture {
     }, dev: {outboundService: {type: 'fetcher', handler: req => this.github(req)}}}]});
   }
   async call(action, fields = {}, status = 200) {
+    const callsBefore = this.apiCalls ?? 0;
     const response = await this.worker.dispatchFetch('https://queue.invalid/', {method: 'POST', body: JSON.stringify({action, ...fields})});
     const body = await response.json();
+    if (this.enforceCallBudget) assert.ok(this.apiCalls - callsBefore <= 45, 'operation must stay within 45 GitHub API calls');
     assert.equal(response.status, status, JSON.stringify(body));
     return body;
   }
   async enqueue(req, status = 200) {
-    if (!this.checkState.has(req.check_run_id)) this.checkState.set(req.check_run_id, {id: req.check_run_id, name: `golem/${req.golem}`, app: {id: 4605060}, status: 'queued', conclusion: null, output: null});
+    if (!this.checkState.has(req.check_run_id)) this.checkState.set(req.check_run_id, {id: req.check_run_id, name: `golem/${req.golem}`, head_sha: head, app: {id: 4605060}, status: 'queued', conclusion: null, completed_at: completedAt, output: null});
     return this.call('enqueue', {request: req}, status);
   }
   async bind(req, id = 1000 + this.runs.size, fields = {}, status = 200) {
     const row = this.row(req.delivery_id);
-    this.runs.set(id, {id, run_attempt: 1, status: 'in_progress', event: 'workflow_dispatch', head_branch: 'trunk', path: '.github/workflows/runner.yml', display_title: `${req.repository} ${req.golem}`});
+    this.runs.set(id, {id, run_attempt: 1, status: 'in_progress', run_started_at: startedAt, updated_at: completedAt, event: 'workflow_dispatch', head_branch: 'trunk', path: '.github/workflows/runner.yml', display_title: `${req.repository} ${req.golem}`});
     return this.call('bind', {request_id: row.id, generation: row.generation, run_id: id, attempt: 1, ...fields}, status);
   }
   async complete(req, fields = {}, status = 200) {
@@ -199,6 +212,8 @@ class Fixture {
     // Real supervisor completion is sent only after destruction/publication. Mark run done in the double.
     const run = this.runs.get(row.run_id);
     if (run) Object.assign(run, {status: 'completed', conclusion: 'success'});
+    const check = this.checkState.get(req.check_run_id);
+    if (check) Object.assign(check, {status: 'completed', conclusion: 'success', output: {summary: `outcome: replied\nseat: ${req.seat_login}/${req.provider}\nharness: ${req.harness}\nmodel: observed-model\nbudget: ${req.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id}`}});
     return this.call('complete', {request_id: row.id, generation: row.generation, run_id: row.run_id, attempt: row.attempt, ...fields}, status);
   }
   // Simulate elapsed fence time in the authoritative journal, never in the DO projection.
@@ -230,7 +245,8 @@ async function runScenarios() {
   });
   const results = await Promise.allSettled(batches);
   console.log(JSON.stringify({coordinatorTiming: {totalMs: Math.round(performance.now() - started), cases: timings.length, timings, slowest: [...timings].sort((a, b) => b.ms - a.ms).slice(0, 8)}}));
-  for (const result of results) if (result.status === 'rejected') throw result.reason;
+  const errors = results.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (errors.length) throw new AggregateError(errors, 'Coordinator scenarios failed');
 }
 
 await scenario('unchanged blob conflict retries identical mutation and lost response confirms exact bytes before grant', async f => {
@@ -382,7 +398,9 @@ for (const state of ['pending', 'reserved']) {
     f.repositories.set(repository, {status: 404, body: {message: 'Not Found'}});
     f.runs.clear();
     await f.restart(); await f.call('tick');
-    assert.deepEqual(f.row(missing.delivery_id), {...before, state: 'terminal', outcome: 'blocked', reason: 'target unavailable at dispatch preflight'});
+    const terminalAt = f.row(missing.delivery_id).terminal_at;
+    assert.ok(Number.isFinite(Date.parse(terminalAt)));
+    assert.deepEqual(f.row(missing.delivery_id), {...before, state: 'terminal', outcome: 'blocked', reason: 'target unavailable at dispatch preflight', terminal_at: terminalAt});
     assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id]);
     assert.ok(f.repositoryGets.includes(repository), '404 must come from target repository GET');
     assert.ok(f.repositoryGets.includes(peerRepository), 'healthy target identity must be fetched');
@@ -390,7 +408,7 @@ for (const state of ['pending', 'reserved']) {
     assert.deepEqual(f.checks, []);
     assert.equal(f.reactions.length, 1, 'only healthy dispatched peer receives rocket');
     await f.restart(); await f.call('tick');
-    assert.deepEqual(f.row(missing.delivery_id), {...before, state: 'terminal', outcome: 'blocked', reason: 'target unavailable at dispatch preflight'});
+    assert.deepEqual(f.row(missing.delivery_id), {...before, state: 'terminal', outcome: 'blocked', reason: 'target unavailable at dispatch preflight', terminal_at: terminalAt});
     assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id]);
     await f.enqueue(missing);
     assert.deepEqual(f.dispatches.map(r => r.delivery_id), [peer.delivery_id], 'terminal replay must not dispatch');
@@ -702,6 +720,297 @@ await scenario('bounded capacity rejects before admission, retains every accepte
   assert.equal(f.dispatches.length, 1);
 });
 
+await scenario('callback before Actions completion defers sanitized immutable audit and retirement until authoritative terminal metadata', async f => {
+  const req = request('Member', 'hello', {model: 'requested-secret', instructions: 'private task secret'});
+  await f.enqueue(req); await f.bind(req, 9100);
+  const row = f.row(req.delivery_id);
+  await f.call('complete', {request_id: row.id, generation: row.generation, run_id: 9100, attempt: 1});
+  const peer = request('other', 'peer', {check_run_id: 11});
+  await f.enqueue(peer); await f.call('tick');
+  assert.ok(f.row(req.delivery_id));
+  assert.ok(!f.refs.has(`refs/tags/golem-admin/${row.id}`));
+  assert.ok(!f.refs.has(`refs/tags/golem-terminal/${row.id}`));
+  await f.complete(req);
+  f.loseAdminRef = true;
+  await f.call('tick'); // Published ref, lost acknowledgment.
+  const sha = f.refs.get(`refs/tags/golem-admin/${row.id}`);
+  assert.ok(sha);
+  const tag = structuredClone(f.tags.get(sha));
+  assert.deepEqual(JSON.parse(tag.message), {version: 3, request_id: row.id, request_tag: row.tag, generation: row.generation, repository, repository_id: 99, golem: 'hello', trigger: 'mention', check_run_id: 10, run_id: 9100, attempt: 1, seat: 'member/anthropic', outcome: 'replied', model: 'observed-model', duration_s: 42, completed_at: completedAt, log: 'https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/9100'});
+  assert.equal(tag.object.type, 'tag'); assert.equal(tag.object.sha, row.tag);
+  assert.ok(!tag.message.includes('secret'));
+  await f.restart(); await f.call('tick');
+  assert.equal(f.refs.get('refs/tags/golem-run/9100'), sha);
+  await f.enqueue(request('third', 'third', {check_run_id: 12}));
+  assert.equal(f.row(row.id), undefined);
+  assert.deepEqual(f.tags.get(sha), tag);
+});
+
+await scenario('repaired requested model is never an observation; admin publication failure prevents retirement', async f => {
+  const req = request('member', 'hello', {model: 'requested-model'});
+  await f.enqueue(req); await f.bind(req, 9101);
+  Object.assign(f.runs.get(9101), {status: 'completed', conclusion: 'failure'});
+  await f.call('tick');
+  assert.equal(f.row(req.delivery_id).state, 'terminal');
+  f.failAdmin = true;
+  await f.enqueue(request('other', 'peer', {check_run_id: 11}));
+  assert.ok(f.row(req.delivery_id));
+  assert.ok(!f.refs.has(`refs/tags/golem-terminal/${req.delivery_id}`));
+  f.failAdmin = false;
+  await f.restart(); await f.call('tick');
+  const audit = JSON.parse(f.tags.get(f.refs.get('refs/tags/golem-run/9101')).message);
+  assert.equal(audit.model, null); assert.equal(audit.outcome, 'blocked'); assert.equal(audit.duration_s, 42);
+});
+
+for (const bad of ['head', 'app', 'seat', 'harness', 'budget', 'log', 'repository', 'timestamp', 'run']) {
+  await scenario(`admin audit rejects mismatched ${bad} without retirement`, async f => {
+    const req = request(); await f.enqueue(req); await f.bind(req, 9102); await f.complete(req);
+    const check = f.checkState.get(10);
+    if (bad === 'head') check.head_sha = 'f'.repeat(40);
+    if (bad === 'app') check.app.id++;
+    if (['seat', 'harness', 'budget', 'log'].includes(bad)) check.output.summary = check.output.summary.replace(new RegExp(`${bad}: [^\\n]+`), `${bad}: wrong`);
+    if (bad === 'repository') f.repositories.get(repository).body.id++;
+    if (bad === 'timestamp') check.completed_at = '2026-11-13T01:00:42+00:00';
+    if (bad === 'run') f.runs.get(9102).display_title = 'wrong';
+    await f.call('tick'); await f.enqueue(request('other', 'peer', {check_run_id: 11}));
+    assert.ok(f.row(req.delivery_id));
+    assert.ok(!f.refs.has(`refs/tags/golem-admin/${req.delivery_id}`));
+    assert.ok(!f.refs.has(`refs/tags/golem-terminal/${req.delivery_id}`));
+  });
+}
+
+await scenario('six native outcomes and unknown metadata serialize only sanitized contract fields across bounded fair ticks', async f => {
+  const conclusions = {changed: 'success', replied: 'success', no_change: 'success', incomplete: 'neutral', blocked: 'failure', stopped: 'cancelled', invalid: 'failure'};
+  for (const [i, [outcome, conclusion]] of Object.entries(conclusions).entries()) {
+    const req = request(`seat${i}`, `golem${i}`, {check_run_id: 100 + i});
+    await f.enqueue(req); await f.bind(req, 9200 + i); await f.complete(req);
+    const check = f.checkState.get(req.check_run_id);
+    check.conclusion = conclusion;
+    check.output.summary = check.output.summary.replace('outcome: replied', `outcome: ${outcome}`) + '\nreason: private reason must never enter ops metadata';
+  }
+  for (let i = 0; i < 7; i++) await f.call('tick');
+  for (const [i, outcome] of Object.keys(conclusions).entries()) {
+    const sha = f.refs.get(`refs/tags/golem-run/${9200 + i}`);
+    assert.ok(sha, `fair scan audits ${outcome}`);
+    const tag = f.tags.get(sha);
+    const audit = JSON.parse(tag.message);
+    assert.equal(audit.outcome, outcome === 'invalid' ? null : outcome);
+    assert.equal(audit.model, ['invalid', 'stopped'].includes(outcome) ? null : 'observed-model');
+    assert.equal(audit.duration_s, 42);
+    assert.ok(!tag.message.includes('private reason'));
+  }
+});
+
+for (const fault of ['target', 'name', 'extra', 'identity', 'timestamp', 'model', 'duration', 'alias']) {
+  await scenario(`immutable admin ${fault} mismatch forbids retirement without replacing tag`, async f => {
+    const req = request(); await f.enqueue(req); await f.bind(req, 9104); await f.complete(req); await f.call('tick');
+    const sha = f.refs.get(`refs/tags/golem-admin/${req.delivery_id}`);
+    const tag = f.tags.get(sha);
+    const valid = structuredClone(tag);
+    if (fault === 'target') tag.object.sha = 'f'.repeat(40);
+    else if (fault === 'name') tag.tag = 'golem-admin/wrong';
+    else if (fault === 'alias') f.refs.set('refs/tags/golem-run/9104', 'f'.repeat(40));
+    else {
+      const audit = JSON.parse(tag.message);
+      if (fault === 'extra') audit.reason = 'private';
+      if (fault === 'identity') audit.generation = randomUUID();
+      if (fault === 'timestamp') audit.completed_at = 'not UTC';
+      if (fault === 'model') audit.model = 'unsafe model';
+      if (fault === 'duration') audit.duration_s = -1;
+      tag.message = JSON.stringify(audit);
+    }
+    await f.restart(); await f.enqueue(request('peer', 'peer', {check_run_id: 11}));
+    assert.ok(f.row(req.delivery_id));
+    assert.equal(f.refs.get(`refs/tags/golem-admin/${req.delivery_id}`), sha);
+    assert.ok(!f.refs.has(`refs/tags/golem-terminal/${req.delivery_id}`));
+    f.tags.set(sha, valid); f.refs.set('refs/tags/golem-run/9104', sha);
+    await f.enqueue(request('next', 'next', {check_run_id: 12}));
+    assert.equal(f.row(req.delivery_id), undefined);
+  });
+}
+
+await scenario('gone predispatch target and cancelled bound run retain authoritative audits with unknown measurements', async f => {
+  f.repositories.get(repository).status = 404;
+  const req = request(); await f.enqueue(req);
+  f.checkMissing = 10;
+  const terminalAt = f.row(req.delivery_id).terminal_at;
+  await f.call('tick');
+  const noRun = JSON.parse(f.tags.get(f.refs.get(`refs/tags/golem-admin/${req.delivery_id}`)).message);
+  assert.equal(noRun.completed_at, terminalAt); assert.equal(noRun.outcome, 'blocked');
+  assert.equal(noRun.duration_s, null); assert.equal(noRun.model, null);
+  f.repositories.get(repository).status = 200;
+  const bound = request('other', 'cancelled', {check_run_id: 11});
+  await f.enqueue(bound); await f.bind(bound, 9105);
+  f.repositories.get(repository).status = 404; f.checkMissing = 11;
+  Object.assign(f.runs.get(9105), {status: 'completed', conclusion: 'cancelled'});
+  await f.call('tick'); await f.restart(); await f.call('tick');
+  const stopped = JSON.parse(f.tags.get(f.refs.get('refs/tags/golem-run/9105')).message);
+  assert.equal(stopped.outcome, 'stopped'); assert.equal(stopped.completed_at, completedAt);
+  assert.equal(stopped.duration_s, null); assert.equal(stopped.model, null);
+});
+
+for (const model of ['unsafe model secret', 'unobserved', 'x'.repeat(129), 'gpt-6.1-sol']) {
+  await scenario(`admin model alphabet bounds ${model.slice(0, 20)} with unknown duration`, async f => {
+    const req = request(); await f.enqueue(req); await f.bind(req, 9103); await f.complete(req);
+    f.checkState.get(10).output.summary = f.checkState.get(10).output.summary.replace('model: observed-model', `model: ${model}`);
+    f.runs.get(9103).run_started_at = 'not a timestamp';
+    await f.call('tick');
+    const audit = JSON.parse(f.tags.get(f.refs.get('refs/tags/golem-run/9103')).message);
+    assert.equal(audit.model, model === 'gpt-6.1-sol' ? model : null); assert.equal(audit.duration_s, null);
+  });
+}
+
+for (const gone of [false, true]) {
+  await scenario(`predispatch stop ${gone ? 'gone' : 'present'} has durable no-run admin audit`, async f => {
+    f.runs.set(1, {id: 1, status: 'queued'});
+    const req = request(); await f.enqueue(req);
+    if (gone) { f.checkFailure = 10; f.checkMissing = 10; f.repositories.get(repository).status = 404; }
+    await f.call('stop', {repository, issue_number: 1});
+    const row = f.row(req.delivery_id);
+    assert.equal(row.state, 'terminal');
+    await f.call('tick');
+    const sha = f.refs.get(`refs/tags/golem-admin/${row.id}`);
+    const audit = JSON.parse(f.tags.get(sha).message);
+    assert.equal(audit.outcome, 'stopped'); assert.equal(audit.run_id, null); assert.equal(audit.attempt, null);
+    assert.equal(audit.model, null); assert.equal(audit.duration_s, null); assert.equal(audit.log, null);
+    assert.equal(audit.completed_at, gone ? new Date(row.stop_requested_at).toISOString() : completedAt);
+    await f.restart(); await f.call('tick');
+    assert.equal(f.refs.get(`refs/tags/golem-admin/${row.id}`), sha);
+    assert.ok(![...f.refs.keys()].some(key => key.startsWith('refs/tags/golem-run/')));
+  });
+}
+
+await scenario('immutable request cache still validates every consuming queue row', async f => {
+  f.runs.set(1,{id:1,status:'queued'});
+  const valid = request('cache-seat1','cache-golem1',{check_run_id:790});
+  const mismatched = request('cache-seat2','cache-golem2',{check_run_id:791});
+  await f.enqueue(valid); await f.enqueue(mismatched);
+  f.rewrite(mismatched.delivery_id,row => { row.tag = f.row(valid.delivery_id).tag; });
+  f.runs.clear();
+  await f.call('tick',{},503);
+  assert.deepEqual(f.dispatches.map(r => r.delivery_id),[valid.delivery_id]);
+  assert.equal(f.row(mismatched.delivery_id).state,'pending');
+  assert.equal(f.row(mismatched.delivery_id).dispatched,false);
+  await f.restart(); await f.call('tick',{},503);
+  assert.equal(f.dispatches.length,1,'neither cached nor cold lookup may substitute another request identity');
+});
+
+for (const entry of ['tick', 'enqueue']) {
+  await scenario(`${entry} reserves retry headroom before dispatch intent under audit pressure`, async f => {
+    f.enforceCallBudget = true;
+    f.runs.set(1, {id: 1, status: 'queued'});
+    const terminalCount = entry === 'tick' ? 4 : 2;
+    const requests = Array.from({length: terminalCount}, (_, i) => request(`retry-seat${i}`, `retry-audit${i}`, {check_run_id: 800 + i}));
+    for (const req of requests) await f.enqueue(req);
+    const incoming = request('retry-new-seat', 'retry-new-golem', {check_run_id: 850});
+    if (entry === 'tick') await f.enqueue(incoming);
+    for (let i = 0; i < terminalCount; i++) {
+      f.rewrite(requests[i].delivery_id, row => { row.state = 'dispatching'; row.dispatched = true; });
+      await f.bind(requests[i], 9800 + i); await f.complete(requests[i]);
+    }
+    f.runs.delete(1);
+    f.journalFaults = [
+      {id:incoming.delivery_id,state:'reserved',mode:'transient'},
+      {id:incoming.delivery_id,state:'dispatching',mode:'committed'},
+    ];
+    if (entry === 'tick') {
+      f.failAdmin = true;
+      // The third audit's progress save retries, then confirms its lost committed response.
+      // Before the fix this puts advance at exactly 38 calls after its legacy listings.
+      f.journalFaults.push({id:incoming.delivery_id,state:'pending',cursor:3,mode:'transient'}, {id:incoming.delivery_id,state:'pending',cursor:3,mode:'committed'});
+    } else {
+      // A receipt can outlive an interrupted retirement save. Its row remains terminal.
+      f.refs.set(`refs/tags/golem-terminal/${requests[0].delivery_id}`, f.row(requests[0].delivery_id).tag);
+    }
+    await f.restart();
+    const callsBefore = f.apiCalls;
+    const response = await f.worker.dispatchFetch('https://queue.invalid/', {method:'POST',body:JSON.stringify(entry === 'tick' ? {action:'tick'} : {action:'enqueue',request:incoming})});
+    const answer = await response.json();
+    const used = f.apiCalls - callsBefore;
+    assert.ok(used <= 45);
+    assert.ok(!f.row(incoming.delivery_id)?.dispatched || f.dispatches.some(r => r.delivery_id === incoming.delivery_id), `no durable intent without a fetched dispatch: ${JSON.stringify({entry,used,status:response.status,answer,row:f.row(incoming.delivery_id),fetched:f.dispatches.length})}`);
+    assert.equal(response.status,200,JSON.stringify(answer));
+    if (entry === 'enqueue') {
+      assert.equal(f.row(incoming.delivery_id).state,'reserved','confirmed reservation defers before irreversible intent when retry headroom is insufficient');
+      assert.equal(f.row(incoming.delivery_id).dispatched,false);
+      assert.equal(answer.state,'pending','a reservation is not a dispatched run');
+      assert.equal(f.dispatches.length,0);
+      assert.ok(f.journalFaultEvents.some(fault => fault.state === 'reserved'));
+      assert.ok(f.journalFaults.some(fault => fault.state === 'dispatching'),'intent fault remains armed until a fresh operation has headroom');
+    }
+    // Legitimate budget deferral must leave pending/reserved work recoverable, never redispatch an intent.
+    for (let tick = 0; tick < 4 && !f.dispatches.length; tick++) { await f.restart(); await f.call('tick'); }
+    assert.equal(f.dispatches.length,1,'audit maintenance cannot consume every dispatch opportunity');
+    assert.equal(f.dispatches[0].delivery_id,incoming.delivery_id);
+    assert.equal(f.row(incoming.delivery_id).state,'dispatching');
+    for (const state of ['reserved','dispatching']) assert.ok(f.journalFaultEvents.some(fault => fault.state === state), `${state} save fault must actually execute`);
+    assert.ok(!f.journalFaults.some(fault => ['reserved','dispatching'].includes(fault.state)));
+    await f.restart(); await f.call('tick');
+    assert.equal(f.dispatches.length,1,'persisted intent is never blindly redispatched');
+  });
+}
+
+await scenario('failed terminal admin publications cannot starve unrelated pending dispatch across ticks and restart', async f => {
+  f.enforceCallBudget = true;
+  f.runs.set(1, {id: 1, status: 'queued'}); // Hold setup admissions without granting work.
+  const requests = Array.from({length: 5}, (_, i) => request(`seat${i}`, `audit-peer${i}`, {check_run_id: 600 + i}));
+  for (const req of requests) await f.enqueue(req);
+  for (let i = 0; i < 4; i++) {
+    f.rewrite(requests[i].delivery_id, row => { row.state = 'dispatching'; row.dispatched = true; });
+    await f.bind(requests[i], 9600 + i); await f.complete(requests[i]);
+  }
+  f.runs.delete(1);
+  f.failAdmin = true; // Only sanitized audit ref publication fails; dispatch/journal remain healthy.
+  assert.equal(f.dispatches.length, 0);
+  assert.equal(f.row(requests[4].delivery_id).state, 'pending');
+  for (let tick = 0; tick < 3; tick++) {
+    await f.restart();
+    await f.call('tick');
+    if (f.dispatches.length) break;
+  }
+  assert.equal(f.dispatches.length, 1, 'audit maintenance must leave budget for unrelated dispatch');
+  assert.equal(f.dispatches[0].delivery_id, requests[4].delivery_id);
+  assert.equal(f.row(requests[4].delivery_id).state, 'dispatching');
+  for (const req of requests.slice(0,4)) {
+    assert.equal(f.row(req.delivery_id).state, 'terminal');
+    assert.ok(!f.refs.has(`refs/tags/golem-admin/${req.delivery_id}`));
+    assert.ok(!f.refs.has(`refs/tags/golem-terminal/${req.delivery_id}`));
+  }
+});
+
+await scenario('full queue rotates retirement past two permanently unauditable terminal rows across restart', async f => {
+  f.enforceCallBudget = true; // Serial fixture requests allow exact per-operation accounting.
+  f.runs.set(1, {id: 1, status: 'queued'}); // Keep all admissions pending without dispatching.
+  const requests = Array.from({length: 32}, (_, i) => request(`seat${i}`, `golem${i}`, {check_run_id: 100 + i}));
+  for (const req of requests) await f.enqueue(req);
+  for (let i = 0; i < 3; i++) {
+    f.rewrite(requests[i].delivery_id, row => { row.state = 'dispatching'; row.dispatched = true; });
+    await f.bind(requests[i], 9300 + i); await f.complete(requests[i]);
+  }
+  f.runs.delete(9300); // Permanently unavailable authoritative run metadata.
+  f.checkState.get(101).head_sha = 'f'.repeat(40); // Permanently invalid check identity.
+  await f.call('tick');
+  const audited = f.row(requests[2].delivery_id);
+  const auditSha = f.refs.get(`refs/tags/golem-admin/${audited.id}`);
+  assert.ok(auditSha);
+  assert.equal(f.queue().records.length, 32);
+  const incoming = request('newseat', 'newgolem', {check_run_id: 200});
+  await f.enqueue(incoming, 429);
+  assert.equal(f.queue().retire_cursor, 2, 'failed admission durably advances candidates before audit I/O');
+  await f.restart();
+  await f.enqueue(incoming);
+  assert.equal(f.queue().records.length, 32, 'one safe retirement admits one replacement');
+  assert.ok(f.row(incoming.delivery_id));
+  assert.equal(f.row(audited.id), undefined);
+  assert.equal(f.refs.get(`refs/tags/golem-terminal/${audited.id}`), audited.tag);
+  assert.equal(f.refs.get(`refs/tags/golem-run/9302`), auditSha);
+  for (const req of requests.slice(0, 2)) {
+    assert.equal(f.row(req.delivery_id).state, 'terminal');
+    assert.ok(!f.refs.has(`refs/tags/golem-terminal/${req.delivery_id}`));
+    assert.ok(!f.refs.has(`refs/tags/golem-admin/${req.delivery_id}`));
+  }
+});
+
 await scenario('terminal retirement reclaims capacity without replaying old request tags', async f => {
   const first = request();
   for (let i = 0; i < 34; i++) {
@@ -901,7 +1210,7 @@ await scenario('crash after bind: successful and failed terminal workflows recei
     const repaired = f.checkState.get(req.check_run_id);
     assert.equal(repaired.status, 'completed'); assert.equal(repaired.conclusion, 'failure');
     const lines = repaired.output.summary.split('\n');
-    for (const line of ['outcome: blocked', 'seat: member/anthropic', 'harness: claude', 'model: explicit-model', 'budget: 1800s', `log: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${4000 + i}`]) assert.ok(lines.includes(line));
+    for (const line of ['outcome: blocked', 'seat: member/anthropic', 'harness: claude', 'model: unobserved', 'budget: 1800s', `log: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${4000 + i}`]) assert.ok(lines.includes(line));
     assert.ok(lines.some(line => line.startsWith('reason: ') && line.includes(conclusion) && line.includes('unconfirmed')));
   }
 });
@@ -1030,6 +1339,16 @@ if (process.argv.includes('--runner-contract')) {
       assert.equal(f.row(req.delivery_id).state, 'terminal');
       assert.deepEqual(f.checkState.get(10), check);
       assert.equal(f.checks.length, 0, 'reconciliation must not PATCH a valid runner-produced audit');
+      await f.call('tick');
+      const sha = f.refs.get(`refs/tags/golem-run/7000`);
+      assert.ok(sha, 'actual Rust check produces a durable sanitized run alias');
+      const sanitized = JSON.parse(f.tags.get(sha).message);
+      assert.equal(sanitized.version,3);
+      assert.equal(sanitized.outcome,outcome);
+      assert.equal(sanitized.model,outcome === 'stopped' ? null : 'runner-model');
+      assert.equal(sanitized.duration_s,42);
+      assert.ok(!f.tags.get(sha).message.includes('runner-produced fixture reason'));
+      assert.ok(!f.tags.get(sha).message.includes('synthetic-token'));
     });
   }
   const noChange = audits.find(a => a.output.summary.startsWith('outcome: no_change\n'));
