@@ -53,7 +53,7 @@ async function githubFixture(request) {
   if (path === "/app/installations/153964219/access_tokens") return json(201, { token: "synthetic-installation-token" });
   if (path === `${ops}/actions/variables/GOLEM_PROTOCOL_VERSION`) return json(200, { value: "2" });
   if (path === target && method === "GET") return json(200, { id: 99, full_name: repository, default_branch: "trunk", topics: ["isp-golem-xiv-test"] });
-  if (path === `${target}/commits/trunk`) return json(200, { sha: head });
+  if (path === `${target}/git/ref/heads/trunk`) return json(200, { object: { type: "commit", sha: head } });
   if (path === `${target}/contents/.golems`) return json(200, [...files].map(([name, content]) => ({ name, type: "file", size: Buffer.byteLength(content) })));
   if (path.startsWith(`${target}/contents/.golems/`)) {
     const content = files.get(path.split("/").at(-1));

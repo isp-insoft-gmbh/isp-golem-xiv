@@ -373,14 +373,21 @@ impl Github {
                     .split_once('/')
                     .ok_or_else(|| failure("invalid repository"))?
                     .1,
-                "commits",
-                branch,
-            ]);
-        let commit = self.get(url.path()).await?;
-        let sha = string(&commit, "sha")?;
-        if !valid_sha(sha) {
-            return Err(failure("invalid head SHA"));
+                "git",
+                "ref",
+                "heads",
+            ])
+            .extend(branch.split('/'));
+        // Commit responses include potentially large diffs; only the branch SHA is needed.
+        let reference = self.get(url.path()).await?;
+        if reference.pointer("/object/type").and_then(Value::as_str) != Some("commit") {
+            return Err(failure("invalid head reference"));
         }
+        let sha = reference
+            .pointer("/object/sha")
+            .and_then(Value::as_str)
+            .filter(|sha| valid_sha(sha))
+            .ok_or_else(|| failure("invalid head SHA"))?;
         Ok(sha.into())
     }
 

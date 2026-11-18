@@ -27,6 +27,11 @@ The compact-head built-Worker regression was red with 502 before its fix; full l
 Source fix `a9fa7689aad95954ac86a6bae0b982e3f73fd31b` remains held locally pending the corrected native runner's release and pin.
 Follow-up source inspection found the native runner's separate topic gate; an ordinary-repository HTTP-fixture test reproduced its refusal before removal.
 Native-change full CI -54 completed exit 0 with all four runtime/coordinator summaries under the same advisory policy; this validates the local native patch, not production execution.
+After native PR #44 merged `d3bdcdb`, combined-source CI -58 completed exit 0 with all four runtime/coordinator summaries under that policy.
+Exact native-merge trunk CI `44284844881` and deployment `44284844935` succeeded; production `/health` matched full `d3bdcdb` before annotated v12 release `44286965020` succeeded.
+Downloaded native ELF asset `762992803` matches GitHub digest, sidecar and manifest SHA-256 `be664fafba4f6f644f6392488d30df6c8f1f4de4aa435b0a389acba91e538771`.
+Ops PR #18 passed exact-head CI `44288393917`, merged `0d1a2d0c2223c2ac5fdff48d06d214b5ddbd765f` with reviewed/merged tree equality, and passed trunk CI `44288691590`.
+Live workflow readback pins v12 and exactly matches the reviewed workflow hash `36a0c5a2e55e1df5e9b12065bfdfe6a712d12eaddcc02879f9ae53d4d56b5780`; the compact-head Worker source remains unpublished.
 No successful live nine-valid discovery, new provider execution or full Slice 4 acceptance is established yet.
 
 ## Slice 1 deployed acceptance
