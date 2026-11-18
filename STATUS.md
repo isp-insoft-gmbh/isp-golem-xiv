@@ -47,7 +47,14 @@
   Docker entrypoint/runtime proof is still unrun locally and remains mandatory in the Linux CI image step before merge.
   Toktrak -84 completed exit 0 on local `2595be5` using verified task-local Mise: full CI/coverage, 277 unit/12 tagged tests and fresh scoped PIT (155/162 killed, seven survivors, zero timeouts). Exact token-used return-null mutant is killed by the new synchronous test; ordering/boundary survivors were inspected, not hidden or expanded into an unrelated campaign.
   Toktrak `2595be5` remains unpublished while native release/pin prerequisites are repaired; original checkout/lockfile untouched.
-  Next: final native CI → protected native PR/release → verified ops runner/Mise pair → matching public template → current-target Toktrak validation/merge → actual canary. No successful working-agent claim yet.
+  Native PR #48 at `1259314876dc09ac112fa8b153814b9443413353` failed exact-head CI `44322126241`; watcher -86 exit 1.
+  Repository CI passed, then the new container fixture failed before target preparation: unquoted Nu list commas split `/tmp:rw,nosuid,...` into six values, so Docker attempted image `nosuid:latest` and exited 125.
+  Image build and startup/version checks had already returned success; no target-minimum, provider or auth result is established by that failure.
+  Quoted the complete tmpfs option; a local probe using the actual argument expression was red at 19 base arguments, then green at the correct 14, with the tmpfs value intact; final Nu parsing passed.
+  This is focused argv proof, not Docker runtime proof; fresh required Linux CI remains before merge.
+  Toktrak target advanced again after local `2595be5`; defer its final re-integration until native release/pin prerequisites are ready, rather than repeatedly validating stale targets.
+  Next: protected native merge/release → verified ops runner/Mise pair → matching public template → current-target Toktrak validation/merge → actual canary.
+  No successful working-agent claim yet.
   Branch protection requires strict `ci`, zero approving reviews and linear target history; final delivery must squash without bypass and recheck current target/head/threads.
   Required GitHub CI and fresh repaired-default-SHA actual canary remain outstanding.
   Committed-tree proof independently confirms fourteen matching Git blobs/modes in each skill tree and no tracked links/submodules.

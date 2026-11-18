@@ -38,7 +38,7 @@ def exercise-target [root: path, scratch: path] {
       run --rm --interactive --read-only
       --user $"($uid):($gid)"
       --env GOLEM_TIMEOUT_SECONDS=180
-      --tmpfs /tmp:rw,nosuid,nodev,exec,size=1g,mode=1777
+      --tmpfs '/tmp:rw,nosuid,nodev,exec,size=1g,mode=1777'
       --tmpfs $"/home/agent:rw,nosuid,nodev,noexec,size=512m,uid=($uid),gid=($gid),mode=700"
       --mount $"type=bind,src=($workspace),dst=/workspace"
     ]
