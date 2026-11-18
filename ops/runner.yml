@@ -32,7 +32,7 @@ jobs:
       - name: Download pinned public runner
         timeout-minutes: 10
         env:
-          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v12
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v13
         shell: bash
         run: |
           set -euo pipefail
@@ -61,7 +61,7 @@ jobs:
         continue-on-error: true
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          version: 2026.10.21
+          version: 2026.11.9
           install: false
           cache: false
       - name: Prepare isolated pinned Claude subscription harness

@@ -28,7 +28,13 @@ One line per promise: `- <id>: <link to a run, comment, or screenshot, or path o
   `tools/agent-container-test.nu` adds credential-free supported/unsupported minimum preparation and isolated read-only tool verification; local parsing/core CI is not container runtime proof.
   First native [PR #48 CI 44322126241](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/44322126241) passed repository CI and image startup, then the fixture's unquoted tmpfs commas caused Docker to select nonexistent image `nosuid:latest` before target preparation.
   The exact Nu argument expression reproduced 19 arguments locally; quoting produced the intended 14, with all tmpfs options in one value.
-  Corrected container runtime proof remains pending fresh Linux CI; the generic Docker login suggestion is not a credential diagnosis.
+  Corrected [CI 44325246899](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/44325246899) passed on `7669872`, including the actual image and credential-free supported/unsupported minimum preparation plus isolated Node verification; the generic Docker login suggestion from the failed fixture was not a credential diagnosis.
+  Protected native #48 merged `bf46f79` with reviewed-tree equality; trunk CI `44327422806` and deployment `44327423130` passed on that exact SHA, independently returned by live `/health`.
+  [V13 release 44330868877](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/44330868877) passed on `bf46f79`; downloaded asset `763858931` is 5,063,016-byte ELF64 x86_64 with SHA-256 `3c015ae93d66d98c53d080f508da49cadfa7b882974cae24b7013f49324db1d3`, matching GitHub digest, exact sidecar and SHA256SUMS.
+  GitHub reports the release as mutable; these are point-in-time byte/provenance checks under the existing GitHub/CI trust boundary, not binary attestation.
+  Ops #20 passed CI `44333434159`, protected-merged `32fe6ce`, passed trunk CI `44333668213`; live workflow bytes match reviewed/public candidate SHA-256 `6d23b8427dc8eff9f303ca85e4e8e3003b55ecae3475a08198e0f90c6c0e8fb0`, atomically pairing v13 with Mise 2026.11.9.
+  Public-template CI initially exposed historical fixture reconstruction retaining the new Mise pin; restoring only that line to historical 2026.10.21 preserves original v2/v3 digest/provenance guards, with focused and full local suites green.
+  Actual Toktrak provider execution remains unproven.
 - A successful repaired-default-SHA native run and genuine App findings with a fresh nonce are still owed.
   Configuration discovery, local tests, released artifact integrity and provider execution remain separate claims.
 
