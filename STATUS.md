@@ -34,7 +34,12 @@
   Full native-change CI -54 completed exit 0 under the existing unchanged-lock advisory policy; all four runtime/coordinator summaries and remaining gates confirmed.
   Native tests: 40 library and 66 executable cases passed, with the existing two explicit opt-in cases ignored.
   Native PR #44 passed exact-head GitHub CI `44282831867` on `013366f7d34ced26008ca7f0775f8c57500ead8e`, then merged `d3bdcdb83f6711892729f9bcf87dd74a0c4f83c3`; refreshed clean eligibility, no review threads and matching merge tree verified.
-  Trunk CI `44284844881` and Worker deployment `44284844935` are running; watchers -56/-57 active.
+  Trunk CI `44284844881` and Worker deployment `44284844935` completed successfully on exact `d3bdcdb`; watchers -56/-57 exit 0, production `/health` matches that full SHA.
+  Annotated tag `v12` was pushed from clean, pinned native trunk; release run `44286965020` completed successfully, watcher -59 exit 0.
+  Native Linux x86_64 ELF asset `762992803` (5,063,016 bytes) matches GitHub digest, sidecar and manifest SHA-256 `be664fafba4f6f644f6392488d30df6c8f1f4de4aa435b0a389acba91e538771`.
+  Ops PR #18 passed exact-head CI `44288393917` on `2f0437188f2421ceed06c679d9156b83ae06a08b`, then merged `0d1a2d0c2223c2ac5fdff48d06d214b5ddbd765f`; no review threads, matching merge tree and trunk CI `44288691590` success verified.
+  Live ops workflow pins v12 and byte-matches the reviewed pin (SHA-256 `36a0c5a2e55e1df5e9b12065bfdfe6a712d12eaddcc02879f9ae53d4d56b5780`); public template is updated in this held branch.
+  Compact-head publication is next; production discovery is still unverified after the original 502.
   Compact-head source is applied atop that native correction at private commit `a9996d4`; combined-source CI -58 completed exit 0 under the unchanged-lock advisory policy.
   All four runtime/coordinator summaries and remaining gates passed for the combined source; this is not deployment proof.
   Release from the native merge only after terminal trunk CI success; verify/pin the native artifact before publishing the compact-head Worker change.
