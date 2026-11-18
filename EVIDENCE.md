@@ -28,7 +28,8 @@ One line per promise: `- <id>: <link to a run, comment, or screenshot, or path o
   `tools/agent-container-test.nu` adds credential-free supported/unsupported minimum preparation and isolated read-only tool verification; local parsing/core CI is not container runtime proof.
   First native [PR #48 CI 44322126241](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/44322126241) passed repository CI and image startup, then the fixture's unquoted tmpfs commas caused Docker to select nonexistent image `nosuid:latest` before target preparation.
   The exact Nu argument expression reproduced 19 arguments locally; quoting produced the intended 14, with all tmpfs options in one value.
-  Corrected container runtime proof remains pending fresh Linux CI; the generic Docker login suggestion is not a credential diagnosis.
+  Corrected [CI 44325246899](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/44325246899) passed on `7669872`, including the actual image and credential-free supported/unsupported minimum preparation plus isolated Node verification; the generic Docker login suggestion from the failed fixture was not a credential diagnosis.
+  Protected native #48 merged `bf46f79` with reviewed-tree equality; release, live ops pin and actual provider execution remain separate outstanding steps.
 - A successful repaired-default-SHA native run and genuine App findings with a fresh nonce are still owed.
   Configuration discovery, local tests, released artifact integrity and provider execution remain separate claims.
 

@@ -51,7 +51,11 @@
   Repository CI passed, then the new container fixture failed before target preparation: unquoted Nu list commas split `/tmp:rw,nosuid,...` into six values, so Docker attempted image `nosuid:latest` and exited 125.
   Image build and startup/version checks had already returned success; no target-minimum, provider or auth result is established by that failure.
   Quoted the complete tmpfs option; a local probe using the actual argument expression was red at 19 base arguments, then green at the correct 14, with the tmpfs value intact; final Nu parsing passed.
-  This is focused argv proof, not Docker runtime proof; fresh required Linux CI remains before merge.
+  This is focused argv proof, not Docker runtime proof.
+  Correction commit `7669872f57327567b303ab315bc40c559e2e7c58` passed exact-head CI `44325246899`; watcher -87 exit 0, including the real container minimum/preparation/isolated verification cases.
+  Refreshed clean mergeability and no reviews/threads; protected squash #48 merged `bf46f79064f18fc7c4b287f2d051989dd05158d6`, whose tree equals reviewed `7669872` (`54a37110e7144750ee05afd4b980f1a577002ece`).
+  Trunk CI `44327422806` (-88) and CI deployment `44327423130` (-89) running; native release must wait for terminal trunk CI success.
+  Live ops/template pins remain unchanged; container proof is not actual provider/App-answer proof.
   Toktrak target advanced again after local `2595be5`; defer its final re-integration until native release/pin prerequisites are ready, rather than repeatedly validating stale targets.
   Next: protected native merge/release → verified ops runner/Mise pair → matching public template → current-target Toktrak validation/merge → actual canary.
   No successful working-agent claim yet.
