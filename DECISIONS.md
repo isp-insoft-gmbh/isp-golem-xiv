@@ -3,6 +3,24 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-18: Preserve native skills and honor the target's Mise minimum
+
+- Toktrak's first admitted recovery canary stopped at snapshot validation on its sole tracked link, `.agents/skills` → `.claude/skills`.
+  Keep archive link/special-file rejection unchanged; materialize the fourteen byte-identical ordinary files in Toktrak and enforce mirror inventory/type/byte parity in its existing build check.
+  Canonical `.claude/skills`, native Pi/Codex configuration and harness loading remain unchanged.
+- Discovery and green repository CI do not prove agent execution.
+  Require a fresh repaired-default-SHA canary and genuine App findings with its nonce; no provider-authentication failure or need for a new sign-in has been established.
+- Native v12 preparation copies ops Mise 2026.10.21 and asserts that exact version in its embedded Dockerfile.
+  Target preparation then evaluates workspace configuration before provider execution; Toktrak originally required 2026.11.2 and now requires 2026.11.9.
+  Actual host 2026.11.2 rejects the current target with exit 1; independently integrity-verified task-local 2026.11.9 accepts the same config with exit 0.
+  This is a source-grounded next preparation blocker, not the observed cause of the earlier snapshot failure.
+- Update the exact image and image-test CI pin to 2026.11.9, not a config bypass, downgraded target requirement or custom version-negotiation layer.
+  The credential-free container regression uses production preparation/verification entries, requires isolated Node resolution and version, verifies tools read-only, and rejects an unsupported minimum before writing a tool manifest.
+  Local Docker execution is unavailable; its runtime proof remains the required Linux CI image job.
+- Release and independently verify the new native artifact before atomically updating the live ops runner digest and Mise pin; publish the matching public template afterward.
+  Keep unrelated deploy/release lint pins unchanged, because they do not prepare target images.
+  The user's global WinGet Mise and original Toktrak lockfile are untouched.
+
 ## 2026-11-18: Finish ordinary-repository support at both execution boundaries
 
 - The router-only rollout change left the same temporary topic predicate in the native runner's target validation.

@@ -39,8 +39,15 @@
   Direct host probe on that combined tree exits 1: `mise version 2026.11.9 is required, but you are using 2026.11.2`.
   Native v12 preparation copies Mise 2026.10.21 from ops into the image, whose Dockerfile asserts that exact version; `--prepare-target` runs `mise install` in the target workspace before provider execution.
   Therefore the pin mismatch is a source-grounded next preparation blocker, not a claim that the prior snapshot-blocked run reached this error or failed auth.
-  Task-local official Mise 2026.11.9 download -82 is running; verify digest/manifest before execution, do not upgrade the user's global WinGet install.
-  Next causal repair: exact native image/CI Mise pin + credential-free target-minimum regression, green native CI/release, verified ops release/Mise pair, matching public template; then finish Toktrak strict-head CI/merge and fresh canary.
+  Official task-local Mise 2026.11.9 archive -82 completed exit 0, SHA-256 `29a4b496bf859f2b3c9563c90e695fb504a8d6ce067635730cd6f3f90c9826cd` matches GitHub asset digest and checksum manifest; extracted CLI reports exact 2026.11.9 and accepts the same target config with exit 0. Archive removed; executable is under OS temp, global WinGet install unchanged.
+  Native repair is on central branch `fix/native-project-mise` after status checkpoint `df3f7ca`: image and image-test CI pin 2026.11.9, plus credential-free supported/unsupported target-minimum entry tests.
+  Initial full central CI -83 completed exit 0 under the unchanged-lock advisory policy, including all four runtime/coordinator suites; no local Docker test was run.
+  Independent review tightened the fixture: verify Node resolves under `/target-tools`, use read-only tools for verification, match production's writable disposable workspace.
+  Final source/docs CI -85 completed exit 0 under unchanged-lock advisory policy: all four runtime/coordinator suites, native tests, repository checks and Nu parsing passed.
+  Docker entrypoint/runtime proof is still unrun locally and remains mandatory in the Linux CI image step before merge.
+  Toktrak -84 completed exit 0 on local `2595be5` using verified task-local Mise: full CI/coverage, 277 unit/12 tagged tests and fresh scoped PIT (155/162 killed, seven survivors, zero timeouts). Exact token-used return-null mutant is killed by the new synchronous test; ordering/boundary survivors were inspected, not hidden or expanded into an unrelated campaign.
+  Toktrak `2595be5` remains unpublished while native release/pin prerequisites are repaired; original checkout/lockfile untouched.
+  Next: final native CI → protected native PR/release → verified ops runner/Mise pair → matching public template → current-target Toktrak validation/merge → actual canary. No successful working-agent claim yet.
   Branch protection requires strict `ci`, zero approving reviews and linear target history; final delivery must squash without bypass and recheck current target/head/threads.
   Required GitHub CI and fresh repaired-default-SHA actual canary remain outstanding.
   Committed-tree proof independently confirms fourteen matching Git blobs/modes in each skill tree and no tracked links/submodules.

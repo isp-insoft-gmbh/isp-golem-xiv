@@ -14,6 +14,21 @@ One line per promise: `- <id>: <link to a run, comment, or screenshot, or path o
 - admin-page: [recorded live Firefox session](evidence/admin-page-20261117.json) Oliver completed GitHub sign-in as `bugabinga`; the deployed page populated Runs, Usage, Health, Seats and Repositories, and live pagination loaded a second repository and another runs page; screenshot inspected privately, with historical gaps and unknown expiry explicitly visible; this proves rendering, not complete Slice 4 acceptance.
 - refused-not-member: [deployed refusal](https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-mw126nzr-2665e70b/issues/1#issuecomment-6613046125) The same harness signed the recorded delivery as verified non-member `octocat`, observed the App's `not-member` reply, with zero matching runner runs.
 
+## Toktrak runtime recovery: execution not yet proven, 2026-11-18
+
+- Corrected manual command [6978423619](https://github.com/isp-insoft-gmbh/toktrak/pull/155#issuecomment-6978423619) admitted check `134798067723` and [native run 44303282681](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/44303282681).
+  It stopped before provider access with `snapshot contains a link or special file`; [App reply 6978569880](https://github.com/isp-insoft-gmbh/toktrak/pull/155#issuecomment-6978569880) contains that blocker, not successful canary findings.
+  Toktrak's sole tracked link was its native skill alias; archive guards are unchanged by the repository repair.
+- [Toktrak PR #156](https://github.com/isp-insoft-gmbh/toktrak/pull/156) replaces that alias with fourteen matching ordinary skill files and checks exact mirror parity.
+  Its first CI failed one timed-out return-null mutation; the added synchronous token-use replay test kills that exact mutant without changing production behavior, operators or timeouts.
+  [CI 44314269385](https://github.com/isp-insoft-gmbh/toktrak/actions/runs/44314269385) passed on `622252d`, including full PIT 1875 mutants/1700 killed/zero timeouts.
+  [CI 44316591896](https://github.com/isp-insoft-gmbh/toktrak/actions/runs/44316591896) passed on `ab5731f`; subsequent target advances still require current-head validation and strict protected delivery.
+- Current target minimum 2026.11.9 rejects actual host Mise 2026.11.2 with exit 1; an official task-local 2026.11.9 archive matching GitHub digest and checksum manifest accepts that same config with exit 0.
+  Native v12 embeds an image that copies/asserts ops Mise 2026.10.21 before evaluating target configuration; this identifies the next tooling mismatch, not a new observed production failure or auth failure.
+  `tools/agent-container-test.nu` adds credential-free supported/unsupported minimum preparation and isolated read-only tool verification; local parsing/core CI is not container runtime proof, which remains pending Linux CI.
+- A successful repaired-default-SHA native run and genuine App findings with a fresh nonce are still owed.
+  Configuration discovery, local tests, released artifact integrity and provider execution remain separate claims.
+
 ## Ordinary repository migration: deployed discovery proof, 2026-11-18
 
 Router PR #43 merged `d94ecb20f23074a2e5108427bc484b8b91cf68d1` after exact-head CI `44273533940` on `8c25cd3c7db799932338a9a0b41f82a8b2b4264a`; reviewed and merged trees match.
