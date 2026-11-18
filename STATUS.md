@@ -22,7 +22,15 @@
   First post-merge live index returned 502; live nine-valid discovery is not yet established.
   Direct same-header GitHub reads found the default-branch full-commit response is 526,823 bytes, above the unchanged 524,288-byte Worker response cap; all nine pinned definition bytes match locally validated files.
   `Github::head` fetches the full commit only for its SHA; next fix uses compact exact Git-ref metadata, preserving limits.
-  Companion trunk CI/runtime/performance watchers -47/-48/-49 are running; no new agent execution or full Slice 4 acceptance is claimed.
+  Companion trunk CI/runtime/performance runs `44278275331`/`44278275172`/`44278275113` completed successfully on `af20a74`; watchers -47/-48/-49 exit 0.
+  Compact-head regression reproduced 502 before the fix; strict host/wasm Clippy and 39 router tests passed in -51.
+  Full Worker gate -50 failed at the coordinator fixture's obsolete `/commits/trunk` route; that fixture now serves the compact reference, with no assertion or timeout relaxation.
+  All four runtime/coordinator suites passed in -52's full log, but its activity exited 1 when the final Nu wrapper tried to use inherited string `LAST_EXIT_CODE` as an integer.
+  Typed child exit capture in -53 completed exit 0; full CI log confirms all four runtime/coordinator summaries and remaining gates under `GOLEM_CHECK_ADVISORIES=false`, not a clean advisory scan.
+  Compact-head source fix is local commit `a9fa7689aad95954ac86a6bae0b982e3f73fd31b`, not deployed.
+  Follow-up inspection found the native runner still rejects targets without the sandbox topic in `runner/src/github.rs::validate_target`; the earlier router-only change was insufficient.
+  Remove that matching native gate and release/pin the new runner before deploying the compact-head fix; keep identity, membership, check and pinned-definition checks.
+  No new agent execution or full Slice 4 acceptance is claimed.
 - **Current slice:** 4, in progress; not accepted.
   Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
 - **Current task: admin UI rewrite (deployed and live-verified):** PR #41 merged `b88f5f87095a7c72315558539c8c67d448134fc3` after exact-head CI `44108681183` on `c498383c9e779c2297f6b2b96f999d817a8a9648`; clean merge state and no review threads confirmed.
@@ -118,7 +126,7 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `docs/ordinary-repository-proof`.
+- **Current branch:** `fix/compact-head-metadata`.
 - **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
 - **Last UI implementation deployment verified (2026-11-17):** PR #41 merge `b88f5f87095a7c72315558539c8c67d448134fc3`; live health and asset hashes match, trunk CI `44110999820` and deploy `44111000121` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
