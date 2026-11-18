@@ -1,6 +1,53 @@
 # Status
 
-- **Current task (2026-11-18): ordinary repository golems, deployed discovery verified.**
+- **Current goal (2026-11-18): actual Toktrak execution, user authorized autonomous repair and Toktrak pushes.**
+  Discovery alone is not completion; require a successful native run and actual App answer with the requested file-based findings.
+  No new login requested or provider-authentication failure established.
+  First submission `6978222491` accidentally contained literal `$body`; matching GitHub delivery confirmed HTTP 200/ignored with no admission.
+  Corrected comment `6978423619` was read back exactly and admitted as delivery `a7348c80-e34a-11f1-8a08-d5473e717d19`, check `134798067723`, native run `44303282681`.
+  That run completed blocked before provider access: `snapshot contains a link or special file`; App reply `6978569880` contains the blocker, not a successful canary answer.
+  Exactly one tracked link exists: `.agents/skills` points to `../.claude/skills`.
+  Repair is isolated at `C:/Users/okr/AppData/Local/Temp/toktrak-golem-runtime`, branch `fix/golem-skill-snapshot`; original user `mise.lock` remains untouched.
+  Replace that alias with all fourteen byte-identical regular skill files; keep `.claude`, Pi/Codex settings and runner bounds unchanged.
+  Existing Build validation now checks mirror paths, regular types, bytes and bounded traversal; focused Build tests -69 completed exit 0 and `mise run check` passed after the previously red mirror-root check.
+  Full `mise run verify` -70 and clean-tree `mise run ci` -71 completed exit 0 on repair `6296d5c326d7b71329312d75e4f440da9715bf14`; all local application/runtime/coverage gates passed, with Linux/macOS scheduler cases left to native CI jobs.
+  Repaired Git tree has no symlinks or submodules; all fourteen mirror files match canonical bytes.
+  Toktrak PR #156 is published at that exact head; GitHub CI `44307335930` failed, watcher -72 exit 1.
+  Core, production, performance and all three native tracker jobs passed; PIT failed because one `Projection.tokenUsed` return-null mutant timed out, so required `ci` is red and merge is held.
+  Failure XML identifies line 350, `NullReturnValsMutator`, status `TIMED_OUT`; application source/tests are unchanged by the mirror repair.
+  Earlier baseline PIT had 185 null-return kills/zero timeouts; this run has 184 kills/one timeout, which does not by itself establish a flake or cause.
+  Fresh `NULL_RETURNS` analysis -73 completed exit 0 (197 mutations, 185 killed, zero timeouts); it covered the application, not only `Projection.java`, because Mise consumed the first separator.
+  Exact line-350/index-84 mutant was `KILLED` by `IdentityServiceTest.given_activeUser_when_usingAndRevokingTrackerToken_then_enforcesLifecycle`, demonstrating variability, not explaining the CI timeout.
+  Added synchronous token-used event replay coverage in `ProjectionTest`; focused test -74 completed exit 0, 20/20 passed, without repository-wide checks.
+  Correctly separated source-scoped PIT, coverage and full verify -75 completed exit 0: 162 fresh mutations/158 killed/four survivors/zero timeouts, 275 unit and 12 tagged tests passed, existing coverage floors passed, linked production runtime verified.
+  Exact line-350/index-84 null-return mutant is now `KILLED` by the new synchronous replay test; mutation operators, timeouts and CI gates remain unchanged.
+  New test is separate local commit `3052af556ebe4e7a26bd5bbff9c8d92c35dee076`; clean-tree CI -76 failed publishing the freshly linked Windows production runtime (`AccessDeniedException` on staging → final directory rename), so no push.
+  Build restored the previous runtime and retained `.prod.stage-59164-3`; no application assertion failure is reported, and no definitive lock owner/cause is established.
+  Owned-handle enumeration timed out; do not kill unrelated Java processes or bypass artifact validation.
+  Native clean + unchanged fresh CI -77 completed exit 0, including 275 unit/12 tagged tests, all coverage floors and linked runtime; original checkout/output/lockfile untouched.
+  A fresh Git fetch then established `origin/trunk=99d8dcb86b2ddd6a4949cfed2a40473c7938843b`, two commits beyond base `af20a74` (PMD 7.29.0 and dashboard tests); PR's reported base SHA was stale.
+  Integrated current target without rewriting published history at local merge `622252d68e8f68d495025bf3272faa76155304ad` (parents `3052af5`, `99d8dcb`), no conflicts.
+  Fresh clean CI then source-scoped PIT -78 completed exit 0 on combined `622252d`: 277 unit/12 tagged tests, unchanged coverage floors, 162 fresh mutations/158 killed/four survivors/zero timeouts.
+  Pinned clean local head `622252d` was pushed normally from remote `6296d5c`; no forced update.
+  Immediate GraphQL PR readback reported old metadata; fresh REST and Git both confirm head `622252d`/target `99d8dcb`, mergeable true but blocked by pending required CI.
+  Exact-head GitHub CI `44314269385` completed success on `622252d`; watcher -79 exit 0. All nine jobs passed, full PIT 1875 mutants/1700 killed/zero timeouts. Updated PR description read back exactly.
+  Premerge Git fetch found another target advance: `190d984433fedd7a6a76c799e990494de4fb7afc` adds Jackson/Error Prone updates and an action pin; strict protection correctly marks the previously green head behind.
+  Integrated without rewriting published history at `ab5731f4d833b978a192099a6c4dc2ab8cfe03fc`, no conflicts; fresh clean CI + source-scoped PIT -80 completed exit 0 (277 unit/12 tagged tests, unchanged coverage floors, 158/162 mutations killed, zero timeouts).
+  Pushed exact clean `ab5731f` normally; fresh REST confirms target `190d984` and that head. PR description updated.
+  Exact-head GitHub CI `44316591896` completed success on `ab5731f`, watcher -81 exit 0; no old-head success is treated as validation of later target changes.
+  Target advanced again to Mise minimum 2026.11.9 plus a Mise-action pin. A shared remote ref moved during inspection; local merge `2595be51da5b3877f4e623ef0b07cd6ae3d8e89b` actually integrates pinned parent `c1d6b98d60df3ed9417a69aa3187002c61d30c8a`, not only earlier `f73a373`. No conflicts or push; record exact parents, not mutable remote aliases.
+  Direct host probe on that combined tree exits 1: `mise version 2026.11.9 is required, but you are using 2026.11.2`.
+  Native v12 preparation copies Mise 2026.10.21 from ops into the image, whose Dockerfile asserts that exact version; `--prepare-target` runs `mise install` in the target workspace before provider execution.
+  Therefore the pin mismatch is a source-grounded next preparation blocker, not a claim that the prior snapshot-blocked run reached this error or failed auth.
+  Task-local official Mise 2026.11.9 download -82 is running; verify digest/manifest before execution, do not upgrade the user's global WinGet install.
+  Next causal repair: exact native image/CI Mise pin + credential-free target-minimum regression, green native CI/release, verified ops release/Mise pair, matching public template; then finish Toktrak strict-head CI/merge and fresh canary.
+  Branch protection requires strict `ci`, zero approving reviews and linear target history; final delivery must squash without bypass and recheck current target/head/threads.
+  Required GitHub CI and fresh repaired-default-SHA actual canary remain outstanding.
+  Committed-tree proof independently confirms fourteen matching Git blobs/modes in each skill tree and no tracked links/submodules.
+  Earlier clean-tree CI -71 does not cover this new test; required exact-head GitHub CI still must pass before merge.
+  Native Codex 0.167.1 source confirms `skills.config` cannot add project roots for `exec`; broader app-server extra-root support is not the same integration.
+  Merge remains gated by required GitHub CI; fresh repaired-head archive/provider execution and actual App answer remain unproven.
+- **Migration configuration (2026-11-18): ordinary repository golems, deployed discovery verified.**
   Oliver rejected per-repository rollout switches: installed organization App plus `.golems/` is sufficient.
   Branch `feat/installed-org-repositories` removes the sandbox-topic check from repository lookup and scheduled discovery, and removes obsolete admin allowlist reporting; no replacement activation flag.
   Actual red: topic-free installed fixture returned 404 instead of 200 (activity -30).
