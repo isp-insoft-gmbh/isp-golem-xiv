@@ -68,7 +68,8 @@ Decisions:
 
 ## The `.golems/` interface
 
-A repository with a `.golems/` directory is enabled.
+An installed organization repository with a `.golems/` directory is enabled.
+No repository allowlist, rollout topic, or activation flag is required.
 `.golems/_golems.md` holds optional house rules that apply to every golem of the repository.
 House rules contain only what applies to golems and not to humans, because harnesses already load the repository's own instructions.
 
@@ -244,6 +245,6 @@ Log links lead to the ops repository, so only people with access to it can read 
 ## Assumptions
 
 - Cloudflare Workers Free is enough for the router; if not, the usage reports will show it.
-- The free plan's included Actions minutes for private repositories are enough while the allowlist is in place; the admin dashboard shows usage.
+- The free plan's included Actions minutes for private repositories are assumed sufficient; the admin dashboard shows usage.
 - At most 100 seats fit, the limit of repository secrets in the ops repository.
 - Provider terms allow an organization to hold its members' subscription sign-ins for runs they trigger; people remain responsible for their own accounts.

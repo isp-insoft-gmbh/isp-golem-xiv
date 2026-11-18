@@ -2,11 +2,10 @@
 
 ## Enable a repository
 
-The GitHub App must be installed on the repository.
-While rollout is restricted, only sandbox repositories in `isp-insoft-gmbh` carrying the `isp-golem-xiv-test` topic may run golems; lifting that restriction remains Oliver's decision.
-Never add that topic to a real repository merely to bypass the rollout restriction.
+Install the organization GitHub App and add `.golems/*.md`.
+No repository allowlist, activation flag, local runner, or repository workflow is required.
 
-A push or installation event in an eligible repository without `.golems/` opens **Enable golems**.
+A push or installation event in a repository without `.golems/` opens **Enable golems**.
 Review and merge that pull request to add the house rules and `hello` golem.
 The App creates and pins **Golems**, the repository dashboard.
 Keep repository tool requirements in its own mise configuration; harnesses load repository context, skills, hooks and other project configuration natively.

@@ -12,7 +12,6 @@ pub const ORGANIZATION: &str = "isp-insoft-gmbh";
 pub const APP: &str = "isp-golem-xiv";
 pub const BOT: &str = "isp-golem-xiv[bot]";
 pub const OPS: &str = "isp-insoft-gmbh/isp-golem-xiv-ops";
-pub const TEST_TOPIC: &str = "isp-golem-xiv-test";
 pub const SEAT_URL: &str = "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats";
 pub const ROUTER_URL: &str = "https://isp-golem-xiv.isp-insoft-gmbh.workers.dev";
 pub const OAUTH_CALLBACK: &str = "/auth/github/callback";

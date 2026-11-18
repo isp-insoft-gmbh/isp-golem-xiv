@@ -455,7 +455,7 @@ async fn repositories(github: &Github, page: u64) -> Result<Value> {
             .and_then(Value::as_u64)
             .filter(|id| *id > 0)
             .ok_or_else(|| failure("invalid repository id"))?;
-        // App installations are authoritative; display non-allowlisted repositories without dispatching.
+        // App installation access is sufficient; `.golems/` determines whether a repo is enabled.
         let metadata = async {
             let head = github.head(name, repository).await?;
             if !policy::sha(&head) {
@@ -484,11 +484,7 @@ async fn repositories(github: &Github, page: u64) -> Result<Value> {
             Err(_) => (None, Vec::new(), "unavailable"),
         };
         let golems: Vec<_> = golems.into_iter().map(|g| json!({"name":if crate::valid_golem_name(&g.name) {g.name} else {"invalid filename".into()},"enabled":g.errors.is_empty(),"reason":if g.errors.is_empty() {None} else {Some("invalid definition; inspect .golems/ in GitHub")}})).collect();
-        let allowlisted = repository
-            .get("topics")
-            .and_then(Value::as_array)
-            .is_some_and(|t| t.iter().any(|t| t.as_str() == Some(crate::TEST_TOPIC)));
-        rows.push(json!({"repo":name,"repository_id":id,"enabled":enabled,"metadata_status":metadata_status,"dispatch_allowlisted":allowlisted,"golems":golems}));
+        rows.push(json!({"repo":name,"repository_id":id,"enabled":enabled,"metadata_status":metadata_status,"golems":golems}));
     }
     Ok(
         json!({"repositories":rows,"page":page,"total_repositories":total,"next_page":(page < total && page < policy::PAGE_MAX).then_some(page+1),"complete":page >= total,"coverage_note":"One installed repository per request; at most 100 pages. No mutations or dispatches."}),

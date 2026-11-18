@@ -34,14 +34,14 @@ const files = new Map([
 const onboardRepo = 'isp-insoft-gmbh/isp-golem-xiv-test-onboard';
 const state = {onboard: {golems: null, writes: [], branches: [], pulls: [], issues: [], pins: [], patches: 0, comments: []}, oauthExchanges: [], seatWrites: [], seatSecrets: new Set(), secretReads: [], variables: new Map(), variableWrites: [], removedMembers: new Set(), calls: 0, dispatches: [], checks: [], comments: [], reactions: [], refs: new Map(), tags: new Map(), tagId: 1, queue: [], enqueueAttempts: [], internal: [], documents: new Map()};
 let protocol2 = false;
-let installation = [{id:99, full_name:repository, default_branch:'trunk', topics:['isp-golem-xiv-test']}];
+let installation = [{id:99, full_name:repository, default_branch:'trunk', topics:[]}];
 const repository2 = 'isp-insoft-gmbh/isp-golem-xiv-test-second';
 const repository3 = 'isp-insoft-gmbh/isp-golem-xiv-test-late';
 const repositoryFiles = new Map([[repository, files]]);
 const adminRepositoryFailures = new Set();
 let adminInstallationFailure = false;
-const metadata = name => ({id:name === repository ? 99 : name === repository2 ? 100 : 101, full_name:name, default_branch:'trunk', topics:allowed ? ['isp-golem-xiv-test'] : []});
-let allowed = true;
+const metadata = name => ({id:name === repository ? 99 : name === repository2 ? 100 : 101, full_name:name, default_branch:'trunk', topics:[]});
+let installed = true;
 let dispatchStatus = 204;
 // Invented X25519 secret keys are SHA-256 of these labels. `sealed` was produced by libsodium
 // (PyNaCl 1.6.2) as crypto_box_seal of `message` for the recipient with that ephemeral key, and
@@ -105,7 +105,7 @@ async function github(request) {
   if (path === `/repos/${onboardRepo}` || path.startsWith(`/repos/${onboardRepo}/`)) {
     const o = state.onboard;
     const sub = path.slice(`/repos/${onboardRepo}`.length);
-    if (sub === '') return answer(200, {id:150, full_name:onboardRepo, default_branch:'trunk', private:true, topics:['isp-golem-xiv-test']});
+    if (sub === '') return answer(200, {id:150, full_name:onboardRepo, default_branch:'trunk', private:true, topics:[]});
     if (sub === '/commits/trunk') return answer(200, {sha:head});
     if (sub === '/contents/.golems') return o.golems ? answer(200, [...o.golems].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)}))) : answer(404, {});
     if (sub.startsWith('/contents/.golems/') && method === 'GET') {
@@ -136,7 +136,7 @@ async function github(request) {
   if (path === '/orgs/isp-insoft-gmbh/members') return answer(200, [{login:'member'},{login:'other'}]);
   const target = [repository,repository2,repository3].find(name => path.startsWith(`/repos/${name}/`) || path === `/repos/${name}`);
   if (target) {
-    if (path === `/repos/${target}`) return answer(200, metadata(target));
+    if (path === `/repos/${target}`) return target === repository && !installed ? answer(404, {}) : answer(200, metadata(target));
     if (path === `/repos/${target}/commits/trunk`) return adminRepositoryFailures.has(target) ? answer(404,{message:'Not Found'}) : answer(200, {sha:head});
     const targetFiles = repositoryFiles.get(target) ?? new Map();
     if (path === `/repos/${target}/contents/.golems`) return answer(200, [...targetFiles].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)})));
@@ -158,13 +158,6 @@ async function github(request) {
     return answer(request.headers.get('Authorization') === 'Bearer valid-fixture-token' ? 200 : 401, {login:'member'});
   }
   if (path === '/app/installations/153964219/access_tokens') return answer(201, {token:'fixture-installation-token'});
-  if (path === `/repos/${repository}`) return answer(200, {id:99, full_name:repository, default_branch:'trunk', topics:allowed ? ['isp-golem-xiv-test'] : []});
-  if (path === `/repos/${repository}/commits/trunk`) return answer(200, {sha:head});
-  if (path === `/repos/${repository}/contents/.golems`) return answer(200, [...files].map(([name, content]) => ({name, type:'file', size:Buffer.byteLength(content)})));
-  if (path.startsWith(`/repos/${repository}/contents/.golems/`)) {
-    const content = files.get(path.split('/').at(-1));
-    return content === undefined ? answer(404, {}) : answer(200, {type:'file', encoding:'base64', content:Buffer.from(content).toString('base64')});
-  }
   if (path === `/repos/${ops}/git/ref/heads/trunk`) return answer(200, {object:{sha:head, type:'commit'}});
   if (path === `/repos/${ops}/git/ref/heads/golem-state`) return state.refs.has('refs/heads/golem-state') ? answer(200, {ref:'refs/heads/golem-state',object:{sha:head,type:'commit'}}) : answer(404, {});
   if (path === `/repos/${ops}/git/matching-refs/tags/golem-event/`) return answer(200, [...state.refs].filter(([ref]) => ref.startsWith('refs/tags/golem-event/')).map(([ref,sha]) => ({ref,object:{sha,type:'tag'}})));
@@ -324,11 +317,11 @@ try {
   await sleep(100);
   assert.equal(state.refs.size, 0, 'legacy noncommands never claim deliveries');
   assert.equal(state.dispatches.length, 0);
-  allowed = false;
-  assert.equal((await deliver('not-allowlisted', payload())).status, 202);
+  installed = false;
+  assert.equal((await deliver('not-installed', payload())).status, 202);
   await sleep(100);
-  assert.equal(state.refs.size, 0);
-  allowed = true;
+  assert.equal(state.refs.size, 0, 'repository unavailable to the App never claims a delivery');
+  installed = true;
   assert.equal((await deliver('non-member', payload('outsider'))).status, 202);
   await eventually(() => state.comments.some(body => body.startsWith('<!-- isp-golem-xiv kind=refused reason=not-member -->')), 'non-member refusal');
   assert.equal((await deliver('no-seat', payload('noseat'))).status, 202);
@@ -551,19 +544,24 @@ try {
   await sleep(100);
   files.clear();
   for(let i=0;i<20;i++) files.set(`event-${String(i).padStart(2,'0')}.md`,'---\ntriggers: [issues.opened]\nowner: member\n---\nEvent task.');
-  const beforeBatch = state.queue.length;
+  const batchSource = deliveryId('v2-twenty-events');
+  const batchPath = `/repos/${ops}/contents/events-v2/${batchSource}.json`;
+  const batchIds = new Set([...files.keys()].map(name => deliveryId(`event-v2/${batchSource}/${name.slice(0,-3)}`)));
+  const batchAdmissions = () => state.queue.filter(req => batchIds.has(req.delivery_id));
   await deliver('v2-twenty-events',event,true,false,'issues');
-  await eventually(() => [...state.documents.keys()].some(path => path.endsWith(`${deliveryId('v2-twenty-events')}.json`)),'durable bounded event batch');
+  await eventually(() => state.documents.has(batchPath),'durable bounded event batch');
   await sleep(100);
   await worker.dispose(); worker = createWorker();
   const start = Date.UTC(2026,10,5,12);
-  for(let i=0;i<30 && state.queue.length < beforeBatch+20;i++) await tick(start+i*60_000);
-  assert.equal(state.queue.length,beforeBatch+20,'all twenty matching events resume');
-  const admitted = state.queue.slice(beforeBatch);
+  // Earlier retained deliveries may advance during these ticks; count this source only.
+  for(let i=0;i<30 && (batchAdmissions().length < 20 || state.documents.has(batchPath));i++) await tick(start+i*60_000);
+  const admitted = batchAdmissions();
+  assert.equal(admitted.length,20,'all twenty matching events resume');
+  assert.ok(!state.documents.has(batchPath),'the completed batch retires before the next scenario');
   assert.equal(new Set(admitted.map(req => req.golem)).size,20);
   assert.equal(new Set(admitted.map(req => req.delivery_id)).size,20);
   await deliver('v2-twenty-events',event,true,false,'issues'); await sleep(100);
-  assert.equal(state.queue.length,beforeBatch+20,'redelivery cannot duplicate continuation');
+  assert.equal(batchAdmissions().length,20,'redelivery cannot duplicate continuation');
   // Continuation must re-read current default SHA and definitions: deleted or
   // no-longer-matching golems cannot consume a seat; remaining work still runs.
   const beforeChangedConfig = state.queue.length;
@@ -578,7 +576,7 @@ try {
   for(let i=30;i<60 && state.documents.has(changedPath);i++) await tick(start+i*60_000);
   assert.ok(!state.documents.has(changedPath),'changed-config continuation finishes');
   const changed = state.queue.slice(beforeChangedConfig);
-  assert.equal(changed.length,18);
+  assert.equal(changed.length,18,JSON.stringify(changed.map(req => ({golem:req.golem,trigger:req.trigger,head:req.head_sha,delivery:req.delivery_id}))));
   assert.ok(changed.every(req => req.golem !== 'event-00' && req.golem !== 'event-01' && req.head_sha === head));
   // Index admission followed by initial cursor PUT failure is recoverable from
   // immutable source; it must not strand subsequent deliveries behind its head.
