@@ -98,14 +98,15 @@ People enable golems, register seats, and find their way without asking anyone.
 
 **Scenario.**
 A fresh test repository without `.golems/` has the App installed.
-`isp-golem-xiv` opens **Enable golems**; merging it creates and pins the **Golems** dashboard.
+No push or installation event opens a starter pull request.
+A member with repository write access explicitly requests **Enable golems** from the admin UI; merging it creates and pins the **Golems** dashboard.
 A member without a seat mentions a golem, follows the link in the refusal, registers a seat, and mentions again successfully.
 A member whose only seat is at a different provider than the golem prefers gets a run that says which seat and model it used and why.
 A pull request with an invalid golem fails the validation check; after merge the dashboard lists it as disabled.
 
 **In scope.**
 
-- Onboarding pull request with the minimal `_golems.md` and `hello.md`.
+- Optional UI-requested onboarding pull request with the minimal `_golems.md` and `hello.md`; no automatic creation on push or installation.
 - Dashboard issue with all sections from the spec, including run boxes, kept current after every run and every change to `.golems/`.
 - `@isp-golem-xiv` help and `@isp-golem-xiv seat`, scoped to where they are asked.
 - Seat registration page with encryption in the browser; the router never sees a credential.

@@ -215,8 +215,9 @@ impl Audit {
 }
 
 #[must_use]
-pub fn page(login: &str) -> String {
+pub fn page(login: &str, csrf: &str) -> String {
     let login = escape(login);
+    let csrf = escape(csrf);
     format!(
         r##"<!doctype html>
 <html lang="en">
@@ -228,6 +229,7 @@ pub fn page(login: &str) -> String {
 <script src="/admin.js" defer></script>
 </head>
 <body>
+<input type="hidden" id="onboarding-csrf" value="{csrf}">
 <main>
 <header>
 <h1>Organization</h1>
@@ -277,7 +279,7 @@ pub fn page(login: &str) -> String {
 
 <section id="repositories-section" aria-labelledby="repositories-title">
 <h2 id="repositories-title">Repositories</h2>
-<p>Installed repositories and golem availability. Fix disabled definitions in the repository's <code>.golems/</code> directory.</p>
+<p>Installed repositories and golem availability. Starter PRs are optional and created only on request; installing the App or pushing never requests one. Fix disabled definitions in the repository's <code>.golems/</code> directory.</p>
 <p id="repositories-status" role="status">Loading repositories…</p>
 <div id="repositories"></div>
 <button id="more-repositories" type="button" hidden>Load next repository</button>

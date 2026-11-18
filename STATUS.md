@@ -1,5 +1,22 @@
 # Status
 
+- **Priority correction (2026-11-18): starter PRs only on explicit UI request.**
+  Oliver rejected automatic onboarding from push/App installation and explicitly approved implementation plus corresponding `SPEC.md`, `contract.nuon`, `accept.nu` correction.
+  No activation flag; existing `.golems/` execution/dashboard upkeep remains. Existing unsolicited PRs stay untouched.
+  Isolated worktree `C:/Users/okr/AppData/Local/Temp/golem-ui-onboarding`, branch `fix/ui-requested-onboarding`, base `0851629`.
+  Current WIP adds optional member+repository-write-gated UI action, cookie CSRF protection, bounded endpoint, existing App PR reuse across closed state, conservative incomplete-claim refusal.
+  Frontend DOM consumer and 39 focused Rust tests passed; no deployed correction claimed.
+  Gate -105 found the new 119-line function; claim handling extracted without lint suppression.
+  Gate -106 found new fixture expected 500 where existing registration error contract is 502; exact assertions corrected, not relaxed.
+  Gate -107 correctly rejected fixture Origin `https://router.invalid`; fixture now supplies actual canonical origin, with production guard unchanged.
+  Gate -109 passed all four runtime/coordinator suites and preceding native/Rust gates, then failed solely on a blank line in this status list.
+  Final complete gate -110 exited0 after formatting correction: host/wasm lints, native and Worker suites, repo checks and Nu parsers passed under unchanged-lock advisory policy.
+  Refreshed Slice4 preflight passed26/26; this is not full Slice4 acceptance or live onboarding success.
+  Independent review found no concrete auth/idempotency blocker in inspected scope; distinct valid bearer/cookie principals and persisted-PR lost-response cases remain unexercised local matrix gaps, not alleged bypasses.
+  Firefox 160 actual Rust HTML + delivered JS/CSS HTTP fixture: mobile390/desktop1440 screenshots inspected, zero document overflow, physical clicks changed POST count0→1→2, same-repository PR link, exactly one action across missing/unknown/enabled repository fixtures.
+  Browser fixture is separate UI wiring evidence, not live GitHub writes or signed-in deployed UI proof.
+  Independent exact changed onboarding check ran live against old deployment in owned sandbox `isp-golem-xiv-test-ui-onboard-red-20261118172608`; -104 process exit 0 but actual result `ok:false`, `push or installation opened an unsolicited starter PR`.
+  That is expected red requirement evidence, not successful acceptance. Green live endpoint/caller sequence remains pending; local actual-browser button wiring is verified separately.
 - **Current goal (2026-11-18): actual Toktrak execution, user authorized autonomous repair and Toktrak pushes.**
   Discovery alone is not completion; require a successful native run and actual App answer with the requested file-based findings.
   No new login requested or provider-authentication failure established.
@@ -50,7 +67,29 @@
   Latest pinned target `e771c4cfa9c9581937790aaf8815587c876a42e0` adds dprint plugins, locked tool refresh and google-java-format 2 layout; overlapping Build/Projection test changes were reviewed as formatting-only.
   Integrated that exact target without conflicts at `71303783f360e112f2565ff72ca3413ee0bf528d`; locked-tool install/owned-file format -93 completed exit 0 without source edits.
   Fresh clean CI + scoped PIT -94 completed exit 0 on exact clean `7130378`, with refreshed tools/formatter, existing coverage floors and 158/162 fresh mutations killed/zero timeouts.
-  Exact-head GitHub validation is still required before Toktrak merge.
+  Pinned live target remained `e771c4c`; pushed tested `7130378` normally, updated/read-back PR #156 description.
+  Exact-head GitHub CI `44334035526` (-96) completed success on `7130378`; final diff and fourteen identical skill Git blobs reviewed, no tracked links/submodules.
+  Refreshed target remained `e771c4c`, clean strict merge eligibility and no reviews/threads; protected squash #156 merged `49b639cb068880e3a3df41eb697b44881c034719` with reviewed-tree equality.
+  Toktrak postmerge CI `44336423714` (-100) failed on exact `49b639c` before compilation: production dependency resolver returned HTTP 429, not an application assertion or provider-auth error.
+  Linux/macOS/Windows tracker jobs passed; separate production/runtime and performance `44336423642`/`44336424200` completed success on that SHA.
+  After inspecting the concrete rate-limit error and elapsed cooldown, requested one failed-job retry on the same SHA.
+  Watcher -102 completed exit 0; API confirms attempt 2, exact `49b639c`, run completed/success, `core` and aggregate `ci` both completed/success.
+  No source/test/threshold change or additional retry; separate runtime/performance successes and PR-head full PIT remain distinct evidence.
+  Posted exactly one fresh read-only command `6983181033` on merged PR #156; exact body/actor read back, nonce `TOKTRAK_CANARY_20261118_070f699d`, expected repaired head `49b639c`.
+  Bounded observer -97 completed exit 0: correlated App check `134915711834`, delivery `4390c840-e365-11f1-934c-e26c5d5a2a45`, ops run `44336881526`, ops source `32fe6ce`.
+  Native watcher -101 completed exit 1: run `44336881526` failed in Run exactly one golem after successful image preparation; App check `134915711834` is blocked/failure and points to that run.
+  App reply `6983387360` contains only static `container execution failed`, no nonce/findings; no actual working-agent claim.
+  Bounded private-log inspection without raw output confirms admitted → containers_destroyed → publication_credentials_minted → publication_complete → reservation_released, then that same static error; retained evidence cannot distinguish target preparation, harness startup or provider failure.
+  No auth failure is established; do not ask login, rerun this workflow or blindly redispatch.
+  Next diagnostic is one credential-free private-ops probe of exact target `49b639c` Mise files through released production --prepare-target, with production isolation/bounds and no App/seat secrets; a minimal Node fixture does not prove this target's multi-tool setup.
+  Ops PR #21 published exact head `dc9ffa20cea78b3c64750a01de426ca02b7c9462`: fixed private config fixture, manual-only probe workflow and bounded private diagnostics (one-day retention), no provider invocation.
+  Local JS syntax/actionlint/security checks passed; first run-index query was empty, not a CI result.
+  Fresh exact-head CI/check `44341242199` completed success on `dc9ffa2`; refreshed clean eligibility/no reviews or threads, protected ops #21 merged `f5cb4d9e07e2ddb805225cc860f111650d470b9d` with reviewed-tree equality.
+  Exactly one manual credential-free probe `44341605714` completed: production image build/create/prepare/destroy commands all exit 0, manifest exists, destruction confirmed; safe structured summary recovered from job log.
+  Entire workflow failed only at artifact upload: organization artifact-storage quota hit. Private raw preparation streams were not retained; no unrelated artifacts deleted and no rerun requested.
+  This proves current exact49b config preparation on the recorded v13 rebuild, not the historical failure phase or provider health. Summary saved under OS temp; no model or seat credentials used.
+  Probe rebuild identity will be recorded; source-equivalent v13 rebuild is not assumed identical to the historical failed image.
+  Final successful-run verification still requires actual execution binding and direct App findings review; current log-envelope extraction produced no validated request and is not provenance proof.
   Original checkout/lockfile remain untouched; no old-head success substitutes for the latest combined tree.
   Native PR #48 at `1259314876dc09ac112fa8b153814b9443413353` failed exact-head CI `44322126241`; watcher -86 exit 1.
   Repository CI passed, then the new container fixture failed before target preparation: unquoted Nu list commas split `/tmp:rw,nosuid,...` into six values, so Docker attempted image `nosuid:latest` and exited 125.
@@ -69,7 +108,11 @@
   Ops merge tree equals reviewed head; live workflow readback SHA-256 `6d23b8427dc8eff9f303ca85e4e8e3003b55ecae3475a08198e0f90c6c0e8fb0` matches the candidate/public template exactly.
   First readback wrapper rejected GitHub base64 line breaks; joining only encoded lines fixed decoding without changing data or accepting garbage.
   Ops trunk CI `44333668213` completed success on `32fe6ce`; live v13/Mise pair is now verified, not actual provider execution.
-  Matching public template on trunk-based `fix/verified-mise-runner-template` may now be published after passed local checks; no old feature ancestry will be replayed.
+  Matching public template was published only after live ops verification: public PR #49 head `b2666116a5b36eb3332489375e59b1d7dd6e6e22`, base `bf46f79`, no old feature replay.
+  Exact-head public CI `44334118475` (-95) completed success on `b266611`; refreshed clean eligibility/no reviews or threads, protected squash #49 merged `0851629c8716f9cd32ecb117d67b8348c0722306` with reviewed-tree equality.
+  Text-captured `git show` was unsuitable for byte hashing; raw GitHub blob decoding confirms published template SHA-256 `6d23b8427dc8eff9f303ca85e4e8e3003b55ecae3475a08198e0f90c6c0e8fb0`, identical to live ops.
+  Public trunk CI `44336577282` (-98) and deployment `44336577281` (-99) completed success on exact `0851629`; independent live `/health` returns that full SHA.
+  This verifies public rollout, not target preparation or provider execution.
   Local template CI -91 failed a historical v2/v3 fixture digest because reconstruction retained the new Mise pin; runtime repair/provenance digests were not changed.
   Reconstruction now restores exactly one reviewed 2026.11.9 line to historical 2026.10.21 before the original digest checks; full focused repair-unbound suite passed red→green.
   Full corrected local template CI -92 completed exit 0 under unchanged-lock advisory policy, including all four runtime/coordinator suites and original repair/provenance guards.

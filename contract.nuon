@@ -63,6 +63,7 @@
     oauth_callback: "/auth/github/callback"
     admin: "/admin"
     admin_runs: "/v1/admin/runs"
+    admin_onboarding: "/v1/admin/onboarding"
   }
 
   tester: {
@@ -380,8 +381,8 @@
       id: onboarding
       slice: 3
       kind: check
-      text: "An allowlisted repository without .golems/ gets the pull request onboarding.title from app.bot within limits.onboarding, adding exactly onboarding.files, with house rules equal to onboarding.house_rules."
-      guide: "Open it on the first push or installation event of an allowlisted repository without .golems/, once per repository."
+      text: "An installed organization repository without .golems/ gets no starter pull request from push or installation. An explicit admin-UI request by a member with repository write access creates onboarding.title from app.bot within limits.onboarding, adding exactly onboarding.files with house rules equal to onboarding.house_rules; repeated requests return the same PR, including when closed."
+      guide: "Observe no automatic PR for limits.loop_watch after a fresh installation and push, then explicitly POST the UI action router.admin_onboarding with the tester bearer token and repository. Browser requests require a session and CSRF protection. Verify exact starter files and repeat identity; never dispatch a golem or reopen existing PRs."
     }
     {
       id: dashboard

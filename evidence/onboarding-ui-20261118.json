@@ -1,0 +1,31 @@
+{
+  "kind": "local HTTP fixture, not deployed GitHub",
+  "browser": "Firefox 160.0",
+  "renderer": "actual router::admin::page Rust HTML + delivered admin.js/admin.css",
+  "viewportChecks": [
+    {
+      "width": 390,
+      "height": 844,
+      "documentWidth": 390
+    },
+    {
+      "width": 1440,
+      "height": 1000,
+      "documentWidth": 1440
+    }
+  ],
+  "observed": {
+    "initialPosts": 0,
+    "afterPhysicalMobileClick": 1,
+    "afterPhysicalDesktopRepeat": 2,
+    "loadedRepositories": 3,
+    "availableActions": 1,
+    "sameRepositoryLink": true,
+    "unknownAndEnabledRepositoriesHaveNoAction": true
+  },
+  "limitations": [
+    "GitHub metadata and mutation responses are HTTP doubles.",
+    "No live signed-in deployment or real PR creation is established.",
+    "Earlier pointer attempt before scrolling was out of bounds and produced no POST; successful clicks occurred only after scrolling."
+  ]
+}

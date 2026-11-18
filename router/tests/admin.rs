@@ -167,7 +167,7 @@ fn utc_dates_are_strict_and_page_escapes_untrusted_text() {
     ] {
         assert_eq!(timestamp(date), None);
     }
-    let page = page("<script>\"&'");
+    let page = page("<script>\"&'", "fixture-csrf");
     assert!(!page.contains("<script>\""));
     assert!(page.contains("&lt;script&gt;&quot;&amp;&#39;"));
     for heading in ["Runs", "Usage", "Health", "Seats", "Repositories"] {

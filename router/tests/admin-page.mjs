@@ -86,6 +86,7 @@ export async function verifyAdminPage(script) {
   await verifyMixedSourceRetry(script);
   await verifyRevokedPagination(script);
   await verifyExpiredPagination(script);
+  await verifyOnboarding(script);
 }
 
 async function verifyMixedSourceRetry(script) {
@@ -205,25 +206,92 @@ async function verifyInitialRetry(script) {
   return true;
 }
 
+async function verifyOnboarding(script) {
+  const repo = 'isp-insoft-gmbh/fixture';
+  let posts = 0, release;
+  let mode = 'pending';
+  const dashboard = harness(script, async (path, options) => {
+    if (path === '/v1/admin/onboarding') {
+      posts++;
+      assert.equal(options.method, 'POST');
+      assert.equal(options.headers['X-Golem-Csrf'], 'csrf-token');
+      assert.equal(options.headers['Content-Type'], 'application/json');
+      assert.equal(options.body, JSON.stringify({repository:repo}));
+      if (mode === 'pending') return await new Promise(resolve => { release = resolve; });
+      if (mode === 'network') throw new Error('offline');
+      if (typeof mode === 'number') return {errorStatus:mode};
+      return {responseStatus:200,created:false,url:mode};
+    }
+    if (path.startsWith('/v1/admin/runs')) return {as_of:1,from:'start',to:'end',runs:[],workflow_health:[],missing_audits:0,malformed_audits:0,pending:0,total_workflow_runs:0,listing_complete:true,next_page:null};
+    if (path.startsWith('/v1/admin/undispatched')) return {as_of:1,runs:[],listing_complete:true,next_page:null,malformed_audits:0};
+    if (path === '/v1/admin/seats') return {complete:true,seats:[]};
+    return {complete:true,total_repositories:4,next_page:null,repositories:[
+      {repo,enabled:false,metadata_status:'available',golems:[]},
+      {repo:'isp-insoft-gmbh/unknown',enabled:null,metadata_status:'unavailable',golems:[]},
+      {repo:'isp-insoft-gmbh/enabled',enabled:true,metadata_status:'available',golems:[]},
+      {repo:'evil/fixture',enabled:false,metadata_status:'available',golems:[]}
+    ]};
+  });
+  dashboard.run();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(posts, 0, 'loading never mutates');
+  const parent = dashboard.ids.get('repositories');
+  const buttons = parent.children.filter(child => child.tag === 'button');
+  assert.equal(buttons.length, 1);
+  const button = buttons[0];
+  const status = parent.children.find(child => child.role === 'status');
+  assert.equal(status['aria-live'], 'polite');
+  assert.match(parent.textContent, /reviewable starter files/);
+  const pending = button.onclick();
+  assert.equal(button.disabled, true);
+  await button.onclick();
+  assert.equal(posts, 1);
+  release({responseStatus:201,created:true,url:`https://github.com/${repo}/pull/42`});
+  await pending;
+  assert.equal(button.disabled, false);
+  assert.equal(status.children[0].href, `https://github.com/${repo}/pull/42`);
+  mode = 'network';
+  await button.onclick();
+  assert.match(status.textContent, /outcome may be unknown/);
+  assert.equal(posts, 2);
+  mode = `https://github.com/${repo}/pull/42`;
+  await button.onclick();
+  assert.match(status.textContent, /may be closed/);
+  assert.equal(posts, 3, 'retry requires explicit action');
+  for (const url of ['https://github.com/isp-insoft-gmbh/other/pull/42', `https://github.com/${repo}/pull/1?x=evil`, 'javascript:alert(1)']) {
+    mode = url;
+    await button.onclick();
+    assert.match(status.textContent, /Unexpected response/);
+    assert.equal(status.children.length, 0);
+  }
+  for (const [code, message] of [[401,/Sign in/],[403,/membership and repository write access/],[409,/configured.*archived.*incomplete/]]) {
+    mode = code;
+    await button.onclick();
+    assert.match(status.textContent, message);
+  }
+}
+
 function harness(script, respond) {
   class Element {
     constructor(tag) { this.tag = tag; this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.href = ''; }
     append(child) { this.children.push(child); }
+    setAttribute(name, value) { this[name] = value; }
     replaceChildren() { this.children = []; this.value = ''; }
     set textContent(value) { this.value = String(value); this.children = []; }
     get textContent() { return this.value + this.children.map(child => child.textContent).join(' '); }
     set innerHTML(_) { assert.fail('Untrusted metadata must never reach an HTML sink'); }
   }
-  const ids = new Map(['runs-status','runs','more-runs','undispatched-status','more-undispatched','usage','health','seats-status','seats','repositories-status','repositories','more-repositories'].map(id => [id, new Element('div')]));
+  const ids = new Map(['runs-status','runs','more-runs','undispatched-status','more-undispatched','usage','health','seats-status','seats','repositories-status','repositories','more-repositories','onboarding-csrf'].map(id => [id, new Element('div')]));
+  ids.get('onboarding-csrf').value = 'csrf-token';
   const requests = [];
   const document = {getElementById: id => { assert.ok(ids.has(id)); return ids.get(id); }, createElement: tag => new Element(tag), createTextNode: text => ({textContent:String(text)})};
   async function fetch(path, options) {
     requests.push(path);
     assert.equal(options.credentials, 'same-origin'); assert.equal(options.cache, 'no-store'); assert.equal(options.redirect, 'error');
-    const body = await respond(path);
+    const body = await respond(path, options);
     if (body === null) return {ok:false,status:503};
     if (body.errorStatus) return {ok:false,status:body.errorStatus};
-    return {ok:true,json:async () => structuredClone(body)};
+    return {ok:true,status:body.responseStatus ?? 200,json:async () => structuredClone(body)};
   }
   return {ids,requests,run:() => runInNewContext(script, {document,fetch,URL,console})};
 }

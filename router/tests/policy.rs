@@ -846,7 +846,7 @@ mod registration {
         assert!(!page.contains("style"));
         let empty = seats_page("member", &[], None, "ab12");
         assert!(empty.contains("You have no seats yet.") && !empty.contains("id=\"preferred\""));
-        let admin = admin_page("member");
+        let admin = admin_page("member", "fixture-csrf");
         assert!(admin.contains("<script src=\"/admin.js\" defer></script>"));
         assert_eq!(admin.matches("<script").count(), 1);
         assert!(!admin.contains("onclick") && !admin.contains("onsubmit"));

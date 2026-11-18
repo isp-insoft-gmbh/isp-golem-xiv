@@ -1,4 +1,4 @@
-//! Bounded read-only organization dashboard. Never fetch request tags or credential values.
+//! Bounded organization dashboard and explicit onboarding. Never fetch credential values.
 use serde_json::{Value, json};
 use worker::{Env, Method, Request, Response};
 
@@ -13,7 +13,9 @@ pub(super) async fn page(request: &Request, env: &Env) -> Result<Response> {
     if !github.member(&login).await? {
         return denied(403);
     }
-    let mut response = registration::html(policy::page(&login))?;
+    let csrf =
+        registration::csrf(request, env)?.ok_or_else(|| failure("missing dashboard session"))?;
+    let mut response = registration::html(policy::page(&login, &csrf))?;
     response.headers_mut().set(
         "Content-Security-Policy",
         &format!(
@@ -31,7 +33,7 @@ fn denied(status: u16) -> Result<Response> {
     )
 }
 
-async fn authenticated(request: &Request, env: &Env) -> Result<Option<Github>> {
+async fn authenticated(request: &Request, env: &Env) -> Result<Option<(Github, String)>> {
     // Explicit bearer credentials never fall back to a cookie on failure.
     let login = if let Some(header) = request.headers().get("Authorization")? {
         let Some(token) = header.strip_prefix("Bearer ").filter(|t| {
@@ -50,7 +52,83 @@ async fn authenticated(request: &Request, env: &Env) -> Result<Option<Github>> {
     if !github.member(&login).await? {
         return Ok(None);
     }
-    Ok(Some(github))
+    Ok(Some((github, login)))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OnboardingRequest {
+    repository: String,
+}
+
+pub(super) async fn onboarding(request: &mut Request, env: &Env) -> Result<Response> {
+    if request.headers().get("Authorization")?.is_none()
+        && registration::signed_login(request, env)?.is_none()
+    {
+        return registration::secured(
+            Response::error("Sign in at /admin first", 401)?,
+            "text/plain; charset=utf-8",
+        );
+    }
+    let Some((github, login)) = authenticated(request, env).await? else {
+        return denied(403);
+    };
+    if request.headers().get("Authorization")?.is_none()
+        && registration::write_login(request, env)?.as_deref() != Some(login.as_str())
+    {
+        return denied(403);
+    }
+    if request.headers().get("Content-Type")?.as_deref() != Some("application/json") {
+        return registration::secured(
+            Response::error("JSON request required", 415)?,
+            "text/plain; charset=utf-8",
+        );
+    }
+    let declared = request.headers().get("Content-Length")?;
+    if declared.is_some_and(|length| length.parse::<usize>().map_or(true, |length| length > 512)) {
+        return registration::secured(
+            Response::error("Request too large", 413)?,
+            "text/plain; charset=utf-8",
+        );
+    }
+    let Ok(body) = super::bounded(super::read_stream(request.stream()?, 512), 5000).await else {
+        return registration::secured(
+            Response::error("Request too large", 413)?,
+            "text/plain; charset=utf-8",
+        );
+    };
+    let Ok(input) = serde_json::from_slice::<OnboardingRequest>(&body) else {
+        return registration::secured(
+            Response::error("Invalid onboarding request", 400)?,
+            "text/plain; charset=utf-8",
+        );
+    };
+    if !valid_repository(&input.repository) {
+        return registration::secured(
+            Response::error("Invalid repository", 400)?,
+            "text/plain; charset=utf-8",
+        );
+    }
+    let Some(info) = github.repository(&input.repository).await? else {
+        return registration::secured(
+            Response::error("Repository unavailable", 404)?,
+            "text/plain; charset=utf-8",
+        );
+    };
+    let permission = github
+        .get(&format!(
+            "/repos/{}/collaborators/{login}/permission",
+            input.repository
+        ))
+        .await?;
+    if !matches!(
+        permission.get("permission").and_then(Value::as_str),
+        Some("admin" | "write")
+    ) {
+        return denied(403);
+    }
+    let (status, result) = super::onboard(&github, &input.repository, &info).await?;
+    Ok(registration::json_answer(&result)?.with_status(status))
 }
 
 /// Fixed numeric cursors, bound to a minute-rounded window. No caller-controlled API paths.
@@ -92,7 +170,7 @@ fn cursor(request: &Request) -> Option<(u64, u64, Option<String>)> {
 }
 
 pub(super) async fn data(request: &Request, env: &Env, section: &str) -> Result<Response> {
-    let Some(github) = authenticated(request, env).await? else {
+    let Some((github, _)) = authenticated(request, env).await? else {
         return denied(403);
     };
     let Some((page, as_of, after)) =

@@ -382,6 +382,6 @@ pub fn seats_page(login: &str, seats: &[&str], preferred: Option<&str>, csrf: &s
 }
 
 #[must_use]
-pub fn admin_page(login: &str) -> String {
-    crate::admin::page(login)
+pub fn admin_page(login: &str, csrf: &str) -> String {
+    crate::admin::page(login, csrf)
 }

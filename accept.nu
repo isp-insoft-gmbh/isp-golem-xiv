@@ -345,21 +345,44 @@ def events [ctx: record] {
   {results: [$trigger $loop]}
 }
 
+# Independent endpoint check: no automatic starter PR, explicit request, stable repeat identity.
+# Dashboard-button behavior and browser wiring require separate UI evidence.
+def onboarding-request [c: record, repo: string] {
+  check onboarding {||
+    let automatic = wait-for $c $c.limits.loop_watch {|| bot-pulls-titled $c $repo $c.onboarding.title | get -o 0 }
+    if $automatic != null { return "push or installation opened an unsolicited starter PR" }
+    let headers = [Authorization $"Bearer (gh-ok auth token | str trim)"]
+    let request = {|| http post --full --allow-errors --max-time 30sec --content-type application/json --headers $headers ($c.router.url + $c.router.admin_onboarding) {repository: $repo} }
+    let created = do $request
+    if $created.status != 201 or $created.body.created? != true { return $"explicit starter request answered ($created.status), not created" }
+    let pull = wait-for $c $c.limits.onboarding {|| bot-pulls-titled $c $repo $c.onboarding.title | get -o 0 }
+    if $pull == null { return $"no requested pull request ($c.onboarding.title) within ($c.limits.onboarding)" }
+    if $created.body.url? != $pull.html_url { return "request response does not identify the created PR" }
+    let files = gh-json api $"repos/($repo)/pulls/($pull.number)/files" | get filename | sort
+    if $files != ($c.onboarding.files | sort) { return $"it changes ($files | str join ', ')" }
+    let rules = file-at $repo .golems/_golems.md $pull.head.ref | str trim
+    if $rules != $c.onboarding.house_rules { return $"house rules are: ($rules)" }
+    let repeated = do $request
+    if $repeated.status != 200 or $repeated.body.created? != false or $repeated.body.url? != $pull.html_url { return "repeated request did not return the same PR" }
+    gh-ok pr close $pull.number --repo $repo | ignore
+    let closed = do $request
+    if $closed.status != 200 or $closed.body.created? != false or $closed.body.url? != $pull.html_url { return "closed starter PR was not reused" }
+    let after = gh-json api $"repos/($repo)/pulls/($pull.number)"
+    if $after.state != closed { return "explicit repeat unexpectedly reopened the closed PR" }
+    if ((gh-json api $"repos/($repo)/pulls?state=all&per_page=100" | where {|p| $p.user.login == $c.app.bot and $p.title == $c.onboarding.title } | length) != 1) { return "starter PR was duplicated" }
+    gh-ok pr reopen $pull.number --repo $repo | ignore
+  }
+}
+
 # Slice 3 onboarding, dashboard, mentions, seats, fallback, and validation in repository C.
 def onboarding [ctx: record] {
   let c = $ctx.c
   let repo = new-repo $ctx onboarding []
   put-file $repo README.md "Onboarding test repository of accept.nu.\n"
 
-  let pull = wait-for $c $c.limits.onboarding {|| bot-pulls-titled $c $repo $c.onboarding.title | get -o 0 }
-  let onboard = check onboarding {||
-    if $pull == null { return $"no pull request ($c.onboarding.title) within ($c.limits.onboarding)" }
-    let files = gh-json api $"repos/($repo)/pulls/($pull.number)/files" | get filename | sort
-    if $files != ($c.onboarding.files | sort) { return $"it changes ($files | str join ', ')" }
-    let rules = file-at $repo .golems/_golems.md $pull.head.ref | str trim
-    if $rules != $c.onboarding.house_rules { $"house rules are: ($rules)" }
-  }
+  let onboard = onboarding-request $c $repo
   if not $onboard.ok { return {results: [$onboard ...(blocked-by onboarding [dashboard help seat-command fallback validation])]} }
+  let pull = bot-pulls-titled $c $repo $c.onboarding.title | get 0
   gh-ok pr merge $pull.number --repo $repo --squash | ignore
 
   let board = check dashboard {||

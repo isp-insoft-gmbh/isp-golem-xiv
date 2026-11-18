@@ -3,6 +3,30 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-18: Starter PRs require an explicit UI request
+
+- Oliver rejected automatic starter PRs on push/App installation and explicitly selected implementation plus the matching specification/judge correction.
+  Installed App plus existing `.golems/` still enables ordinary execution; no replacement activation flag.
+  Existing unsolicited PRs remain untouched.
+- Preserve push dashboard upkeep but return without onboarding when `.golems/` is absent.
+  Admin UI offers **Create starter PR** only for known missing directories.
+  Fresh organization membership plus requester repository write/admin permission is required; GitHub maps maintain to write, so custom role names never grant access.
+  Cookie requests reuse session-derived CSRF and exact-origin checks; explicit bearer requests never fall back to a cookie and permit the independent acceptance driver.
+- Reuse fixed starter files and once-per-repository ops claims.
+  Return the existing verified App PR, even closed; never reopen, duplicate, overwrite an unrelated branch, or automatically resume an incomplete/ambiguous claim.
+  A 422 must be followed by exact claim verification, not treated as success by itself.
+- Judge change authorized separately: `contract.nuon` replaces automatic onboarding with no-auto plus explicit request/repeat/closed-PR reuse; `accept.nu` independently exercises that endpoint before its existing merge/dashboard caller.
+  No removed checks, removed promises or raised limits; this is a user-approved changed promise, not weakening an unmet requirement.
+  Standalone endpoint exercise is not browser wiring proof.
+- Live red: exact updated `onboarding-request` against deployed085, owned sandbox `isp-golem-xiv-test-ui-onboard-red-20261118172608`, activity -104.
+  Process exit0 wrapped actual `{"id":"onboarding","ok":false,"observed":"push or installation opened an unsolicited starter PR"}`.
+  Green deployment/endpoint/caller proof remains pending.
+- Local runtime gate -109 passed all four unchanged runtime/coordinator suites with new positive/negative onboarding cases, then failed status-list formatting.
+  Corrected guards were never relaxed: error fixture now expects existing502 mapping, canonical-origin fixture replaces a correctly rejected foreign origin.
+  Local Firefox160 pointer clicks and inspected mobile/desktop screenshots independently verify the delivered UI against an HTTP double; they do not establish real GitHub mutations.
+- Existing admin-page evidence pointed at a relative JSON artifact, while unchanged evidence lookup recognizes HTTPS/test paths.
+  Converted only its link to the immutable public085 blob URL; no new evidence, judge regex change or current-button claim.
+
 ## 2026-11-18: Preserve native skills and honor the target's Mise minimum
 
 - Toktrak's first admitted recovery canary stopped at snapshot validation on its sole tracked link, `.agents/skills` → `.claude/skills`.
