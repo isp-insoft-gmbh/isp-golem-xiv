@@ -14,7 +14,7 @@ One line per promise: `- <id>: <link to a run, comment, or screenshot, or path o
 - admin-page: [recorded live Firefox session](evidence/admin-page-20261117.json) Oliver completed GitHub sign-in as `bugabinga`; the deployed page populated Runs, Usage, Health, Seats and Repositories, and live pagination loaded a second repository and another runs page; screenshot inspected privately, with historical gaps and unknown expiry explicitly visible; this proves rendering, not complete Slice 4 acceptance.
 - refused-not-member: [deployed refusal](https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-mw126nzr-2665e70b/issues/1#issuecomment-6613046125) The same harness signed the recorded delivery as verified non-member `octocat`, observed the App's `not-member` reply, with zero matching runner runs.
 
-## Ordinary repository migration: partial operational proof, 2026-11-18
+## Ordinary repository migration: deployed discovery proof, 2026-11-18
 
 Router PR #43 merged `d94ecb20f23074a2e5108427bc484b8b91cf68d1` after exact-head CI `44273533940` on `8c25cd3c7db799932338a9a0b41f82a8b2b4264a`; reviewed and merged trees match.
 Trunk CI `44275364375` and deployment `44275360349` completed successfully; production `/health` reported the exact merge SHA before companion migration.
@@ -24,15 +24,19 @@ Companion post-merge CI `44278275331`, production-runtime verification `44278275
 The first post-merge live index returned 502, not nine-valid success.
 Read-only GitHub diagnostics confirmed nine pinned definition files exactly match the locally parsed files, but the full commit response is 526,823 bytes versus the Worker's unchanged 524,288-byte cap.
 The compact-head built-Worker regression was red with 502 before its fix; full local CI -53 completed exit 0 with all four runtime/coordinator summaries under the existing unchanged-lock advisory policy, not a clean advisory scan.
-Source fix `a9fa7689aad95954ac86a6bae0b982e3f73fd31b` remains held locally pending the corrected native runner's release and pin.
+Source fix `a9fa7689aad95954ac86a6bae0b982e3f73fd31b` was held locally until the corrected native runner's release and pin.
 Follow-up source inspection found the native runner's separate topic gate; an ordinary-repository HTTP-fixture test reproduced its refusal before removal.
 Native-change full CI -54 completed exit 0 with all four runtime/coordinator summaries under the same advisory policy; this validates the local native patch, not production execution.
 After native PR #44 merged `d3bdcdb`, combined-source CI -58 completed exit 0 with all four runtime/coordinator summaries under that policy.
 Exact native-merge trunk CI `44284844881` and deployment `44284844935` succeeded; production `/health` matched full `d3bdcdb` before annotated v12 release `44286965020` succeeded.
 Downloaded native ELF asset `762992803` matches GitHub digest, sidecar and manifest SHA-256 `be664fafba4f6f644f6392488d30df6c8f1f4de4aa435b0a389acba91e538771`.
 Ops PR #18 passed exact-head CI `44288393917`, merged `0d1a2d0c2223c2ac5fdff48d06d214b5ddbd765f` with reviewed/merged tree equality, and passed trunk CI `44288691590`.
-Live workflow readback pins v12 and exactly matches the reviewed workflow hash `36a0c5a2e55e1df5e9b12065bfdfe6a712d12eaddcc02879f9ae53d4d56b5780`; the compact-head Worker source remains unpublished.
-No successful live nine-valid discovery, new provider execution or full Slice 4 acceptance is established yet.
+Live workflow readback pins v12 and exactly matches the reviewed workflow hash `36a0c5a2e55e1df5e9b12065bfdfe6a712d12eaddcc02879f9ae53d4d56b5780` before compact-head publication.
+Compact-head PR #46 passed exact-head CI `44289113469` on `6f033a3f76ad6ee5b46cd11731a5c0e06066f7bf`, then merged `ec831f448ce14f4d8dfcaa1bf1921b11e931e684` with reviewed/merged tree equality and no review threads.
+Its trunk CI `44290815607` and deployment `44290815790` completed successfully on exact `ec831f448ce14f4d8dfcaa1bf1921b11e931e684`.
+A subsequent guarded live probe exited 0: production `/health` matched that full SHA, the repository lacked the sandbox topic, and authenticated discovery returned HTTP 200/no-store with nine definitions and zero validation errors.
+This establishes deployed ordinary-repository discovery and recovery from the observed 502.
+No new provider execution or full Slice 4 acceptance is established.
 
 ## Slice 1 deployed acceptance
 

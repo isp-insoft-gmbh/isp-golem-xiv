@@ -1,6 +1,6 @@
 # Status
 
-- **Current task (2026-11-18): ordinary repository golems.**
+- **Current task (2026-11-18): ordinary repository golems, deployed discovery verified.**
   Oliver rejected per-repository rollout switches: installed organization App plus `.golems/` is sufficient.
   Branch `feat/installed-org-repositories` removes the sandbox-topic check from repository lookup and scheduled discovery, and removes obsolete admin allowlist reporting; no replacement activation flag.
   Actual red: topic-free installed fixture returned 404 instead of 200 (activity -30).
@@ -39,7 +39,12 @@
   Native Linux x86_64 ELF asset `762992803` (5,063,016 bytes) matches GitHub digest, sidecar and manifest SHA-256 `be664fafba4f6f644f6392488d30df6c8f1f4de4aa435b0a389acba91e538771`.
   Ops PR #18 passed exact-head CI `44288393917` on `2f0437188f2421ceed06c679d9156b83ae06a08b`, then merged `0d1a2d0c2223c2ac5fdff48d06d214b5ddbd765f`; no review threads, matching merge tree and trunk CI `44288691590` success verified.
   Live ops workflow pins v12 and byte-matches the reviewed pin (SHA-256 `36a0c5a2e55e1df5e9b12065bfdfe6a712d12eaddcc02879f9ae53d4d56b5780`); public template is updated in this held branch.
-  Compact-head publication is next; production discovery is still unverified after the original 502.
+  Compact-head PR #46 passed exact-head CI `44289113469` on `6f033a3f76ad6ee5b46cd11731a5c0e06066f7bf`, then merged `ec831f448ce14f4d8dfcaa1bf1921b11e931e684`; refreshed clean eligibility, no review threads and matching merge tree verified.
+  Trunk CI `44290815607` completed successfully on exact `ec831f4`; watcher -61 exit 0.
+  Deployment `44290815790` completed successfully on exact `ec831f4`; watcher -62 exit 0.
+  Live probe exited 0 after requiring both terminal GitHub successes and exact production `/health` SHA.
+  Authenticated Toktrak discovery returned HTTP 200/no-store, nine definitions and zero validation errors without the sandbox topic.
+  This establishes deployed discovery recovery after the original 502, not fresh provider execution or full Slice 4 acceptance.
   Compact-head source is applied atop that native correction at private commit `a9996d4`; combined-source CI -58 completed exit 0 under the unchanged-lock advisory policy.
   All four runtime/coordinator summaries and remaining gates passed for the combined source; this is not deployment proof.
   Release from the native merge only after terminal trunk CI success; verify/pin the native artifact before publishing the compact-head Worker change.
@@ -140,7 +145,7 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `fix/compact-default-head`.
+- **Current branch:** `docs/ordinary-migration-live-proof`.
 - **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
 - **Last UI implementation deployment verified (2026-11-17):** PR #41 merge `b88f5f87095a7c72315558539c8c67d448134fc3`; live health and asset hashes match, trunk CI `44110999820` and deploy `44111000121` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
