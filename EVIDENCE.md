@@ -14,6 +14,23 @@ One line per promise: `- <id>: <link to a run, comment, or screenshot, or path o
 - admin-page: [recorded live Firefox session](evidence/admin-page-20261117.json) Oliver completed GitHub sign-in as `bugabinga`; the deployed page populated Runs, Usage, Health, Seats and Repositories, and live pagination loaded a second repository and another runs page; screenshot inspected privately, with historical gaps and unknown expiry explicitly visible; this proves rendering, not complete Slice 4 acceptance.
 - refused-not-member: [deployed refusal](https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-mw126nzr-2665e70b/issues/1#issuecomment-6613046125) The same harness signed the recorded delivery as verified non-member `octocat`, observed the App's `not-member` reply, with zero matching runner runs.
 
+## Ordinary repository migration: partial operational proof, 2026-11-18
+
+Router PR #43 merged `d94ecb20f23074a2e5108427bc484b8b91cf68d1` after exact-head CI `44273533940` on `8c25cd3c7db799932338a9a0b41f82a8b2b4264a`; reviewed and merged trees match.
+Trunk CI `44275364375` and deployment `44275360349` completed successfully; production `/health` reported the exact merge SHA before companion migration.
+Authenticated discovery for a repository without the sandbox topic returned HTTP 200 with nine legacy-invalid definitions.
+Toktrak PR #155 merged `af20a74fd17367db724aea6833be333062649c7a` after exact-head CI `44272379475` on `27b0e99bb8a467b8ac0b07e9b9d102eb1ee3f962`, refreshed clean eligibility and no review threads; trees match.
+Companion post-merge CI `44278275331`, production-runtime verification `44278275172` and performance `44278275113` succeeded on that merge.
+The first post-merge live index returned 502, not nine-valid success.
+Read-only GitHub diagnostics confirmed nine pinned definition files exactly match the locally parsed files, but the full commit response is 526,823 bytes versus the Worker's unchanged 524,288-byte cap.
+The compact-head built-Worker regression was red with 502 before its fix; full local CI -53 completed exit 0 with all four runtime/coordinator summaries under the existing unchanged-lock advisory policy, not a clean advisory scan.
+Source fix `a9fa7689aad95954ac86a6bae0b982e3f73fd31b` remains held locally pending the corrected native runner's release and pin.
+Follow-up source inspection found the native runner's separate topic gate; an ordinary-repository HTTP-fixture test reproduced its refusal before removal.
+Native-change full CI -54 completed exit 0 with all four runtime/coordinator summaries under the same advisory policy; this validates the local native patch, not production execution.
+No successful live nine-valid discovery, new provider execution or full Slice 4 acceptance is established yet.
+
+## Slice 1 deployed acceptance
+
 Slice 1 full deployed acceptance passed three consecutive times with released runner `v1`:
 
 1. [run 41733197463](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/41733197463)

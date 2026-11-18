@@ -29,7 +29,11 @@
   Typed child exit capture in -53 completed exit 0; full CI log confirms all four runtime/coordinator summaries and remaining gates under `GOLEM_CHECK_ADVISORIES=false`, not a clean advisory scan.
   Compact-head source fix is local commit `a9fa7689aad95954ac86a6bae0b982e3f73fd31b`, not deployed.
   Follow-up inspection found the native runner still rejects targets without the sandbox topic in `runner/src/github.rs::validate_target`; the earlier router-only change was insufficient.
-  Remove that matching native gate and release/pin the new runner before deploying the compact-head fix; keep identity, membership, check and pinned-definition checks.
+  Native gate patch removes only the topic predicate; identity, membership, check and pinned-definition checks remain.
+  New ordinary-repository test was red with `target identity or allowlist mismatch`; topic-free v2 and identity-negative tests now pass (four focused native cases).
+  Full native-change CI -54 completed exit 0 under the existing unchanged-lock advisory policy; all four runtime/coordinator summaries and remaining gates confirmed.
+  Native tests: 40 library and 66 executable cases passed, with the existing two explicit opt-in cases ignored.
+  Publish the native correction through protected CI, then release/pin its runner before publishing the held compact-head change.
   No new agent execution or full Slice 4 acceptance is claimed.
 - **Current slice:** 4, in progress; not accepted.
   Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
@@ -126,7 +130,7 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `fix/compact-head-metadata`.
+- **Current branch:** `fix/native-installed-repositories`.
 - **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
 - **Last UI implementation deployment verified (2026-11-17):** PR #41 merge `b88f5f87095a7c72315558539c8c67d448134fc3`; live health and asset hashes match, trunk CI `44110999820` and deploy `44111000121` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
