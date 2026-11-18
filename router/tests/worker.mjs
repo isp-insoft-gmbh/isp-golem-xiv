@@ -40,7 +40,13 @@ const repository3 = 'isp-insoft-gmbh/isp-golem-xiv-test-late';
 const repositoryFiles = new Map([[repository, files]]);
 const adminRepositoryFailures = new Set();
 let adminInstallationFailure = false;
-const metadata = name => ({id:name === repository ? 99 : name === repository2 ? 100 : 101, full_name:name, default_branch:'trunk', topics:[]});
+let defaultBranch = 'trunk';
+let headReference;
+let headStatus = 200;
+state.headReads = [];
+state.contentRefs = [];
+state.fullCommitReads = 0;
+const metadata = name => ({id:name === repository ? 99 : name === repository2 ? 100 : 101, full_name:name, default_branch:defaultBranch, topics:[]});
 let installed = true;
 let dispatchStatus = 204;
 // Invented X25519 secret keys are SHA-256 of these labels. `sealed` was produced by libsodium
@@ -106,7 +112,8 @@ async function github(request) {
     const o = state.onboard;
     const sub = path.slice(`/repos/${onboardRepo}`.length);
     if (sub === '') return answer(200, {id:150, full_name:onboardRepo, default_branch:'trunk', private:true, topics:[]});
-    if (sub === '/commits/trunk') return answer(200, {sha:head});
+    if (sub === '/git/ref/heads/trunk') return answer(200, {object:{type:'commit',sha:head}});
+    if (sub === '/commits/trunk') {state.fullCommitReads++; return answer(200, {sha:head,files:[{patch:'x'.repeat(524288)}]});}
     if (sub === '/contents/.golems') return o.golems ? answer(200, [...o.golems].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)}))) : answer(404, {});
     if (sub.startsWith('/contents/.golems/') && method === 'GET') {
       const content = o.golems?.get(sub.split('/').at(-1));
@@ -137,9 +144,13 @@ async function github(request) {
   const target = [repository,repository2,repository3].find(name => path.startsWith(`/repos/${name}/`) || path === `/repos/${name}`);
   if (target) {
     if (path === `/repos/${target}`) return target === repository && !installed ? answer(404, {}) : answer(200, metadata(target));
-    if (path === `/repos/${target}/commits/trunk`) return adminRepositoryFailures.has(target) ? answer(404,{message:'Not Found'}) : answer(200, {sha:head});
+    if ([`/repos/${target}/git/ref/heads/trunk`,`/repos/${target}/git/ref/heads/release/next`,`/repos/${target}/git/ref/heads/release/v1%25%23`].includes(path)) {
+      state.headReads.push(path);
+      return adminRepositoryFailures.has(target) ? answer(404,{}) : answer(headStatus,headReference ?? {object:{type:'commit',sha:head}});
+    }
+    if (path === `/repos/${target}/commits/trunk`) {state.fullCommitReads++; return answer(200, {sha:head,files:[{patch:'x'.repeat(524288)}]});}
     const targetFiles = repositoryFiles.get(target) ?? new Map();
-    if (path === `/repos/${target}/contents/.golems`) return answer(200, [...targetFiles].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)})));
+    if (path === `/repos/${target}/contents/.golems`) {state.contentRefs.push(url.searchParams.get('ref')); return answer(200, [...targetFiles].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)})));}
     if (path.startsWith(`/repos/${target}/contents/.golems/`)) {
       const content = targetFiles.get(path.split('/').at(-1));
       return content === undefined ? answer(404,{}) : answer(200,{type:'file',encoding:'base64',content:Buffer.from(content).toString('base64')});
@@ -296,6 +307,26 @@ try {
   assert.deepEqual(golems.find(g => g.name === 'hello').errors, []);
   assert.ok(golems.find(g => g.name === 'broken').errors.length > 0);
   assert.ok(golems.find(g => g.name === 'stop').errors.length > 0);
+  assert.equal(state.fullCommitReads,0,'head discovery must not download commit diffs');
+  assert.ok(state.contentRefs.length > 0 && state.contentRefs.every(ref => ref === head),'contents are pinned to the reference SHA');
+  for (const [branch,path] of [['release/next','release/next'],['release/v1%#','release/v1%25%23']]) {
+    defaultBranch = branch;
+    assert.equal((await worker.dispatchFetch(index,auth)).status,200,'nested default branch remains readable');
+    assert.equal(state.headReads.at(-1),`/repos/${repository}/git/ref/heads/${path}`);
+  }
+  defaultBranch = 'trunk';
+  for (const [reason,status,reference] of [
+    ['missing reference',404,{}],
+    ['missing SHA',200,{object:{type:'commit'}}],
+    ['malformed SHA',200,{object:{type:'commit',sha:'not-a-sha'}}],
+    ['non-commit object',200,{object:{type:'tag',sha:head}}],
+    ['array response',200,[{object:{type:'commit',sha:head}}]],
+    ['oversized reference',200,{object:{type:'commit',sha:head},padding:'x'.repeat(524288)}],
+  ]) {
+    headStatus = status; headReference = reference;
+    assert.equal((await worker.dispatchFetch(index,auth)).status,502,reason);
+  }
+  headStatus = 200; headReference = undefined;
   files.set('late.md', '---\n---\nAdded after first query.');
   golems = (await (await worker.dispatchFetch(index, auth)).json()).golems;
   assert.ok(golems.some(g => g.name === 'late'));
