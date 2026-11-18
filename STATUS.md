@@ -46,7 +46,12 @@
   Final source/docs CI -85 completed exit 0 under unchanged-lock advisory policy: all four runtime/coordinator suites, native tests, repository checks and Nu parsing passed.
   Docker entrypoint/runtime proof is still unrun locally and remains mandatory in the Linux CI image step before merge.
   Toktrak -84 completed exit 0 on local `2595be5` using verified task-local Mise: full CI/coverage, 277 unit/12 tagged tests and fresh scoped PIT (155/162 killed, seven survivors, zero timeouts). Exact token-used return-null mutant is killed by the new synchronous test; ordering/boundary survivors were inspected, not hidden or expanded into an unrelated campaign.
-  Toktrak `2595be5` remains unpublished while native release/pin prerequisites are repaired; original checkout/lockfile untouched.
+  Toktrak `2595be5` remained unpublished while native prerequisites were repaired.
+  Latest pinned target `e771c4cfa9c9581937790aaf8815587c876a42e0` adds dprint plugins, locked tool refresh and google-java-format 2 layout; overlapping Build/Projection test changes were reviewed as formatting-only.
+  Integrated that exact target without conflicts at `71303783f360e112f2565ff72ca3413ee0bf528d`; locked-tool install/owned-file format -93 completed exit 0 without source edits.
+  Fresh clean CI + scoped PIT -94 completed exit 0 on exact clean `7130378`, with refreshed tools/formatter, existing coverage floors and 158/162 fresh mutations killed/zero timeouts.
+  Exact-head GitHub validation is still required before Toktrak merge.
+  Original checkout/lockfile remain untouched; no old-head success substitutes for the latest combined tree.
   Native PR #48 at `1259314876dc09ac112fa8b153814b9443413353` failed exact-head CI `44322126241`; watcher -86 exit 1.
   Repository CI passed, then the new container fixture failed before target preparation: unquoted Nu list commas split `/tmp:rw,nosuid,...` into six values, so Docker attempted image `nosuid:latest` and exited 125.
   Image build and startup/version checks had already returned success; no target-minimum, provider or auth result is established by that failure.
@@ -54,7 +59,21 @@
   This is focused argv proof, not Docker runtime proof.
   Correction commit `7669872f57327567b303ab315bc40c559e2e7c58` passed exact-head CI `44325246899`; watcher -87 exit 0, including the real container minimum/preparation/isolated verification cases.
   Refreshed clean mergeability and no reviews/threads; protected squash #48 merged `bf46f79064f18fc7c4b287f2d051989dd05158d6`, whose tree equals reviewed `7669872` (`54a37110e7144750ee05afd4b980f1a577002ece`).
-  Trunk CI `44327422806` (-88) and CI deployment `44327423130` (-89) running; native release must wait for terminal trunk CI success.
+  CI deployment `44327423130` (-89) completed success on exact `bf46f79064f18fc7c4b287f2d051989dd05158d6`; live `/health` returns that full SHA.
+  Trunk CI `44327422806` (-88) completed success on exact `bf46f79064f18fc7c4b287f2d051989dd05158d6`, including Agent container.
+  Dedicated clean release worktree matched `trunk` and live remote `bf46f79`; reviewed release script pushed annotated `v13` at that exact commit.
+  Release `44330868877` (-90) completed success on exact `bf46f79`/tag `v13`.
+  Downloaded Linux ELF64 x86_64 asset `763858931`, 5,063,016 bytes, SHA-256 `3c015ae93d66d98c53d080f508da49cadfa7b882974cae24b7013f49324db1d3`; GitHub digest, exact sidecar, SHA256SUMS and ELF architecture agree.
+  GitHub release metadata says immutable=false; this is independently checked point-in-time integrity under the existing GitHub/CI trust boundary, not binary attestation.
+  Only after verification, committed/pushed atomic live-ops v13/Mise 2026.11.9 pair `99b9bbad1baf7d81f72cda11488651d56ed10eb6` in ops PR #20; exact-head CI `44333434159` passed, refreshed clean eligibility/no reviews or threads, protected squash merged `32fe6ce9280f7bb885b3393e19575f72e4f54c3d`.
+  Ops merge tree equals reviewed head; live workflow readback SHA-256 `6d23b8427dc8eff9f303ca85e4e8e3003b55ecae3475a08198e0f90c6c0e8fb0` matches the candidate/public template exactly.
+  First readback wrapper rejected GitHub base64 line breaks; joining only encoded lines fixed decoding without changing data or accepting garbage.
+  Ops trunk CI `44333668213` completed success on `32fe6ce`; live v13/Mise pair is now verified, not actual provider execution.
+  Matching public template on trunk-based `fix/verified-mise-runner-template` may now be published after passed local checks; no old feature ancestry will be replayed.
+  Local template CI -91 failed a historical v2/v3 fixture digest because reconstruction retained the new Mise pin; runtime repair/provenance digests were not changed.
+  Reconstruction now restores exactly one reviewed 2026.11.9 line to historical 2026.10.21 before the original digest checks; full focused repair-unbound suite passed red→green.
+  Full corrected local template CI -92 completed exit 0 under unchanged-lock advisory policy, including all four runtime/coordinator suites and original repair/provenance guards.
+  Failed -91 remains recorded as red; no runtime guard or historical digest was relaxed.
   Live ops/template pins remain unchanged; container proof is not actual provider/App-answer proof.
   Toktrak target advanced again after local `2595be5`; defer its final re-integration until native release/pin prerequisites are ready, rather than repeatedly validating stale targets.
   Next: protected native merge/release → verified ops runner/Mise pair → matching public template → current-target Toktrak validation/merge → actual canary.
