@@ -12,9 +12,17 @@
   An existing event fixture counted an earlier retained delivery against the next case; captured IDs proved the extra row belonged to the preceding source.
   Its assertions now count exact source IDs, retain 20/18 cardinalities and existing tick limits, and require retirement before the next case; three focused Worker repetitions passed.
   Companion migration is [Toktrak PR #155](https://github.com/isp-insoft-gmbh/toktrak/pull/155), isolated outside this checkout; the user's original lockfile edits are preserved.
-  Companion local clean-tree CI completed exit 0; its GitHub CI remains in progress.
+  Companion local clean-tree CI completed exit 0; GitHub CI `44272379475` passed on exact head `27b0e99bb8a467b8ac0b07e9b9d102eb1ee3f962`, including core, Linux/macOS/Windows tracker, production, performance and PIT.
   The obsolete companion workflow is disabled with no queued/running legacy jobs; stored credentials were not deleted.
-  No new router behavior is deployed yet; publish/deploy the router change, then merge the companion PR after green CI.
+  Router PR #43 merged `d94ecb20f23074a2e5108427bc484b8b91cf68d1` after exact-head CI `44273533940`; refreshed clean eligibility and no review threads verified, merge tree equals reviewed head `8c25cd3c7db799932338a9a0b41f82a8b2b4264a`.
+  Trunk CI `44275364375` completed successfully on `d94ecb2`; watcher -46 completed exit 0.
+  Deployment `44275360349` completed successfully; watcher -45 exit 0, production `/health` reports full `d94ecb2` SHA.
+  Authenticated topic-free discovery returned 200 with nine legacy-invalid definitions before migration.
+  Toktrak PR #155 then merged `af20a74fd17367db724aea6833be333062649c7a`; merge tree equals reviewed head, eligibility refreshed clean with no review threads.
+  First post-merge live index returned 502; live nine-valid discovery is not yet established.
+  Direct same-header GitHub reads found the default-branch full-commit response is 526,823 bytes, above the unchanged 524,288-byte Worker response cap; all nine pinned definition bytes match locally validated files.
+  `Github::head` fetches the full commit only for its SHA; next fix uses compact exact Git-ref metadata, preserving limits.
+  Companion trunk CI/runtime/performance watchers -47/-48/-49 are running; no new agent execution or full Slice 4 acceptance is claimed.
 - **Current slice:** 4, in progress; not accepted.
   Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
 - **Current task: admin UI rewrite (deployed and live-verified):** PR #41 merged `b88f5f87095a7c72315558539c8c67d448134fc3` after exact-head CI `44108681183` on `c498383c9e779c2297f6b2b96f999d817a8a9648`; clean merge state and no review threads confirmed.
@@ -110,7 +118,7 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `feat/installed-org-repositories`.
+- **Current branch:** `docs/ordinary-repository-proof`.
 - **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
 - **Last UI implementation deployment verified (2026-11-17):** PR #41 merge `b88f5f87095a7c72315558539c8c67d448134fc3`; live health and asset hashes match, trunk CI `44110999820` and deploy `44111000121` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
