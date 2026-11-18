@@ -1,5 +1,14 @@
 # Evidence
 
+## 2026-11-18: UI-requested onboarding development evidence
+
+[Local actual-browser record](evidence/onboarding-ui-20261118.json) records Firefox160, actual Rust admin HTML and delivered JS/CSS against a credential-free HTTP double.
+Physical pointer clicks at390px and1440px produced exactly one request each; initial page/pagination produced none, one action appeared across missing/unavailable/enabled repositories, screenshots were inspected without document overflow.
+This is UI wiring/rendering evidence, not signed-in deployment or live GitHub mutations.
+Full required local gate -110 passed, including built-Worker explicit creation/repeats/closed reuse, authorization/CSRF/claim failures and unchanged runtime/coordinator controls.
+Changed acceptance check is independently live-red against old085 in owned sandbox `isp-golem-xiv-test-ui-onboard-red-20261118172608`: unsolicited starter PR.
+Live green request/caller merge proof remains pending deployment.
+
 Proofs for promises of kind `evidence` in [contract.nuon](contract.nuon), which `accept.nu` cannot drive itself.
 One line per promise: `- <id>: <link to a run, comment, or screenshot, or path of a test> <what it shows>`.
 
@@ -11,7 +20,7 @@ One line per promise: `- <id>: <link to a run, comment, or screenshot, or path o
 - seat-refresh: [refreshing run 43206088999](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43206088999) Codex 0.167.1 refreshes when the access token is about to expire, not by `last_refresh` age, so the seeded seat had only its access-token `exp` claim set an hour in the past (and `last_refresh` 30 days old) and was stored via the API at 11:03:14Z. Run 1 (check `131140812786`, replied) logged `golem seat: refreshed`, and the stored seat's `updated_at` moved to 11:08:56Z. The next two runs, [43206718988](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43206718988) (check `131143483988`) and [43207333628](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43207333628) (check `131145603414`), replied on the refreshed seat with `golem seat: unchanged`.
 - seat-replace: [first run on the replaced seat 43206088999](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/43206088999) `router/tests/worker.mjs` registers the same provider twice through the page and asserts the second write replaces the same secret name with the new ciphertext (`replaced: true`); live, `SEAT_BUGABINGA__OPENAI_CODEX` created at 10:39:09Z was replaced at 11:03:14Z (metadata `updated_at` > `created_at`), and every later run used the replacement.
 - seat-left-org: `router/tests/policy.rs` (`seat_holders_map_secret_names_to_members_and_report_people_who_left`, `dashboard_lists_sections_golems_disabled_and_seats_privately_only`) and the onboarding scenario in `router/tests/worker.mjs` render the private dashboard's Seats section from ops secret names matched to current members, listing an unmatched `SEAT_GONE_PERSON__OPENAI_CODEX` under "Seats of people who left the organization" and never showing non-seat secret names or values; public repositories list no seats.
-- admin-page: [recorded live Firefox session](evidence/admin-page-20261117.json) Oliver completed GitHub sign-in as `bugabinga`; the deployed page populated Runs, Usage, Health, Seats and Repositories, and live pagination loaded a second repository and another runs page; screenshot inspected privately, with historical gaps and unknown expiry explicitly visible; this proves rendering, not complete Slice 4 acceptance.
+- admin-page: [recorded live Firefox session](https://github.com/isp-insoft-gmbh/isp-golem-xiv/blob/0851629c8716f9cd32ecb117d67b8348c0722306/evidence/admin-page-20261117.json) Oliver completed GitHub sign-in as `bugabinga`; the deployed page populated Runs, Usage, Health, Seats and Repositories, and live pagination loaded a second repository and another runs page; screenshot inspected privately, with historical gaps and unknown expiry explicitly visible; this proves rendering, not complete Slice 4 acceptance.
 - refused-not-member: [deployed refusal](https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-mw126nzr-2665e70b/issues/1#issuecomment-6613046125) The same harness signed the recorded delivery as verified non-member `octocat`, observed the App's `not-member` reply, with zero matching runner runs.
 
 ## Toktrak runtime recovery: execution not yet proven, 2026-11-18

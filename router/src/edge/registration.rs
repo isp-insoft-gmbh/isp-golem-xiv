@@ -104,7 +104,10 @@ pub(super) async fn route(
     let method = request.method();
     let admin_path =
         matches!(path, "/admin" | "/admin.js" | "/admin.css") || path.starts_with("/v1/admin/");
-    if admin_path && method != Method::Get {
+    if admin_path
+        && method != Method::Get
+        && !(path == "/v1/admin/onboarding" && method == Method::Post)
+    {
         return Some(
             Response::error("Method not allowed", 405)
                 .and_then(|response| secured(response, "text/plain; charset=utf-8")),
@@ -115,6 +118,11 @@ pub(super) async fn route(
             .and_then(|script| secured(script, "text/javascript; charset=utf-8")),
         (Method::Get, "/seats") => bounded(seats(request, env), 20_000).await,
         (Method::Get, "/admin") => bounded(super::admin::page(request, env), 25_000).await,
+        (Method::Post, "/v1/admin/onboarding") => {
+            bounded(super::admin::onboarding(request, env), 25_000).await
+        }
+        (Method::Get, "/v1/admin/onboarding") => Response::error("Method not allowed", 405)
+            .and_then(|response| secured(response, "text/plain; charset=utf-8")),
         (Method::Get, "/admin.js") => Response::ok(include_str!("../admin.js"))
             .and_then(|script| secured(script, "text/javascript; charset=utf-8")),
         (Method::Get, "/admin.css") => Response::ok(include_str!("../admin.css"))
@@ -163,6 +171,21 @@ async fn seats(request: &Request, env: &Env) -> Result<Response> {
         preferred.as_deref(),
         &csrf,
     ))
+}
+
+pub(super) fn csrf(request: &Request, env: &Env) -> Result<Option<String>> {
+    Ok(session(request, env)?.and_then(|session| policy::csrf_token(&session.key, &session.value)))
+}
+
+pub(super) fn write_login(request: &Request, env: &Env) -> Result<Option<String>> {
+    if request.headers().get("Origin")?.as_deref() != Some(ROUTER_URL) {
+        return Ok(None);
+    }
+    let Some(session) = session(request, env)? else {
+        return Ok(None);
+    };
+    let submitted = request.headers().get(CSRF_HEADER)?.unwrap_or_default();
+    Ok(policy::csrf_valid(&session.key, &session.value, &submitted).then_some(session.login))
 }
 
 pub(super) fn signed_login(request: &Request, env: &Env) -> Result<Option<String>> {

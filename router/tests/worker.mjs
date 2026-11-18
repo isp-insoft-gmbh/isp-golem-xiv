@@ -111,7 +111,10 @@ async function github(request) {
   if (path === `/repos/${onboardRepo}` || path.startsWith(`/repos/${onboardRepo}/`)) {
     const o = state.onboard;
     const sub = path.slice(`/repos/${onboardRepo}`.length);
-    if (sub === '') return answer(200, {id:150, full_name:onboardRepo, default_branch:'trunk', private:true, topics:[]});
+    if (sub === '') return answer(200, {id:150, full_name:onboardRepo, default_branch:'trunk', private:true, topics:[], archived:o.archived ?? false});
+    if (sub === '/collaborators/member/permission') return answer(200, {permission:o.permission ?? 'write',role_name:'custom-role-name'});
+    const pullMetadata = (pull, index) => ({...pull,number:index+1,state:o.pullState ?? 'open',user:{login:o.pullAuthor ?? 'isp-golem-xiv[bot]'},head:{ref:pull.head,repo:{full_name:onboardRepo}},base:{ref:pull.base,repo:{full_name:onboardRepo}},html_url:`https://github.com/${onboardRepo}/pull/${index+1}`});
+    if (sub === '/pulls' && method === 'GET') {assert.equal(url.searchParams.get('state'),'all'); assert.equal(url.searchParams.get('head'),'isp-insoft-gmbh:golems/enable'); assert.equal(url.searchParams.get('per_page'),'1'); return answer(200,o.pulls.slice(0,1).map(pullMetadata));}
     if (sub === '/git/ref/heads/trunk') return answer(200, {object:{type:'commit',sha:head}});
     if (sub === '/commits/trunk') {state.fullCommitReads++; return answer(200, {sha:head,files:[{patch:'x'.repeat(524288)}]});}
     if (sub === '/contents/.golems') return o.golems ? answer(200, [...o.golems].map(([name,content]) => ({name,type:'file',size:Buffer.byteLength(content)}))) : answer(404, {});
@@ -121,8 +124,8 @@ async function github(request) {
     }
     if (sub === '/contents' && method === 'GET') return answer(200, [{name:'README.md'},{name:'mise.toml'}]);
     if (sub.startsWith('/contents/') && method === 'PUT') {o.writes.push({path:sub.slice('/contents/'.length), branch:body.branch, content:Buffer.from(body.content,'base64').toString()}); return answer(201, {content:{sha:'d'.repeat(40)}});}
-    if (sub === '/git/refs' && method === 'POST') {o.branches.push(body); return answer(201, {ref:body.ref});}
-    if (sub === '/pulls' && method === 'POST') {o.pulls.push(body); return answer(201, {number:o.pulls.length});}
+    if (sub === '/git/refs' && method === 'POST') {if(o.branchStatus) return answer(o.branchStatus,{}); o.branches.push(body); return answer(201, {ref:body.ref});}
+    if (sub === '/pulls' && method === 'POST') {o.pulls.push(body); return answer(201, pullMetadata(body,o.pulls.length-1));}
     if (sub === '/issues' && method === 'GET') return answer(200, o.issues.filter(issue => issue.state === 'open'));
     if (sub === '/issues' && method === 'POST') {const issue = {number:100+o.issues.length, node_id:`I_node${o.issues.length}`, state:'open', user:{login:'isp-golem-xiv[bot]'}, title:body.title, body:body.body}; o.issues.push(issue); return answer(201, issue);}
     const patch = sub.match(/^\/issues\/(\d+)$/);
@@ -182,6 +185,7 @@ async function github(request) {
     return answer(201, {sha});
   }
   if (path === `/repos/${ops}/git/refs` && method === 'POST') {
+    if (body.ref === 'refs/tags/golem-onboarding/150' && state.onboard.rejectClaim) return answer(422,{});
     if (state.refs.has(body.ref)) return answer(422, {message:'Reference already exists'});
     state.refs.set(body.ref, body.sha);
     return answer(201, {ref:body.ref, object:{sha:body.sha, type:'tag'}});
@@ -189,7 +193,7 @@ async function github(request) {
   if (path.startsWith(`/repos/${ops}/git/ref/tags/`)) {
     const ref = 'refs/' + path.slice(`/repos/${ops}/git/ref/`.length);
     const sha = state.refs.get(ref);
-    return sha ? answer(200, {ref, object:{sha, type:'tag'}}) : answer(404, {});
+    return sha ? answer(200, {ref, object:{sha, type:ref.startsWith('refs/tags/golem-onboarding/') ? 'commit' : 'tag'}}) : answer(404, {});
   }
   if (path.startsWith(`/repos/${ops}/git/tags/`)) return answer(200, state.tags.get(path.split('/').at(-1)));
   if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) return path.endsWith('/outsider') || state.removedMembers.has(path.split('/').at(-1)) ? answer(404, {}) : answer(200, {state:'active'});
@@ -479,11 +483,57 @@ try {
   await eventually(() => validations().length === 2, 'validation check on synchronize');
   assert.equal(validations()[1].conclusion, 'success');
   files.set('broken.md', savedBroken); files.set('stop.md', savedStop);
-  // Onboarding: once per repository, exactly two files, then a pinned dashboard kept current.
+  // Onboarding is an explicit write action, never a push/install side effect.
   const o = state.onboard;
   const push = {sender:{id:42,login:'member',type:'User'}, repository:{id:150, full_name:onboardRepo}, installation:{id:153964219}};
   assert.equal((await deliver('v2-onboard-push', push, true, false, 'push')).status, 200);
-  await eventually(() => o.pulls.length === 1, 'onboarding pull request');
+  assert.equal((await deliver('v2-onboard-install', {...push,action:'created'}, true, false, 'installation')).status, 200);
+  await sleep(300);
+  assert.equal(o.pulls.length,0,'push/install never create starter PRs');
+  assert.equal(o.branches.length,0);
+  assert.equal(o.writes.length,0);
+  assert.equal(state.refs.has('refs/tags/golem-onboarding/150'),false);
+  const requestOnboarding = (headers = {Authorization:'Bearer valid-fixture-token'}, body = {repository:onboardRepo}) => worker.dispatchFetch(`${base}/v1/admin/onboarding`,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
+  assert.equal((await requestOnboarding({})).status,401);
+  assert.equal((await requestOnboarding({Authorization:'Bearer invalid-token'})).status,403);
+  assert.equal((await requestOnboarding(undefined,{repository:'other-org/repo'})).status,400);
+  assert.equal((await requestOnboarding(undefined,{repository:onboardRepo,extra:true})).status,400);
+  assert.equal((await requestOnboarding(undefined,{repository:'x'.repeat(600)})).status,413);
+  o.permission='read';
+  assert.equal((await requestOnboarding()).status,403,'read/triage access cannot request repository writes');
+  o.permission='admin'; o.archived=true;
+  assert.equal((await requestOnboarding()).status,409);
+  o.archived=false; o.golems=new Map();
+  assert.equal((await requestOnboarding()).status,409,'existing even empty directory is not overwritten');
+  o.golems=null; o.permission='write'; o.rejectClaim=true;
+  assert.equal((await requestOnboarding()).status,502,'unrelated 422 is not accepted as an existing claim');
+  o.rejectClaim=false;
+  state.refs.set('refs/tags/golem-onboarding/150',head);
+  assert.equal((await requestOnboarding()).status,409,'claimed but absent PR is incomplete, not success');
+  state.refs.delete('refs/tags/golem-onboarding/150');
+  o.branchStatus=422;
+  assert.equal((await requestOnboarding()).status,502,'branch collision is never overwritten');
+  o.branchStatus=null;
+  assert.equal((await requestOnboarding()).status,409,'partial failure is not automatically resumed');
+  assert.equal(o.branches.length,0); assert.equal(o.writes.length,0); assert.equal(o.pulls.length,0);
+  state.refs.delete('refs/tags/golem-onboarding/150');
+  const concurrent = await Promise.all([requestOnboarding(),requestOnboarding()]);
+  assert.equal(concurrent.filter(response=>response.status===201).length,1);
+  assert.ok(concurrent.every(response=>[200,201,409].includes(response.status)));
+  const created = await concurrent.find(response=>response.status===201).json();
+  assert.deepEqual(created,{url:`https://github.com/${onboardRepo}/pull/1`,created:true});
+  assert.equal(o.pulls.length,1);
+  const repeated = await requestOnboarding();
+  assert.equal(repeated.status,200);
+  assert.deepEqual(await repeated.json(),{url:created.url,created:false});
+  o.pullState='closed';
+  assert.equal((await requestOnboarding()).status,200);
+  assert.equal(o.pullState,'closed','request never reopens a closed starter PR');
+  assert.equal(o.pulls.length,1);
+  o.pullState='open'; // Human reopen, followed by the merge fixture below.
+  o.pullAuthor='unrelated-human';
+  assert.equal((await requestOnboarding()).status,502,'fixed branch alone does not authenticate a PR');
+  o.pullAuthor=null;
   assert.deepEqual(o.pulls[0].title, 'Enable golems');
   assert.equal(o.pulls[0].head, 'golems/enable');
   assert.equal(o.pulls[0].base, 'trunk');
@@ -926,6 +976,15 @@ async function seatRegistration() {
   assert.ok(!html.includes('data-seat="openai-codex"') && !html.toLowerCase().includes('codexonly'), 'only own seats listed');
   assert.ok(!/<script(?![^>]*src="\/seats\.js")/.test(html), 'no inline script');
   const csrf = html.match(/<meta name="golem-csrf" content="([0-9a-f]{64})">/)[1];
+  const cookieOnboarding = headers => worker.dispatchFetch(`${base}/v1/admin/onboarding`,{method:'POST',headers:{Cookie:session,'Content-Type':'application/json',...headers},body:JSON.stringify({repository:onboardRepo})});
+  assert.equal((await cookieOnboarding({})).status,403);
+  assert.equal((await cookieOnboarding({Origin:'https://evil.invalid','X-Golem-Csrf':csrf})).status,403);
+  assert.equal((await cookieOnboarding({Origin:router,'X-Golem-Csrf':'wrong'})).status,403);
+  assert.equal((await cookieOnboarding({Origin:router,'X-Golem-Csrf':csrf,Authorization:'Bearer invalid-token'})).status,403,'invalid explicit bearer cannot fall back to a valid session');
+  assert.equal((await cookieOnboarding({Origin:router,'X-Golem-Csrf':csrf})).status,200);
+  state.removedMembers.add('member');
+  assert.equal((await cookieOnboarding({Origin:router,'X-Golem-Csrf':csrf})).status,403);
+  state.removedMembers.delete('member');
   response = await worker.dispatchFetch(`${base}/admin`, {headers:{Cookie:session}});
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('Content-Security-Policy'), `${policy}; style-src 'self'`);
@@ -933,6 +992,7 @@ async function seatRegistration() {
   for (const heading of ['Runs','Usage','Health','Seats','Repositories']) assert.ok(adminPage.includes(`>${heading}</h2>`));
   assert.ok(adminPage.includes('/admin.js') && !adminPage.includes('Slice 4'));
   assert.ok(adminPage.includes('<link rel="stylesheet" href="/admin.css">'));
+  assert.ok(adminPage.includes(`id="onboarding-csrf" value="${csrf}"`),'admin page carries its session-bound CSRF token');
   const adminStyle = await worker.dispatchFetch(`${base}/admin.css`);
   assert.equal(adminStyle.status, 200);
   assert.match(adminStyle.headers.get('Content-Type'), /^text\/css/);

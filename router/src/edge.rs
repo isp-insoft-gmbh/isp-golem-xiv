@@ -774,7 +774,7 @@ async fn index_with_upkeep(
 }
 
 /// Default-branch upkeep on push, reusing the delivery's head and index so the event
-/// path keeps its subrequest budget: onboard without `.golems/`, else keep the dashboard current.
+/// path keeps its subrequest budget: without `.golems/` do nothing, else update the dashboard.
 async fn maintain_repository(
     github: &Github,
     repository: &str,
@@ -783,7 +783,7 @@ async fn maintain_repository(
     golems: &[Golem],
 ) -> Result<()> {
     if golems.is_empty() {
-        // An empty index means a missing directory or one without golems; only the former onboards.
+        // An empty index may be a missing directory; onboarding requires an explicit UI request.
         let (status, _) = github
             .call(
                 Method::Get,
@@ -792,7 +792,7 @@ async fn maintain_repository(
             )
             .await?;
         match status {
-            404 => return onboard(github, repository, info, head).await,
+            404 => return Ok(()),
             200 => {}
             _ => return Err(failure("golem directory lookup failed")),
         }
@@ -800,12 +800,39 @@ async fn maintain_repository(
     update_dashboard(github, repository, info, golems).await
 }
 
-/// Opens the onboarding pull request once per repository; an ops tag is the durable claim.
-async fn onboard(github: &Github, repository: &str, info: &Value, head: &str) -> Result<()> {
-    let id = info
-        .get("id")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| failure("missing repository id"))?;
+/// The fixed onboarding branch may belong to a human; never reuse an unverified pull request.
+fn onboarding_url(pull: &Value, repository: &str) -> Option<String> {
+    let number = pull.get("number")?.as_u64().filter(|number| *number > 0)?;
+    if pull.pointer("/user/login")?.as_str()? != crate::BOT
+        || pull.pointer("/head/ref")?.as_str()? != crate::ONBOARDING_BRANCH
+        || pull.pointer("/head/repo/full_name")?.as_str()? != repository
+        || pull.pointer("/base/repo/full_name")?.as_str()? != repository
+    {
+        return None;
+    }
+    Some(format!("https://github.com/{repository}/pull/{number}"))
+}
+
+async fn existing_onboarding(github: &Github, repository: &str) -> Result<Option<String>> {
+    let pulls = github
+        .get(&format!(
+            "/repos/{repository}/pulls?state=all&head={ORGANIZATION}:golems%2Fenable&per_page=1"
+        ))
+        .await?;
+    let entries = pulls
+        .as_array()
+        .filter(|entries| entries.len() <= 1)
+        .ok_or_else(|| failure("invalid onboarding pull request listing"))?;
+    match entries.first() {
+        Some(pull) => onboarding_url(pull, repository)
+            .map(Some)
+            .ok_or_else(|| failure("onboarding branch belongs to an unrelated pull request")),
+        None => Ok(None),
+    }
+}
+
+/// A confirmed existing claim is not proof that a PR was successfully created.
+async fn claim_onboarding(github: &Github, id: u64) -> Result<bool> {
     let trunk = github
         .get(&format!("/repos/{OPS}/git/ref/heads/trunk"))
         .await?;
@@ -814,18 +841,76 @@ async fn onboard(github: &Github, repository: &str, info: &Value, head: &str) ->
         .and_then(Value::as_str)
         .filter(|sha| valid_sha(sha))
         .ok_or_else(|| failure("invalid ops trunk"))?;
+    let reference = format!("refs/tags/golem-onboarding/{id}");
     let (status, _) = github
         .call(
             Method::Post,
             &format!("/repos/{OPS}/git/refs"),
-            Some(json!({"ref":format!("refs/tags/golem-onboarding/{id}"),"sha":anchor})),
+            Some(json!({"ref":reference,"sha":anchor})),
         )
         .await?;
-    if status == 422 {
-        return Ok(()); // Already onboarded once; closing the pull request is respected.
+    if status == 201 {
+        return Ok(true);
     }
-    if status != 201 {
+    if status != 422 {
         return Err(failure("onboarding claim failed"));
+    }
+    let (status, claim) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{OPS}/git/ref/tags/golem-onboarding/{id}"),
+            None,
+        )
+        .await?;
+    if status != 200
+        || claim.get("ref").and_then(Value::as_str) != Some(reference.as_str())
+        || claim.pointer("/object/type").and_then(Value::as_str) != Some("commit")
+        || !claim
+            .pointer("/object/sha")
+            .and_then(Value::as_str)
+            .is_some_and(valid_sha)
+    {
+        return Err(failure("onboarding claim not confirmed"));
+    }
+    Ok(false)
+}
+
+/// Explicit onboarding only; an ops tag prevents duplicate or ambiguous writes.
+async fn onboard(github: &Github, repository: &str, info: &Value) -> Result<(u16, Value)> {
+    if let Some(url) = existing_onboarding(github, repository).await? {
+        return Ok((200, json!({"url":url,"created":false})));
+    }
+    if info.get("archived").and_then(Value::as_bool) == Some(true)
+        || info.get("disabled").and_then(Value::as_bool) == Some(true)
+    {
+        return Ok((409, json!({"error":"Repository is archived or disabled"})));
+    }
+    let head = github.head(repository, info).await?;
+    let (status, _) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{repository}/contents/.golems?ref={head}"),
+            None,
+        )
+        .await?;
+    if status == 200 {
+        return Ok((409, json!({"error":"Repository already contains .golems/"})));
+    }
+    if status != 404 {
+        return Err(failure("golem directory lookup failed"));
+    }
+    let id = info
+        .get("id")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| failure("missing repository id"))?;
+    if !claim_onboarding(github, id).await? {
+        return match existing_onboarding(github, repository).await? {
+            Some(url) => Ok((200, json!({"url":url,"created":false}))),
+            None => Ok((
+                409,
+                json!({"error":"Starter PR request is in progress or incomplete; inspect the onboarding branch"}),
+            )),
+        };
     }
     let (status, _) = github
         .call(
@@ -864,13 +949,15 @@ async fn onboard(github: &Github, repository: &str, info: &Value, head: &str) ->
     let toolchain = ["mise.toml", ".mise.toml", ".tool-versions"]
         .into_iter()
         .find(|file| names.contains(file));
-    github
+    let pull = github
         .post(
             &format!("/repos/{repository}/pulls"),
             json!({"title":crate::ONBOARDING_TITLE,"head":crate::ONBOARDING_BRANCH,"base":string(info, "default_branch")?,"body":crate::onboarding_body(toolchain)}),
         )
         .await?;
-    Ok(())
+    let url = onboarding_url(&pull, repository)
+        .ok_or_else(|| failure("invalid created onboarding pull request"))?;
+    Ok((201, json!({"url":url,"created":true})))
 }
 
 /// Seat holders from ops secret names and current organization members; never values.

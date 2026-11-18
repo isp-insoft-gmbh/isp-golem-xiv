@@ -178,10 +178,14 @@ Every surface answers three questions: what can I do here, whose seat pays, what
 ### Onboarding
 
 1. An organization admin adds the repository to the App.
-2. If `.golems/` is missing, `isp-golem-xiv` opens the pull request **Enable golems**.
+2. Installing the App or pushing never opens a starter pull request.
+   A signed-in organization member with repository write access may optionally choose **Create starter PR** for a repository without `.golems/` on the admin page.
+   Only that explicit request opens **Enable golems**; no subscription seat or agent run is used.
 3. It adds `.golems/_golems.md` with a single line, `You are a golem working unattended in this repository.`, and `.golems/hello.md`, a golem that changes nothing and reports what it sees.
 4. The description explains how house rules work, shows whether the repository has a toolchain description, and tells readers to check their seat with `@isp-golem-xiv seat`.
-5. Merging enables golems; closing leaves the repository alone until someone adds `.golems/`.
+5. Repeated requests return the existing starter pull request, including a closed one, without duplicating or reopening it.
+   Merging enables golems; closing leaves the repository alone until someone adds `.golems/`.
+   Existing unsolicited starter pull requests are not changed automatically.
 
 ### Dashboard issue
 
@@ -224,7 +228,7 @@ Every organization member can open it after signing in with GitHub.
 | Usage | runs and time per person and provider |
 | Health | failure rate, blocked runs, refreshing seats close to expiry |
 | Seats | registered seats per person, and seats of people who left the organization |
-| Repositories | enabled repositories and disabled golems |
+| Repositories | installed repositories, disabled golems, optional explicit starter-PR action where `.golems/` is missing |
 
 Everything shown is derived from GitHub: runs in the ops repository with one machine-readable audit record each, seat names, the App installation, and the golem index.
 The implementation chooses the audit record's form and records it in `DECISIONS.md`.

@@ -5,7 +5,10 @@
 Install the organization GitHub App and add `.golems/*.md`.
 No repository allowlist, activation flag, local runner, or repository workflow is required.
 
-A push or installation event in a repository without `.golems/` opens **Enable golems**.
+Pushes and App installation never open starter pull requests.
+For optional starter files, sign in at `/admin`, find the repository, and choose **Create starter PR**.
+Organization membership and repository write access are required; no subscription seat is needed.
+Repeated requests link the existing PR, even when closed; they never reopen or duplicate it.
 Review and merge that pull request to add the house rules and `hello` golem.
 The App creates and pins **Golems**, the repository dashboard.
 Keep repository tool requirements in its own mise configuration; harnesses load repository context, skills, hooks and other project configuration natively.

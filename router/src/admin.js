@@ -191,6 +191,50 @@
     } catch (error) { failed('seats-status', error, seats); }
   }
 
+  function onboarding(parent, repo) {
+    const explanation = document.createElement('p');
+    explanation.textContent = 'Create a pull request with reviewable starter files. No agents or default-branch changes are made.';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Create starter PR';
+    button.setAttribute('aria-label', `Create starter PR for ${repo}`);
+    const result = document.createElement('p');
+    result.setAttribute('role', 'status');
+    result.setAttribute('aria-live', 'polite');
+    button.onclick = async () => {
+      if (button.disabled) return;
+      button.disabled = true;
+      result.textContent = 'Checking for or creating a starter PR…';
+      try {
+        const response = await fetch('/v1/admin/onboarding', {
+          method: 'POST', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+          headers: {'Content-Type': 'application/json', 'X-Golem-Csrf': byId('onboarding-csrf').value},
+          body: JSON.stringify({repository: repo})
+        });
+        if (!response.ok) {
+          result.textContent = response.status === 401 ? 'Sign in to continue.' : response.status === 403 ? 'Active organization membership and repository write access required.' : response.status === 409 ? 'Starter PR unavailable: repository may be configured, archived, or have an incomplete request. Check GitHub before retrying.' : 'Request failed. Retry explicitly to check for an existing request.';
+          return;
+        }
+        const data = await response.json();
+        const prefix = `https://github.com/${repo}/pull/`;
+        if (typeof data.url !== 'string' || !data.url.startsWith(prefix) || !/^[1-9][0-9]*$/.test(data.url.slice(prefix.length)) || typeof data.created !== 'boolean' || !((response.status === 201 && data.created) || (response.status === 200 && !data.created))) {
+          result.textContent = 'Unexpected response. Retry explicitly to check for an existing request.';
+          return;
+        }
+        result.textContent = data.created ? 'Starter PR created: ' : 'Existing starter PR, which may be closed: ';
+        const link = document.createElement('a');
+        link.href = data.url;
+        link.textContent = 'View starter PR';
+        result.append(link);
+      } catch (_) {
+        result.textContent = 'Request outcome may be unknown. Retry explicitly to check for an existing request.';
+      } finally { button.disabled = false; }
+    };
+    parent.append(explanation);
+    parent.append(button);
+    parent.append(result);
+  }
+
   async function repositories(page = 1) {
     const button = byId('more-repositories');
     const retry = () => repositories(page);
@@ -202,7 +246,8 @@
       const parent = byId('repositories');
       for (const repository of data.repositories) {
         const heading = document.createElement('h3');
-        if (/^isp-insoft-gmbh\/[A-Za-z0-9_.-]+$/.test(repository.repo) && !['.', '..'].includes(repository.repo.split('/')[1])) {
+        const validRepo = /^isp-insoft-gmbh\/[A-Za-z0-9_.-]+$/.test(repository.repo) && !['.', '..'].includes(repository.repo.split('/')[1]);
+        if (validRepo) {
           const link = document.createElement('a');
           link.href = `https://github.com/${repository.repo}`; link.textContent = repository.repo;
           heading.append(link);
@@ -211,6 +256,7 @@
         const state = document.createElement('p');
         state.textContent = `${repository.metadata_status === 'unavailable' ? 'Metadata unavailable; enabled state unknown' : repository.enabled ? 'Enabled' : 'Not enabled'}.`;
         parent.append(state);
+        if (validRepo && repository.metadata_status === 'available' && repository.enabled === false) onboarding(parent, repository.repo);
         if (repository.golems.length) table(parent, `Golems in ${repository.repo}`, ['Golem', 'State', 'Reason'], repository.golems.map(golem => [golem.name, golem.enabled ? 'enabled' : 'disabled', golem.reason ?? '']));
         else if (repository.enabled === true) {
           const next = document.createElement('p');
