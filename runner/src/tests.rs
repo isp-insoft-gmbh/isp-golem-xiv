@@ -1401,17 +1401,53 @@ fn writable_prompt_uses_pinned_definition_and_house_rules_not_continuation_confi
 }
 
 #[tokio::test]
-async fn target_requires_the_allowlist_topic_not_a_repository_name_prefix() {
+async fn target_accepts_installed_organization_repository_without_rollout_topic() {
+    use base64::Engine as _;
+    let mut request = request();
+    request.repository = "isp-insoft-gmbh/ordinary-repository".into();
+    request.version = 2;
+    request.trigger = Some("mention".into());
+    request.branch = Some("golems/hello".into());
+    let (github, observed) = server(vec![
+        (
+            200,
+            json!({"id":123,"full_name":request.repository,"topics":[]}),
+        ),
+        (204, Value::Null),
+        (
+            200,
+            json!({"user":{"id":10,"login":"member"},"issue_url":format!("https://api.github.com/repos/{}/issues/7",request.repository)}),
+        ),
+        (
+            200,
+            json!({"head_sha":request.head_sha,"name":"golem/hello","app":{"id":golem_runner::APP_ID}}),
+        ),
+        (
+            200,
+            json!({"type":"file","encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode("---\ntimeout: 1m\n---\nRead task.\n")}),
+        ),
+    ]);
+    github
+        .validate_target(&request, "test-read-token")
+        .await
+        .unwrap();
+    assert_eq!(observed.join().unwrap().unwrap().len(), 5);
+}
+
+#[tokio::test]
+async fn target_rejects_mismatched_repository_identity_without_followup_reads() {
     let request = request();
-    let (github, observed) = server(vec![(
-        200,
-        json!({"id":123, "full_name":request.repository, "topics":["unrelated"]}),
-    )]);
-    assert_eq!(
-        github.validate_target(&request, "test-read-token").await,
-        Err("target identity or allowlist mismatch")
-    );
-    assert_eq!(observed.join().unwrap().unwrap().len(), 1);
+    for repository in [
+        json!({"id":999,"full_name":request.repository,"topics":[]}),
+        json!({"id":123,"full_name":"isp-insoft-gmbh/different-repository","topics":[]}),
+    ] {
+        let (github, observed) = server(vec![(200, repository)]);
+        assert_eq!(
+            github.validate_target(&request, "test-read-token").await,
+            Err("target identity mismatch")
+        );
+        assert_eq!(observed.join().unwrap().unwrap().len(), 1);
+    }
 }
 
 #[tokio::test]

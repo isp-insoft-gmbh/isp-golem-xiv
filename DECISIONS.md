@@ -3,6 +3,21 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-18: Finish ordinary-repository support at both execution boundaries
+
+- The router-only rollout change left the same temporary topic predicate in the native runner's target validation.
+  Remove that predicate too; repository identity, current membership, human/check binding and pinned definition validation remain.
+  A real native HTTP-fixture test for an ordinary, topic-free repository was red with `target identity or allowlist mismatch`; the corrected v2 path and identity-negative cases pass.
+  Release and pin the corrected native runner before deploying the separately held head-reader fix.
+- The migration's large deletion commit exposed a second issue: the GitHub full-commit response is 526,823 bytes, above the unchanged 524,288-byte response cap.
+  Head discovery needs only the branch SHA, so use the exact compact Git-ref endpoint rather than raising bounds or fetching patches.
+  Encode branch path segments; require a commit object and valid SHA.
+  Built-Worker regressions cover oversized commit data, pinned contents, nested and escaped branches, invalid references and unchanged oversize rejection.
+- Full compact-head CI -53 completed exit 0 under the existing unchanged-lock advisory policy, with all four runtime/coordinator summaries confirmed.
+  Gate -50 first exposed the coordinator fixture's stale endpoint; that fixture was corrected without relaxing assertions.
+  Gate -52's suite log was green but its final local Nu exit wrapper failed on a string exit code; -53 captured the actual typed child exit code.
+  These are local integration results, not live nine-valid discovery, provider execution or full Slice 4 acceptance.
+
 ## 2026-11-18: Installed organization repository plus Markdown is sufficient
 
 - Oliver explicitly rejected per-repository activation and authorized removing the temporary sandbox-topic rollout restriction.

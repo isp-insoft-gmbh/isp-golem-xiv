@@ -258,16 +258,8 @@ impl Github {
         if repository.get("id").and_then(Value::as_u64) != Some(request.repository_id)
             || repository.get("full_name").and_then(Value::as_str)
                 != Some(request.repository.as_str())
-            || !repository
-                .get("topics")
-                .and_then(Value::as_array)
-                .is_some_and(|topics| {
-                    topics
-                        .iter()
-                        .any(|topic| topic.as_str() == Some("isp-golem-xiv-test"))
-                })
         {
-            return Err("target identity or allowlist mismatch");
+            return Err("target identity mismatch");
         }
         self.member(&request.seat_login, token).await?;
         if request.human() {
