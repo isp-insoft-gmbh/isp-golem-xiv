@@ -3,6 +3,22 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-18: Installed organization repository plus Markdown is sufficient
+
+- Oliver explicitly rejected per-repository activation and authorized removing the temporary sandbox-topic rollout restriction.
+  An installed organization repository with `.golems/` uses the existing mention, event and schedule behavior; no replacement allowlist, flag or local workflow.
+- Repository lookup and scheduled discovery no longer inspect topics; App access and existing repository identity, membership, seat and execution rules remain unchanged.
+  Admin repository metadata and text no longer present a separate dispatch-allowlist state.
+  Acceptance-test repository names/topics remain cleanup markers, not production dispatch controls; the judge is unchanged.
+- The topic-free built-Worker fixture was red at its authenticated index lookup (404 rather than 200), then passed after the policy change.
+  Full Worker gate -38 completed exit 0/78.80 s; pinned host/wasm Clippy, 39 router tests and the DOM consumer passed.
+  Full local CI -43 completed exit 0 with the existing unchanged-lock PR advisory policy.
+  The broader advisory scan separately reported transitive `chrono` RUSTSEC-2026-0543 and yanked `serde-saphyr` 2.1.0; dependency inputs are unchanged and no advisory ignore was added.
+- Integrated fixture diagnosis found a preceding event source's final admission interleaved with the next case.
+  Captured occurrence IDs established provenance; tests now assert the intended source's exact 20 admissions and retirement before changing definitions, without loosening the subsequent 18-row expectation, request bounds or tick limits.
+  Three focused Worker repetitions passed before the full gate.
+- This is rollout simplification, not a claim of full Slice 4 acceptance or successful new provider execution.
+
 ## 2026-11-17: Rewrite the admin UI as a plain, actionable document
 
 - Oliver likes the simple admin interface and requested a rewrite that is understandable, semantic, readable, pleasant, fast and actionable without elaborate CSS.

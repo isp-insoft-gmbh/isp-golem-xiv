@@ -16,8 +16,8 @@ use worker::{
 
 use crate::{
     APP, COMMENT_BYTES_MAX, Delivery, DispatchV1, EventDelivery, FILE_BYTES_MAX, GOLEMS_MAX, Golem,
-    OPS, ORGANIZATION, TEST_TOPIC, event_seat, next_schedule_minute, occurrence_id, parse_golem,
-    parse_mention, refusal, seat_secret, trigger_matches, valid_delivery, valid_repository,
+    OPS, ORGANIZATION, event_seat, next_schedule_minute, occurrence_id, parse_golem, parse_mention,
+    refusal, seat_secret, trigger_matches, valid_delivery, valid_repository,
     verify_queue_signature, verify_signature,
 };
 
@@ -203,15 +203,7 @@ impl Github {
         if status != 200 {
             return Err(failure("repository read failed"));
         }
-        let allowlisted = info
-            .get("topics")
-            .and_then(Value::as_array)
-            .is_some_and(|topics| {
-                topics
-                    .iter()
-                    .any(|topic| topic.as_str() == Some(TEST_TOPIC))
-            });
-        if !allowlisted || info.get("full_name").and_then(Value::as_str) != Some(repository) {
+        if info.get("full_name").and_then(Value::as_str) != Some(repository) {
             return Ok(None);
         }
         Ok(Some(info))
@@ -2200,9 +2192,9 @@ async fn discover_schedule(
     now_ms: u64,
 ) -> Result<()> {
     // One installation repository per cron, one occurrence per batch: durable continuation,
-    // never reading contents of non-allowlisted installation repositories.
+    // only discovering repositories available to the App installation.
     let info = if let Some(repository) = &cursor.repository {
-        json!({"full_name":repository.name,"id":repository.id,"topics":[TEST_TOPIC]})
+        json!({"full_name":repository.name,"id":repository.id})
     } else {
         let page = github
             .get(&format!(
@@ -2231,18 +2223,8 @@ async fn discover_schedule(
         .and_then(Value::as_u64)
         .filter(|id| *id > 0)
         .ok_or_else(|| failure("invalid installation repository ID"))?;
-    let allowlisted = !cursor.completed.contains(&scan_id)
-        && valid_repository(repository)
-        && info
-            .get("topics")
-            .and_then(Value::as_array)
-            .is_some_and(|topics| {
-                topics
-                    .iter()
-                    .any(|topic| topic.as_str() == Some(TEST_TOPIC))
-            });
-    if allowlisted {
-        // Re-read metadata at execution time: revoked topics cannot authorize a run.
+    if !cursor.completed.contains(&scan_id) && valid_repository(repository) {
+        // Re-read metadata at execution time to confirm current App access and identity.
         if let Some(current) = github.repository(repository).await? {
             let repository_id = current
                 .get("id")

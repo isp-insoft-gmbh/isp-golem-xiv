@@ -1,5 +1,20 @@
 # Status
 
+- **Current task (2026-11-18): ordinary repository golems.**
+  Oliver rejected per-repository rollout switches: installed organization App plus `.golems/` is sufficient.
+  Branch `feat/installed-org-repositories` removes the sandbox-topic check from repository lookup and scheduled discovery, and removes obsolete admin allowlist reporting; no replacement activation flag.
+  Actual red: topic-free installed fixture returned 404 instead of 200 (activity -30).
+  Full Worker gate -38 completed exit 0 in 78.80 s; all four suite summaries confirmed.
+  Pinned Rust 1.99.1 host/wasm Clippy, 39 router tests and the admin consumer passed.
+  Full local CI initially selected Rust 1.100 through the host's Mise `cargo` wrapper in child processes; existing newer Clippy lints failed.
+  Rerun -41 used pinned binaries and passed compilation/tests/runtime/bans/licenses/sources, but the broad advisory scan found existing `chrono` unmaintained advisory RUSTSEC-2026-0543 and yanked `serde-saphyr` 2.1.0.
+  Dependency inputs are byte-unchanged; -43 completed exit 0 under the existing unchanged-lock PR policy (`GOLEM_CHECK_ADVISORIES=false`), including remaining gates, without suppressions or dependency edits.
+  An existing event fixture counted an earlier retained delivery against the next case; captured IDs proved the extra row belonged to the preceding source.
+  Its assertions now count exact source IDs, retain 20/18 cardinalities and existing tick limits, and require retirement before the next case; three focused Worker repetitions passed.
+  Companion migration is [Toktrak PR #155](https://github.com/isp-insoft-gmbh/toktrak/pull/155), isolated outside this checkout; the user's original lockfile edits are preserved.
+  Companion local clean-tree CI completed exit 0; its GitHub CI remains in progress.
+  The obsolete companion workflow is disabled with no queued/running legacy jobs; stored credentials were not deleted.
+  No new router behavior is deployed yet; publish/deploy the router change, then merge the companion PR after green CI.
 - **Current slice:** 4, in progress; not accepted.
   Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
 - **Current task: admin UI rewrite (deployed and live-verified):** PR #41 merged `b88f5f87095a7c72315558539c8c67d448134fc3` after exact-head CI `44108681183` on `c498383c9e779c2297f6b2b96f999d817a8a9648`; clean merge state and no review threads confirmed.
@@ -95,7 +110,7 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `docs/admin-ui-live-proof`.
+- **Current branch:** `feat/installed-org-repositories`.
 - **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
 - **Last UI implementation deployment verified (2026-11-17):** PR #41 merge `b88f5f87095a7c72315558539c8c67d448134fc3`; live health and asset hashes match, trunk CI `44110999820` and deploy `44111000121` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.

@@ -12,7 +12,8 @@ The goal is reached when `mise run accept -- --slice 4` passes and the operator 
 - **Sandbox first.** All end-to-end testing happens in test repositories in `isp-insoft-gmbh`; real repositories are never touched.
   The agent may create as many test repositories as scenarios need and deletes them when they are no longer needed; the App installation covers every repository, so new ones are installed automatically.
   Their naming and marking are defined in `contract.nuon` under `test_repos`.
-  The production App is used directly, so until Oliver lifts the allowlist the router acts only on repositories carrying that topic; events from every other repository are ignored.
+  The production App is used directly; installed organization repositories use `.golems/` without a rollout topic or per-repository activation switch.
+  Test repository naming and topics still delimit acceptance-test cleanup, not production dispatch.
 - **Deployed means verified.** A slice is done only when `mise run accept -- --slice <n>` passes against the deployed system; see [Acceptance contract](#acceptance-contract).
 - **Every slice leaves the system working.** No slice breaks the behavior of a previous one; earlier scenarios are rerun.
 - **Tests are part of the slice.** Fast tests cover rules and decisions and run in the code repository's CI; end-to-end scenarios run through `accept.nu` from the agent's machine, because they need seats and private test repositories that public CI must never see.
@@ -96,7 +97,7 @@ An event caused by a bot runs a triggered golem on its `owner`'s seat.
 People enable golems, register seats, and find their way without asking anyone.
 
 **Scenario.**
-A fresh test repository without `.golems/` is allowlisted.
+A fresh test repository without `.golems/` has the App installed.
 `isp-golem-xiv` opens **Enable golems**; merging it creates and pins the **Golems** dashboard.
 A member without a seat mentions a golem, follows the link in the refusal, registers a seat, and mentions again successfully.
 A member whose only seat is at a different provider than the golem prefers gets a run that says which seat and model it used and why.
@@ -170,7 +171,7 @@ A full run of `--slice 4` is long, its duration not yet measured, and creates se
 ## After the slices
 
 The agent writes a short operator guide: how to add a repository, how people register seats, how to read the dashboard, what to do when a run is blocked.
-Lifting the allowlist, and with it acting on real repositories, remains a human decision.
+Oliver authorized ordinary organization-repository use: installed App plus `.golems/`, without a test-topic restriction or per-repository activation.
 
 ## Prerequisites
 

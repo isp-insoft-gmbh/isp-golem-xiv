@@ -35,7 +35,7 @@ export async function verifyAdminPage(script) {
       body = {complete:true,expiry_note:'Expiry unknown.',seats:[{person:'GONE_PERSON',provider:'openai-codex',membership:'left organization',identity:'normalized identifier',refreshing:true,expires_at:null}]};
     } else if (path.startsWith('/v1/admin/repositories')) {
       const page = new URL(path, 'https://router.invalid').searchParams.get('page');
-      body = {complete:page !== '1',total_repositories:2,next_page:page === '1' ? 2 : null,repositories:[page === '1' ? {repo:'isp-insoft-gmbh/unreadable',repository_id:1,enabled:null,metadata_status:'unavailable',dispatch_allowlisted:false,golems:[]} : {repo:'isp-insoft-gmbh/healthy',repository_id:2,enabled:true,metadata_status:'available',dispatch_allowlisted:false,golems:[{name:'bad',enabled:false,reason:'invalid definition'}]}]};
+      body = {complete:page !== '1',total_repositories:2,next_page:page === '1' ? 2 : null,repositories:[page === '1' ? {repo:'isp-insoft-gmbh/unreadable',repository_id:1,enabled:null,metadata_status:'unavailable',golems:[]} : {repo:'isp-insoft-gmbh/healthy',repository_id:2,enabled:true,metadata_status:'available',golems:[{name:'bad',enabled:false,reason:'invalid definition'}]}]};
     } else assert.fail(`Unexpected dashboard URL: ${path}`);
     return {ok:true,json:async () => structuredClone(body)};
   }

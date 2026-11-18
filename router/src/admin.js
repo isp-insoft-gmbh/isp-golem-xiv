@@ -209,7 +209,7 @@
         } else heading.textContent = repository.repo;
         parent.append(heading);
         const state = document.createElement('p');
-        state.textContent = `${repository.metadata_status === 'unavailable' ? 'Metadata unavailable; enabled state unknown' : repository.enabled ? 'Enabled' : 'Not enabled'}; dispatch ${repository.dispatch_allowlisted ? 'allowlisted' : 'not allowlisted'}.`;
+        state.textContent = `${repository.metadata_status === 'unavailable' ? 'Metadata unavailable; enabled state unknown' : repository.enabled ? 'Enabled' : 'Not enabled'}.`;
         parent.append(state);
         if (repository.golems.length) table(parent, `Golems in ${repository.repo}`, ['Golem', 'State', 'Reason'], repository.golems.map(golem => [golem.name, golem.enabled ? 'enabled' : 'disabled', golem.reason ?? '']));
         else if (repository.enabled === true) {
