@@ -27,6 +27,7 @@ The compact-head built-Worker regression was red with 502 before its fix; full l
 Source fix `a9fa7689aad95954ac86a6bae0b982e3f73fd31b` remains held locally pending the corrected native runner's release and pin.
 Follow-up source inspection found the native runner's separate topic gate; an ordinary-repository HTTP-fixture test reproduced its refusal before removal.
 Native-change full CI -54 completed exit 0 with all four runtime/coordinator summaries under the same advisory policy; this validates the local native patch, not production execution.
+After native PR #44 merged `d3bdcdb`, combined-source CI -58 completed exit 0 with all four runtime/coordinator summaries under that policy; the combined source remains unpublished.
 No successful live nine-valid discovery, new provider execution or full Slice 4 acceptance is established yet.
 
 ## Slice 1 deployed acceptance

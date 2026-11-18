@@ -33,7 +33,12 @@
   New ordinary-repository test was red with `target identity or allowlist mismatch`; topic-free v2 and identity-negative tests now pass (four focused native cases).
   Full native-change CI -54 completed exit 0 under the existing unchanged-lock advisory policy; all four runtime/coordinator summaries and remaining gates confirmed.
   Native tests: 40 library and 66 executable cases passed, with the existing two explicit opt-in cases ignored.
-  Publish the native correction through protected CI, then release/pin its runner before publishing the held compact-head change.
+  Native PR #44 passed exact-head GitHub CI `44282831867` on `013366f7d34ced26008ca7f0775f8c57500ead8e`, then merged `d3bdcdb83f6711892729f9bcf87dd74a0c4f83c3`; refreshed clean eligibility, no review threads and matching merge tree verified.
+  Trunk CI `44284844881` and Worker deployment `44284844935` are running; watchers -56/-57 active.
+  Compact-head source is applied atop that native correction at private commit `a9996d4`; combined-source CI -58 completed exit 0 under the unchanged-lock advisory policy.
+  All four runtime/coordinator summaries and remaining gates passed for the combined source; this is not deployment proof.
+  Release from the native merge only after terminal trunk CI success; verify/pin the native artifact before publishing the compact-head Worker change.
+  Fresh isolated ops checkout byte-matches the public v11 workflow template; the old bootstrap checkout's unrelated deleted `mise.toml` remains untouched.
   No new agent execution or full Slice 4 acceptance is claimed.
 - **Current slice:** 4, in progress; not accepted.
   Slices 1–3 passed deployed acceptance previously (Slice 2: 32/32; Slice 3: 44/44).
@@ -130,7 +135,7 @@
   WSL errors fail the task; no automatic retry or body draining.
   A router-side drain was tried and reverted (contradicts DECISIONS 2026-11-03).
 - **Next:** Slice 4 and the operator guide.
-- **Current branch:** `fix/native-installed-repositories`.
+- **Current branch:** `fix/compact-default-head`.
 - **UI guidance:** Oliver likes the simple admin style; proposed permanent rules in `DEVELOPMENT.md` await explicit approval and have not been written.
 - **Last UI implementation deployment verified (2026-11-17):** PR #41 merge `b88f5f87095a7c72315558539c8c67d448134fc3`; live health and asset hashes match, trunk CI `44110999820` and deploy `44111000121` succeeded.
   Runtime pins native v11 (ops PR #17); live private workflow release URL independently checked.
