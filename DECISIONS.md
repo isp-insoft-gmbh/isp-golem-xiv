@@ -3,6 +3,19 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-19: Keep the native Mise pin compatible with the current target
+
+- Whilev14 release CI ran, a fresh authoritative default ref revealed Toktrak0472, descending from repaired49b with dependency/tool/workflow/container pin changes only.
+  Current minimum is2026.11.10; canary, native configuration and build contract remain byte-identical, and fourteen regular skill mirrors remain valid.
+  Actual isolated Mise2026.11.9 probe rejects a minimal config requiring2026.11.10 with exit1, without installation or provider access.
+- Never rewritev14 tag or replace its assets; hosting is mutable and integrity is point-in-time, not build attestation.
+  Verifiedv14 contains the reviewed fixed-phase diagnostics but still embeds Mise2026.11.9 and must not be pinned for this current target.
+  Advance only the image assertion, image-test CI tool version and existing supported-minimum fixture to2026.11.10.
+  Keep the unsupported-minimum failure case, manifest/isolated-Node/read-only verification checks and every production bound unchanged.
+  The already-approved fixed-phase diagnostics remain present; no target requirement is downgraded and no global tool or original user lock is touched.
+- After required real-image CI and protected delivery, publish the next native release and verify its bytes before atomically updating live ops runner/Mise pins, then the public template.
+  Fresh source evidence identifies a current minimum incompatibility, not the phase or cause of the historical generic failure.
+
 ## 2026-11-19: Distinguish nonzero container caller phases without exposing streams
 
 - Original Toktrak49b Pi/Codex canary44336881526 reported only generic container execution failure.

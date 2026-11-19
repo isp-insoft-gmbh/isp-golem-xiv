@@ -1,5 +1,16 @@
 # Status
 
+- **Current recovery blocker (2026-11-19): target minimum advanced, no blind canary.**
+  Toktrak default `0472ef2735f1080536c3264912f51822c761b263` descends from repaired49b; changed paths are dependency/tool/container/workflow pins only.
+  Exact immutable inspection confirms canary/native config/CONTRIBUTING/build contract unchanged, fourteen regular byte-identical skills, no links/submodules; current Mise minimum is2026.11.10.
+  Actual isolated host2026.11.9 minimal-config probe rejected that minimum with exit1 before any provider call; red receipt `C:/Users/okr/AppData/Local/Temp/golem-mise-2026-11-10-red.json`.
+  Releasev14 completed44500943137 (-125 exit0); independently verified annotated sourcec9/tag32f7, ELF64 x86_64 asset767171887/5,062,888 bytes, GitHub digest/sidecar/manifest SHA256 `f1de4fdbf42312d0e0b669dd301ad6c5448e871bd140589b135de65295932031`, static labels present.
+  Hosting mutable; point-in-time association only, not attestation or execution proof. Receipt `C:/Users/okr/AppData/Local/Temp/golem-v14-integrity.json`; keep consumption digest verification.
+  v14 still embeds/asserts2026.11.9, so do not pin it for current Toktrak or dispatch a known-doomed canary. Required real-image CI remains before compatible release/integration; no actual native execution claimed.
+  New isolated worktree `C:/Users/okr/AppData/Local/Temp/golem-native-mise-2026-11-10`, branch `fix/native-project-mise-2026-11-10`, basec9; image, image-test CI and supported-minimum fixture align to2026.11.10. Unsupported9999.1.0 and all resource/destruction/auth/publication guards unchanged.
+  No target downgrade, global Mise install, original user-lock edit, new login, provider run or new comment. Live ops stillv13/Mise11.9.
+  Local gate -126 failed solely at STATUS.md MD076 list spacing after Rust/runtime/coordinator and repository checks passed. Exact blank line removed without suppression; focused rumdl passed, complete required gate -127 completed exit0 under unchanged-lock advisory policy. Docker unavailable locally; required real-image GitHub CI remains before integration. No runtime/pinning success inferred.
+  Next: required real-image CI → protected merge/trunk gates → next annotated release/point-in-time integrity → atomic live runner/Mise10 pair → matching public template → refresh current target and one causal canary.
 - **Completed correction (2026-11-19): starter PRs only on explicit UI request.**
   Deployedf37; actual unchanged helper/caller -121 completed exit0 with `onboarding.ok:true`, not inferred from CI or deployment.
   Fresh owned sandbox `isp-golem-xiv-test-ui-onboard-green-20261119101242`: no automatic PR through3min → explicit create → repeat → explicit close → closed repeat without reopening/duplication → explicit tester reopen → merge65d0 → pinned App dashboard2.
@@ -111,14 +122,24 @@
   No source/test/threshold change or additional retry; separate runtime/performance successes and PR-head full PIT remain distinct evidence.
   Posted exactly one fresh read-only command `6983181033` on merged PR #156; exact body/actor read back, nonce `TOKTRAK_CANARY_20261118_070f699d`, expected repaired head `49b639c`.
   Bounded observer -97 completed exit 0: correlated App check `134915711834`, delivery `4390c840-e365-11f1-934c-e26c5d5a2a45`, ops run `44336881526`, ops source `32fe6ce`.
-  Native watcher -101 completed exit 1: run `44336881526` failed in Run exactly one golem after successful image preparation; App check `134915711834` is blocked/failure and points to that run.
+  Native watcher -101 completed exit1: run44336881526 failed in Run exactly one golem after successful image preparation; App check134915711834 is blocked/failure and points to that run.
+  Read-only provenance recovered2026-11-19: nine-GET immutable request/authenticated-bind/v3-audit chain joins this exact delivery/check/comment49b/repoID1296832279; generation `a7a54e02-01cd-49b9-a8e3-728170b022b4`, request `efbb7982983d56a1805ce030c9e87bdefef985d9`, audit `2e27b49fd5be26270f08ff099896d120e81788a4`, outcome blocked/unrepaired.
+  Eight tampered/failed-success cases rejected; raw responses neither printed nor persisted. Exact sanitized receipt `C:/Users/okr/AppData/Local/Temp/golem-historical-binding-proof.json`.
+  Masking markers replace braces in Actions env JSON; cannot parse, exact masking cause unproved. No unmasking or title/time inference. Strict scratch `golem-execution-binding.mjs` now replaces log parsing in future verifier; it still requires success/replied/unrepaired plus semantic App-answer review.
+  Future verifier is stillv13-pinned until reviewed release/live pin updates it; this does not recover historical failure phase or prove provider health.
   App reply `6983387360` contains only static `container execution failed`, no nonce/findings; no actual working-agent claim.
   Bounded private-log inspection without raw output confirms admitted → containers_destroyed → publication_credentials_minted → publication_complete → reservation_released, then that same static error; retained evidence cannot distinguish target preparation, harness startup or provider failure.
   No auth failure is established; do not ask login, rerun this workflow or blindly redispatch.
   Read-only focused source/pinned-Pi1.5.1 review found no concrete Pi-home read-only/schema/sealed-writeback defect: private directory mounts RW under matching UID, normal Pi auth storage persists refresh, host converts/seals after confirmed destruction.
   Actual expired Pi refresh→seat continuity remains unproved (image probe uses far-future expiry); writeback failures are nonfatal separate seat notes, not direct generic-container diagnosis.
   After priority onboarding delivery, next native repair should distinguish fixed preparation/harness/result/verification failure categories without exposing streams or changing destroy/publication fences, then causal canary observation; no speculative auth repair.
-  Local-only native worktree `C:/Users/okr/AppData/Local/Temp/golem-native-phase-errors`, branch `fix/native-execution-phase-errors`, basef37; one modified `runner/src/sandbox.rs`, unpublished/uncommitted.
+  Native worktree `C:/Users/okr/AppData/Local/Temp/golem-native-phase-errors`, branch `fix/native-execution-phase-errors`, basef37.
+  After onboarding helper/caller -121 passed, committed `5d3c280a18bf5b6270e05d9e354b0fa4100e8d2c` and published PR52; actual source change only `runner/src/sandbox.rs`, plus truthful onboarding proof/docs checkpoint.
+  PR52 exact5d CI44495405198 completed success including Agent container, watcher -122 exit0. Refreshed strict ci protection/target/reviews/threads and clean eligibility; protected squash `c9fd0b6206a71e8ed43f3444e1406c925b1137ad`, reviewed-tree equality `848e013e46756e1659850903fd7c2650eb46535d`.
+  Trunk CI44497956008 and production44497955956 watchers -123/-124 completed exit0; independent health fullc9 confirmed.
+  Clean release worktree trunk fast-forwarded losslessly bf46→c9; annotatedv14 atc9 released44500943137, watcher -125 exit0. Exact point-in-time ELF/GitHub/sidecar/manifest checks passed (receipt above), not execution proof.
+  Known target minimum10 exceedsv14 image9, so no v14 live pin/canary. Downloaded task-only verified asset directory removed after receipt retention; original integrity result unchanged. Ops native runner remainsv13/Mise11.9.
+  Next: compatible Mise10 source/CI → next release and ELF/digest/tag/asset verification → protected live ops runner/Mise10 pin → matching public template → one causal Toktrak canary and actual useful App findings. No working-agent claim.
   Tier alias openai-codex/terra unavailable before work; transparent inherited-model retry succeeded (gpt-6.1-sol). Parent inspected diff: fixed lifecycle caller labels, existing result-validation/timeout and outer destruction errors preserved; fake-Docker production-caller tests expanded.
   Child reports pinned Rust1.99.1 Linux14/Windows11 focused sandbox tests plus7 destruction/publication/result/seat/queue tests, Clippy and red→green target-prep regression. Parent full local gate -120 completed exit0 under unchanged-lock advisory policy; this is diagnostic work only, not actual Toktrak repair or auth proof. Onboarding helper/caller gate now green; diagnostic publication may proceed under original Toktrak recovery authorization, still no actual working-agent claim.
   Next diagnostic is one credential-free private-ops probe of exact target `49b639c` Mise files through released production --prepare-target, with production isolation/bounds and no App/seat secrets; a minimal Node fixture does not prove this target's multi-tool setup.
