@@ -1,0 +1,7 @@
+{
+  "host": "2026.11.9",
+  "minimum": "2026.11.10",
+  "exit_code": 1,
+  "required_version_rejection": true,
+  "provider_called": false
+}

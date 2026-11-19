@@ -1,5 +1,12 @@
 # Evidence
 
+## 2026-11-19: Current target requires Mise2026.11.10
+
+[Minimal isolated rejection receipt](evidence/mise-minimum-red-20261119.json): actual host2026.11.9 rejects minimum2026.11.10 with exit1 before provider access.
+Pinned current Toktrak0472 descends from repaired49b; its canary/native configuration/CONTRIBUTING/build contract and regular fourteen-file skill mirror remain unchanged.
+This establishes current version incompatibility, not exact-target preparation or historical failure attribution.
+Required real Docker image controls remain before native release/pinning; no provider success claimed.
+
 ## 2026-11-19: Targeted onboarding acceptance green on deployedf37
 
 [Exact focused helper/caller receipt](evidence/onboarding-acceptance-20261119.json) records actual exit0 and `onboarding.ok:true` after exactf37 health verification.
