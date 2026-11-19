@@ -1,11 +1,18 @@
 # Status
 
-- **Priority correction (2026-11-18): starter PRs only on explicit UI request.**
+- **Completed correction (2026-11-19): starter PRs only on explicit UI request.**
+  Deployedf37; actual unchanged helper/caller -121 completed exit0 with `onboarding.ok:true`, not inferred from CI or deployment.
+  Fresh owned sandbox `isp-golem-xiv-test-ui-onboard-green-20261119101242`: no automatic PR through3min → explicit create → repeat → explicit close → closed repeat without reopening/duplication → explicit tester reopen → merge65d0 → pinned App dashboard2.
+  Independent GitHub readbacks confirm merged/default head `65d0d9eb91ae88d0d65ef8c133b238b50f959aa5` and App issue2 open. Default branch stayed unchanged before merge.
+  Frozen exact receipt `C:/Users/okr/AppData/Local/Temp/golem-ui-onboarding-f37-result.json`, SHA256 `4e6a2756af4bbdb7e91d7f6d666fcde3bb6f0d89107ccc833a4ee27b0b584700`; prior415 receipt preserved separately.
+  Separate genuine signed-in UI flow onbb9 was verified through enabled/hello state at6094 and pinned dashboard2. No full Slice3/4 or working-Toktrak claim.
+  Judge changes: other=user-authorized onboarding promise/endpoint/driver correction; removed checks0, removed promises0, raised limits0.
+  Historical implementation/delivery trace follows.
   Oliver rejected automatic onboarding from push/App installation and explicitly approved implementation plus corresponding `SPEC.md`, `contract.nuon`, `accept.nu` correction.
   No activation flag; existing `.golems/` execution/dashboard upkeep remains. Existing unsolicited PRs stay untouched.
   Isolated worktree `C:/Users/okr/AppData/Local/Temp/golem-ui-onboarding`, branch `fix/ui-requested-onboarding`, base `0851629`.
-  Current WIP adds optional member+repository-write-gated UI action, cookie CSRF protection, bounded endpoint, existing App PR reuse across closed state, conservative incomplete-claim refusal.
-  Frontend DOM consumer and 39 focused Rust tests passed; no deployed correction claimed.
+  Implementation adds optional member+repository-write-gated UI action, cookie CSRF protection, bounded endpoint, existing App PR reuse across closed state, conservative incomplete-claim refusal.
+  Frontend DOM consumer and39 focused Rust tests passed; those initial checks alone did not establish deployment.
   Gate -105 found the new 119-line function; claim handling extracted without lint suppression.
   Gate -106 found new fixture expected 500 where existing registration error contract is 502; exact assertions corrected, not relaxed.
   Gate -107 correctly rejected fixture Origin `https://router.invalid`; fixture now supplies actual canonical origin, with production guard unchanged.
@@ -34,7 +41,14 @@
   Actual pointer click created App PR #1 with exactly both starter files and matching house rules; UI repeat returned same URL. After explicit tester close, a further real UI click returned same still-closed PR with total1; tester explicitly reopened and merged it at `6094a6e0afeb7e1fc12af60a45cdaf5d75760cd0`.
   Fresh signed-in admin scan completed after bounded continuation: exact owned repository shows Enabled, hello enabled, no starter action; independent head reads before/after remain6094. Pinned dashboard contents were checked; final receipt must use its actual GraphQL shape (number/title/body, no html_url field).
   Nu request failure is separately diagnosed: credential-free echo of exact command shows `application/json; charset=utf-8`; strict product string comparison rejects this valid JSON media type.
-  Causal fix on isolated branch `fix/onboarding-json-media-type` atbb9: compare case-insensitive media-type essence, retain JSON/auth/CSRF/body guards, add charset/case positive and non-JSON/lookalike negative regressions. Full gate -116 completed exit0 under unchanged-lock advisory policy; no judge change or blind retry. Compatibility fix still needs reviewed PR/CI delivery, exact deployed SHA, then unchanged live helper/caller rerun.
+  Causal fix on isolated branch `fix/onboarding-json-media-type` atbb9: compare case-insensitive media-type essence, retain JSON/auth/CSRF/body guards, add charset/case positive and non-JSON/lookalike negative regressions. Full gate -116 completed exit0 under unchanged-lock advisory policy; no judge change or blind retry.
+  Compatibility commit `7f403a1229d126184fe7c327aec010034f0e1be9` published in PR51; head/body read back, basebb9. Exact-head CI `44490179837` completed success on7f, watcher -117 exit0, including Agent container.
+  Refreshed targetbb9, clean strict eligibility/no reviews or threads; protected PR51 merged `f37b2e3925ddcef37d8feef51906104263cedee4`, tree `798046022c4944484e6e81c0eed7fa5573211c84` equals reviewed7f.
+  Exactf37 trunk CI `44491782606` and deployment `44491782598` both completed success, watchers -118/-119 exit0; independent health confirms fullf37 SHA.
+  Actual unchanged acceptance helper + caller merge/dashboard flow -121 passed against exactf37 after health guard; actual check/result and independent GitHub readbacks captured.
+  Git blob readback proves actual `accept.nu` identical to approved141; both judge files unchanged by compatibility repair.
+  Required reviewed CI delivery, exact deployed SHA and unchanged actual helper/caller rerun still pending. Current worktree remains `C:/Users/okr/AppData/Local/Temp/golem-ui-onboarding` on `fix/onboarding-json-media-type`.
+  Final authoritative pinned-dashboard readback succeeded: App-authored issue2, all sections and hello, same6094 head. Scratch receipt corrected to construct URL from GraphQL number; actual judge unchanged.
   Focused live driver prepared at `C:/Users/okr/AppData/Local/Temp/golem-ui-onboarding-live.nu`: sources the actual changed acceptance helper, then caller merge/pinned-dashboard path, no agent command; syntax only checked, execution pending exact deployed SHA.
   Local Firefox screenshots inspected at390/1440; actual pointer requests0→1→2 used HTTP doubles, not production mutations. Preview process -108 stopped after verification.
 - **Current goal (2026-11-18): actual Toktrak execution, user authorized autonomous repair and Toktrak pushes.**
@@ -101,6 +115,12 @@
   App reply `6983387360` contains only static `container execution failed`, no nonce/findings; no actual working-agent claim.
   Bounded private-log inspection without raw output confirms admitted → containers_destroyed → publication_credentials_minted → publication_complete → reservation_released, then that same static error; retained evidence cannot distinguish target preparation, harness startup or provider failure.
   No auth failure is established; do not ask login, rerun this workflow or blindly redispatch.
+  Read-only focused source/pinned-Pi1.5.1 review found no concrete Pi-home read-only/schema/sealed-writeback defect: private directory mounts RW under matching UID, normal Pi auth storage persists refresh, host converts/seals after confirmed destruction.
+  Actual expired Pi refresh→seat continuity remains unproved (image probe uses far-future expiry); writeback failures are nonfatal separate seat notes, not direct generic-container diagnosis.
+  After priority onboarding delivery, next native repair should distinguish fixed preparation/harness/result/verification failure categories without exposing streams or changing destroy/publication fences, then causal canary observation; no speculative auth repair.
+  Local-only native worktree `C:/Users/okr/AppData/Local/Temp/golem-native-phase-errors`, branch `fix/native-execution-phase-errors`, basef37; one modified `runner/src/sandbox.rs`, unpublished/uncommitted.
+  Tier alias openai-codex/terra unavailable before work; transparent inherited-model retry succeeded (gpt-6.1-sol). Parent inspected diff: fixed lifecycle caller labels, existing result-validation/timeout and outer destruction errors preserved; fake-Docker production-caller tests expanded.
+  Child reports pinned Rust1.99.1 Linux14/Windows11 focused sandbox tests plus7 destruction/publication/result/seat/queue tests, Clippy and red→green target-prep regression. Parent full local gate -120 completed exit0 under unchanged-lock advisory policy; this is diagnostic work only, not actual Toktrak repair or auth proof. Onboarding helper/caller gate now green; diagnostic publication may proceed under original Toktrak recovery authorization, still no actual working-agent claim.
   Next diagnostic is one credential-free private-ops probe of exact target `49b639c` Mise files through released production --prepare-target, with production isolation/bounds and no App/seat secrets; a minimal Node fixture does not prove this target's multi-tool setup.
   Ops PR #21 published exact head `dc9ffa20cea78b3c64750a01de426ca02b7c9462`: fixed private config fixture, manual-only probe workflow and bounded private diagnostics (one-day retention), no provider invocation.
   Local JS syntax/actionlint/security checks passed; first run-index query was empty, not a CI result.

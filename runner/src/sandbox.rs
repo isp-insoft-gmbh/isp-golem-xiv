@@ -320,6 +320,7 @@ async fn lifecycle(
     name: &str,
     input: Option<&[u8]>,
     seconds: u64,
+    execution_failure: &'static str,
 ) -> Result<Result<Execution>> {
     // Include create/start/attach in one host wall-clock budget; the image has
     // its own watchdog, independent of Docker client/host cancellation.
@@ -335,7 +336,7 @@ async fn lifecycle(
             execution.timed_out = true;
         }
         if !execution.timed_out && !status.is_some_and(|status| status.success()) {
-            return Err("container execution failed");
+            return Err(execution_failure);
         }
         Ok(execution)
     };
@@ -404,7 +405,14 @@ async fn agent(
     if let Err(error) = configured {
         return Ok(Err(error));
     }
-    lifecycle(create, name, Some(prompt.as_bytes()), timeout_seconds).await
+    lifecycle(
+        create,
+        name,
+        Some(prompt.as_bytes()),
+        timeout_seconds,
+        "harness container execution failed",
+    )
+    .await
 }
 
 /// JSON events on stdout, the prompt on stdin, no session. The repository's own Pi setup
@@ -658,15 +666,21 @@ pub async fn prepare_target(workspace: &Path, name: &str) -> Result<Result<()>> 
             Err(error) => return Ok(Err(error)),
         };
     create.args([IMAGE, "--prepare-target"]);
-    Ok(lifecycle(create, name, None, TARGET_TIMEOUT_SECONDS)
-        .await?
-        .and_then(|execution| {
-            if execution.timed_out {
-                Err("target preparation timed out")
-            } else {
-                Ok(())
-            }
-        }))
+    Ok(lifecycle(
+        create,
+        name,
+        None,
+        TARGET_TIMEOUT_SECONDS,
+        "target preparation container execution failed",
+    )
+    .await?
+    .and_then(|execution| {
+        if execution.timed_out {
+            Err("target preparation timed out")
+        } else {
+            Ok(())
+        }
+    }))
 }
 
 /// Runs even an absent command in a fresh credential-free container.
@@ -690,6 +704,7 @@ pub async fn verify(workspace: &Path, name: &str, command: Option<&str>) -> Resu
         name,
         Some(command.as_bytes()),
         TARGET_TIMEOUT_SECONDS,
+        "verification container execution failed",
     )
     .await?
     .and_then(|execution| {
@@ -1172,7 +1187,19 @@ mod tests {
                 "echo \"$3\"",
             ),
             ("create-failure", "exit 1", "exit 99", "echo \"$3\""),
-            ("start-failure", "echo id", "exit 1", "echo \"$3\""),
+            (
+                "start-failure",
+                "echo id",
+                "printf secret-output; printf secret-diagnostic >&2; exit 1",
+                "echo \"$3\"",
+            ),
+            ("start-remove-failure", "echo id", "exit 1", "exit 1"),
+            (
+                "start-remove-mismatch",
+                "echo id",
+                "exit 1",
+                "echo wrong-name",
+            ),
             (
                 "image-timeout",
                 "echo id",
@@ -1199,34 +1226,44 @@ mod tests {
             let executable = directory.path().join("docker");
             std::fs::write(&executable, format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\ncase \"$1\" in\ncreate) {create};;\nstart) {start};;\nrm) {remove};;\n*) exit 98;;\nesac\n", log.display())).unwrap();
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-            let output = std::process::Command::new(std::env::current_exe().unwrap())
-                .args([
-                    "--exact",
-                    "sandbox::tests::lifecycle_probe",
-                    "--ignored",
-                    "--nocapture",
-                ])
-                .env(
-                    "PATH",
-                    format!("{}:/usr/bin:/bin", directory.path().display()),
-                )
-                .env("GOLEM_TEST_SCENARIO", scenario)
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "{scenario}: {}",
-                String::from_utf8_lossy(&output.stdout)
-            );
-            let calls = std::fs::read_to_string(log).unwrap();
-            assert_eq!(
-                calls,
-                if scenario.starts_with("create-") {
-                    "create\nrm\n"
-                } else {
-                    "create\nstart\nrm\n"
+            for phase in ["lifecycle", "prepare", "v1", "writable", "verify"] {
+                // Only the direct lifecycle probe uses a one-second host deadline.
+                if phase != "lifecycle" && matches!(scenario, "timeout" | "create-timeout") {
+                    continue;
                 }
-            );
+                std::fs::write(&log, "").unwrap();
+                let output = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "sandbox::tests::lifecycle_probe",
+                        "--ignored",
+                        "--nocapture",
+                    ])
+                    .env(
+                        "PATH",
+                        format!("{}:/usr/bin:/bin", directory.path().display()),
+                    )
+                    .env("GOLEM_TEST_SCENARIO", scenario)
+                    .env("GOLEM_TEST_PHASE", phase)
+                    .output()
+                    .unwrap();
+                assert!(
+                    output.status.success(),
+                    "{phase}/{scenario}: {}\n{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let calls = std::fs::read_to_string(&log).unwrap();
+                assert_eq!(
+                    calls,
+                    if scenario.starts_with("create-") {
+                        "create\nrm\n"
+                    } else {
+                        "create\nstart\nrm\n"
+                    },
+                    "{phase}/{scenario}"
+                );
+            }
         }
     }
 
@@ -1235,14 +1272,41 @@ mod tests {
     #[ignore = "invoked by lifecycle_requires_removal_acknowledgment_after_every_attempt"]
     async fn lifecycle_probe() {
         let scenario = std::env::var("GOLEM_TEST_SCENARIO").unwrap();
+        let phase = std::env::var("GOLEM_TEST_PHASE").unwrap();
+        if phase != "lifecycle" {
+            production_lifecycle_probe(&phase, &scenario).await;
+            return;
+        }
         let mut create = docker();
         create.arg("create");
-        let result = lifecycle(create, "golem-test", None, 1).await;
+        let result = lifecycle(
+            create,
+            "golem-test",
+            None,
+            1,
+            "harness container execution failed",
+        )
+        .await;
         match scenario.as_str() {
-            "remove-failure" | "remove-mismatch" => assert!(result.is_err()),
-            "create-failure" | "start-failure" | "create-timeout" => {
-                assert!(result.unwrap().is_err());
+            "remove-failure" | "start-remove-failure" => assert!(matches!(
+                result,
+                Err("container destruction unconfirmed; publication prohibited")
+            )),
+            "remove-mismatch" | "start-remove-mismatch" => assert!(matches!(
+                result,
+                Err("container destruction acknowledgment mismatch; publication prohibited")
+            )),
+            "create-failure" => assert!(matches!(result, Ok(Err("Docker command failed")))),
+            "start-failure" => {
+                assert!(matches!(
+                    result,
+                    Ok(Err("harness container execution failed"))
+                ));
             }
+            "create-timeout" => assert!(matches!(
+                result,
+                Ok(Err("container wall-clock budget exhausted"))
+            )),
             "timeout" | "image-timeout" => {
                 let execution = result.unwrap().unwrap();
                 assert!(execution.timed_out);
@@ -1259,6 +1323,64 @@ mod tests {
             }
             _ => unreachable!(),
         }
+    }
+
+    #[cfg(unix)]
+    async fn production_lifecycle_probe(phase: &str, scenario: &str) {
+        let directory = tempfile::tempdir().unwrap();
+        let workspace = directory.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        if matches!(phase, "writable" | "verify") {
+            std::fs::create_dir(toolchain_path(&workspace).unwrap()).unwrap();
+        }
+        let result = match phase {
+            "prepare" => prepare_target(&workspace, "golem-test").await,
+            "v1" => run(&workspace, "golem-test", "secret-seat", None, "", 60)
+                .await
+                .map(|result| result.map(|_| ())),
+            "writable" => run_writable(
+                &workspace,
+                "golem-test",
+                Credential::Token("secret-seat"),
+                "claude",
+                None,
+                "",
+                60,
+            )
+            .await
+            .map(|result| {
+                result.map(|execution| {
+                    assert_eq!(execution.timed_out, scenario == "image-timeout");
+                })
+            }),
+            "verify" => verify(&workspace, "golem-test", Some("")).await,
+            _ => unreachable!(),
+        };
+        let expected = match scenario {
+            "remove-failure" | "start-remove-failure" => {
+                Err("container destruction unconfirmed; publication prohibited")
+            }
+            "remove-mismatch" | "start-remove-mismatch" => {
+                Err("container destruction acknowledgment mismatch; publication prohibited")
+            }
+            "create-failure" => Ok(Err("Docker command failed")),
+            "start-failure" => Ok(Err(match phase {
+                "prepare" => "target preparation container execution failed",
+                "v1" | "writable" => "harness container execution failed",
+                "verify" => "verification container execution failed",
+                _ => unreachable!(),
+            })),
+            "image-timeout" => match phase {
+                "prepare" => Ok(Err("target preparation timed out")),
+                "v1" => Ok(Err("agent wall-clock budget exhausted")),
+                "writable" => Ok(Ok(())),
+                "verify" => Ok(Err("verification timed out")),
+                _ => unreachable!(),
+            },
+            "success" => Ok(Ok(())),
+            _ => unreachable!(),
+        };
+        assert_eq!(result, expected, "{phase}/{scenario}");
     }
 
     #[tokio::test]
