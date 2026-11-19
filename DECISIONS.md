@@ -3,6 +3,22 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-19: Consume reviewed native bytes despite mutable release hosting
+
+- v15 release44509183907 passed at protected3d; annotated tag/source, ELF64, GitHub digest, sidecar and manifest independently match c8343ddee808405286c97b4073ad555472a35fee1ef5c33925ca2d58be018d58.
+  Embedded Mise10 assertion and fixed phase literals are byte evidence, not execution.
+  Hosting reports immutable=false; never describe this as build attestation or immutable hosting.
+- Ops PR22 changes only release URL, Mise10 and a fixed reviewed SHA256 check before credential selection, retaining sidecar verification.
+  Credential-free actual sha256sum accepts approved bytes; after both fixture bytes and sidecar change together, the old sidecar check passes but the fixed digest rejects.
+  Exact8b7 CI44511067094, refreshed target/reviews/threads and head-matched mergef115, tree equality and trunk44511335862 all verified.
+  Private-plan branch-protection API returns entitlement403; manual gates enforced without bypass or visibility/plan changes, not claimed as server enforcement.
+- Live workflow SHA25610fd5d4cb98b6a5ac97051c3c49857041ffbda27468a494c454fe3d6c7bf1387 equals reviewed committed bytes.
+  Public template follows only after that delivery; historical v2/v3 reconstruction strips exactly the new fixed-digest lines and restores historical Mise.
+  Actual old reconstruction was red at pin drift; corrected Node rerun reached unchanged original digest/provenance/lifecycle/CAS checks and exited0.
+  Production repair code, trusted historical digests, judge and limits remain unchanged.
+- Neither deployment, artifact integrity nor source pinning proves useful Toktrak execution.
+  Refresh current target and bind one first-attempt canary to immutable request/authenticated bind/v3 audit plus actual App findings; do not unmask log JSON or infer from timing.
+
 ## 2026-11-19: Keep the native Mise pin compatible with the current target
 
 - Whilev14 release CI ran, a fresh authoritative default ref revealed Toktrak0472, descending from repaired49b with dependency/tool/workflow/container pin changes only.

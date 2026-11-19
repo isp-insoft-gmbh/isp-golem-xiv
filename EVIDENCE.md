@@ -1,5 +1,15 @@
 # Evidence
 
+## 2026-11-19: Nativev15 reviewed bytes and live atomic ops pin
+
+[Independent native integrity receipt](evidence/native-v15-integrity-20261119.json): release44509183907/source3d/tag ecc5814; ELF64 asset767337047, GitHub digest/sidecar/manifest match c8343ddee808405286c97b4073ad555472a35fee1ef5c33925ca2d58be018d58.
+Hosting mutable; embedded literals are static evidence, not execution or attestation.
+[Live ops pin readback](evidence/native-v15-ops-20261119.json): PR22 exact8b7 CI44511067094, head-matched mergef115/reviewed tree equality, trunk44511335862, exact committed/live workflow SHA25610fd5d4cb98b6a5ac97051c3c49857041ffbda27468a494c454fe3d6c7bf1387.
+Pairs v15/Mise10; fixed reviewed digest checked before credentials, original sidecar check retained.
+Private-plan server-protection unavailable; manual exact-head CI/review gates, no bypass or visibility change.
+Corrected public-candidate historical reconstruction separately exited0 through unchanged v2/v3 digests and repair scenarios; old-pin red retained.
+This does not establish public-template deployment, exact-target preparation, provider health or useful Toktrak findings.
+
 ## 2026-11-19: Current target requires Mise2026.11.10
 
 [Minimal isolated rejection receipt](evidence/mise-minimum-red-20261119.json): actual host2026.11.9 rejects minimum2026.11.10 with exit1 before provider access.

@@ -1,16 +1,23 @@
 # Status
 
-- **Current recovery blocker (2026-11-19): target minimum advanced, no blind canary.**
-  Toktrak default `0472ef2735f1080536c3264912f51822c761b263` descends from repaired49b; changed paths are dependency/tool/container/workflow pins only.
-  Exact immutable inspection confirms canary/native config/CONTRIBUTING/build contract unchanged, fourteen regular byte-identical skills, no links/submodules; current Mise minimum is2026.11.10.
-  Actual isolated host2026.11.9 minimal-config probe rejected that minimum with exit1 before any provider call; red receipt `C:/Users/okr/AppData/Local/Temp/golem-mise-2026-11-10-red.json`.
-  Releasev14 completed44500943137 (-125 exit0); independently verified annotated sourcec9/tag32f7, ELF64 x86_64 asset767171887/5,062,888 bytes, GitHub digest/sidecar/manifest SHA256 `f1de4fdbf42312d0e0b669dd301ad6c5448e871bd140589b135de65295932031`, static labels present.
-  Hosting mutable; point-in-time association only, not attestation or execution proof. Receipt `C:/Users/okr/AppData/Local/Temp/golem-v14-integrity.json`; keep consumption digest verification.
-  v14 still embeds/asserts2026.11.9, so do not pin it for current Toktrak or dispatch a known-doomed canary. Required real-image CI remains before compatible release/integration; no actual native execution claimed.
-  New isolated worktree `C:/Users/okr/AppData/Local/Temp/golem-native-mise-2026-11-10`, branch `fix/native-project-mise-2026-11-10`, basec9; image, image-test CI and supported-minimum fixture align to2026.11.10. Unsupported9999.1.0 and all resource/destruction/auth/publication guards unchanged.
-  No target downgrade, global Mise install, original user-lock edit, new login, provider run or new comment. Live ops stillv13/Mise11.9.
-  Local gate -126 failed solely at STATUS.md MD076 list spacing after Rust/runtime/coordinator and repository checks passed. Exact blank line removed without suppression; focused rumdl passed, complete required gate -127 completed exit0 under unchanged-lock advisory policy. Docker unavailable locally; required real-image GitHub CI remains before integration. No runtime/pinning success inferred.
-  Next: required real-image CI → protected merge/trunk gates → next annotated release/point-in-time integrity → atomic live runner/Mise10 pair → matching public template → refresh current target and one causal canary.
+- **Current recovery gate (2026-11-19): matching public template, then useful Toktrak answer.**
+  Goal remains genuine useful file-grounded App findings, not discovery, release bytes, diagnostics or audit machinery alone.
+  Toktrak last inspected default `0472ef2735f1080536c3264912f51822c761b263` descends from repaired49b; minimum Mise2026.11.10, unchanged canary/native config/CONTRIBUTING/build contract, fourteen matching regular skills, no links/submodules.
+  Actual isolated Mise9→minimum10 rejection is retained at `evidence/mise-minimum-red-20261119.json`; original user lock/global tools untouched.
+  PR53 exact185 CI44503881414 passed including real image controls; protected merge3d matches reviewed tree d53b993. Trunk44506312603 + deployment44506312613 passed (-129/-130 exit0), independent health full3d confirmed before release.
+  Annotatedv15 `ecc5814da5d90d3fe7bb865b6d790f3b5843ecf3` at3d released44509183907 (-131 exit0).
+  Independently verified ELF64 x86_64 asset767337047/5,062,888 bytes, GitHub digest/sidecar/manifest SHA256 `c8343ddee808405286c97b4073ad555472a35fee1ef5c33925ca2d58be018d58`, embedded Mise10 assertion and static phase labels.
+  Hosting mutable; point-in-time association only, not attestation/preparation/provider execution. Receipt `C:/Users/okr/AppData/Local/Temp/golem-v15-integrity.json`.
+  Ops PR22 exact8b7 CI44511067094 passed (-132 exit0); refreshed target/reviews/threads/eligibility, exact-head merge `f1156e59299b96957beaa438fb062c7d6242f22a`, reviewed tree18d70c1. Trunk44511335862 passed (-133 exit0).
+  Private-plan protection API403 is entitlement, not auth failure; no server-protection, bypass, paid-plan or visibility-change claim. Manual exact-head CI/review gates enforced; public central strict protection unchanged.
+  Live workflow readback matches reviewed committed bytes: SHA256 `10fd5d4cb98b6a5ac97051c3c49857041ffbda27468a494c454fe3d6c7bf1387`, atomic v15/Mise10, fixed reviewed digest before credentials plus original sidecar check. Receipt `C:/Users/okr/AppData/Local/Temp/golem-v15-ops-pin.json`.
+  Fixed-digest WSL fixture accepts approved bytes and rejects changed bytes even with a matching mutable sidecar; no native binary executed.
+  Public candidate `C:/Users/okr/AppData/Local/Temp/golem-v15-public-template`, branch `fix/verified-v15-template`, base3d; matching ops template plus exact historical fixture reconstruction only, no judge/runtime repair changes.
+  Actual historical reconstruction red1 at old Mise-pin expectation; corrected Node test exit0 reached unchanged v2/v3 digest assertions and all repair/provenance/lifecycle/CAS scenarios. Ops CI does not validate this separate candidate; complete local gate -134 completed exit0 under unchanged-lock advisory policy; required public CI still owed. Exact candidate workflow bytes independently match verified live10fd hash. Relative precheck path failed; explicit absolute Nu/JS parser checks then passed, no production or gate bypass.
+  Earlier local -126 MD076 failure retained; corrected complete -127 passed. v14 tag/assets never rewritten; known image9 incompatibility prevented its live pin, and its downloaded task bytes were cleaned after retaining receipt.
+  Future canary verifier now uses strict immutable request/authenticated bind/v3 audit chain (old blocked case: nine reads/eight negatives), not masked env JSON or title/time inference; release/workflow constants now explicitly require verifiedv15/Mise10/fixed-digest hash10fd before use; not invoked against the old failed receipt.
+  Scratch submit guard allows inspected default descendants of repaired49; previous receipt6983181033 frozen unchanged, five archive tests passed. No new command, provider call, login request or auth diagnosis.
+  Next: complete public-template gate → strict protected PR/trunk/deploy + exact health → verify public/live workflow byte equality and refresh current target → exactly one causal canary → direct semantic App-answer inspection.
 - **Completed correction (2026-11-19): starter PRs only on explicit UI request.**
   Deployedf37; actual unchanged helper/caller -121 completed exit0 with `onboarding.ok:true`, not inferred from CI or deployment.
   Fresh owned sandbox `isp-golem-xiv-test-ui-onboard-green-20261119101242`: no automatic PR through3min → explicit create → repeat → explicit close → closed repeat without reopening/duplication → explicit tester reopen → merge65d0 → pinned App dashboard2.
