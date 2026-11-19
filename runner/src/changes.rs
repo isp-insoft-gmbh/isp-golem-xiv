@@ -6,6 +6,21 @@ const FILE_BYTES_MAX: usize = 4 * 1024 * 1024;
 const TOTAL_BYTES_MAX: usize = 64 * 1024 * 1024;
 const DEPTH_MAX: usize = 32;
 
+#[derive(Clone, Copy)]
+struct Limits {
+    file_bytes: usize,
+    total_bytes: usize,
+}
+
+const PUBLICATION_LIMITS: Limits = Limits {
+    file_bytes: FILE_BYTES_MAX,
+    total_bytes: TOTAL_BYTES_MAX,
+};
+const VERIFICATION_LIMITS: Limits = Limits {
+    file_bytes: 64 * 1024 * 1024,
+    total_bytes: 512 * 1024 * 1024,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileState {
     pub bytes: Vec<u8>,
@@ -108,7 +123,7 @@ fn new_harness_state(path: &str, baseline: &Files) -> bool {
 /// Rejects links, special files, nonportable paths, or snapshots exceeding explicit limits.
 /// Existing forbidden files are retained so changes, including deletion, can be detected.
 pub fn scan(root: &Path) -> Result<Files> {
-    scan_with(root, None)
+    scan_with(root, None, PUBLICATION_LIMITS)
 }
 
 /// Scans after the agent against the snapshot: harness-created state under `.claude`, `.codex`,
@@ -118,10 +133,18 @@ pub fn scan(root: &Path) -> Result<Files> {
 /// # Errors
 /// As [`scan`] for everything outside skipped harness state.
 pub fn scan_after(root: &Path, baseline: &Files) -> Result<Files> {
-    scan_with(root, Some(baseline))
+    scan_with(root, Some(baseline), PUBLICATION_LIMITS)
 }
 
-fn scan_with(root: &Path, baseline: Option<&Files>) -> Result<Files> {
+/// Scans disposable verifier outputs with larger byte bounds, never publication bounds.
+///
+/// # Errors
+/// As [`scan_after`], with 64 MiB per file and 512 MiB total; other guards are unchanged.
+pub fn scan_verification(root: &Path, baseline: &Files) -> Result<Files> {
+    scan_with(root, Some(baseline), VERIFICATION_LIMITS)
+}
+
+fn scan_with(root: &Path, baseline: Option<&Files>, limits: Limits) -> Result<Files> {
     if !fs::symlink_metadata(root)
         .map_err(|_| "cannot inspect snapshot root")?
         .file_type()
@@ -168,17 +191,17 @@ fn scan_with(root: &Path, baseline: Option<&Files>) -> Result<Files> {
             if !metadata.is_file() {
                 return Err("snapshot contains link or special file");
             }
-            if metadata.len() > FILE_BYTES_MAX as u64 {
+            if metadata.len() > limits.file_bytes as u64 {
                 return Err("snapshot file limit exceeded");
             }
             let mut bytes = Vec::new();
             fs::File::open(entry.path())
                 .map_err(|_| "cannot open snapshot file")?
-                .take(FILE_BYTES_MAX as u64 + 1)
+                .take(limits.file_bytes as u64 + 1)
                 .read_to_end(&mut bytes)
                 .map_err(|_| "cannot read snapshot file")?;
             total += bytes.len();
-            if bytes.len() > FILE_BYTES_MAX || total > TOTAL_BYTES_MAX {
+            if bytes.len() > limits.file_bytes || total > limits.total_bytes {
                 return Err("snapshot byte limit exceeded");
             }
             #[cfg(unix)]
@@ -198,7 +221,7 @@ fn scan_with(root: &Path, baseline: Option<&Files>) -> Result<Files> {
     Ok(files)
 }
 
-fn bounded(files: &Files) -> Result<()> {
+fn bounded(files: &Files, limits: Limits) -> Result<()> {
     if files.len() > ENTRIES_MAX {
         return Err("snapshot entry limit exceeded");
     }
@@ -208,11 +231,11 @@ fn bounded(files: &Files) -> Result<()> {
         if !valid_path(path) || !names.insert(path.to_ascii_lowercase()) {
             return Err("invalid or colliding snapshot path");
         }
-        if file.bytes.len() > FILE_BYTES_MAX {
+        if file.bytes.len() > limits.file_bytes {
             return Err("snapshot file limit exceeded");
         }
         total += file.bytes.len();
-        if total > TOTAL_BYTES_MAX {
+        if total > limits.total_bytes {
             return Err("snapshot byte limit exceeded");
         }
     }
@@ -247,8 +270,31 @@ fn check_bytes(bytes: &[u8], guard: &OutputGuard) -> Result<()> {
 /// # Errors
 /// Rejects forbidden edits/deletions, invalid snapshots, or credential-bearing publication content.
 pub fn diff(before: &Files, after: &Files, guard: &OutputGuard) -> Result<Vec<Change>> {
-    bounded(before)?;
-    bounded(after)?;
+    Ok(checked_paths(before, after, guard, PUBLICATION_LIMITS)?
+        .into_iter()
+        .map(|path| Change {
+            path: path.clone(),
+            file: after.get(path).cloned(),
+        })
+        .collect())
+}
+
+/// Checks scanned verifier changes without cloning disposable artifacts into publication content.
+///
+/// # Errors
+/// Rejects oversized outputs, forbidden changes, invalid paths, or credential-bearing bytes.
+pub fn validate_verification(before: &Files, after: &Files, guard: &OutputGuard) -> Result<()> {
+    checked_paths(before, after, guard, VERIFICATION_LIMITS).map(drop)
+}
+
+fn checked_paths<'a>(
+    before: &'a Files,
+    after: &'a Files,
+    guard: &OutputGuard,
+    limits: Limits,
+) -> Result<Vec<&'a String>> {
+    bounded(before, limits)?;
+    bounded(after, limits)?;
     let paths: std::collections::BTreeSet<_> = before.keys().chain(after.keys()).collect();
     let mut changes = Vec::new();
     for path in paths {
@@ -262,10 +308,7 @@ pub fn diff(before: &Files, after: &Files, guard: &OutputGuard) -> Result<Vec<Ch
         if let Some(file) = after.get(path) {
             check_bytes(&file.bytes, guard)?;
         }
-        changes.push(Change {
-            path: path.clone(),
-            file: after.get(path).cloned(),
-        });
+        changes.push(path);
     }
     Ok(changes)
 }
@@ -456,11 +499,60 @@ mod tests {
         assert!(diff(&Files::new(), &collision, &OutputGuard::default()).is_err());
     }
 
+    #[test]
+    fn verifier_byte_bounds_do_not_expand_agent_or_publication_bounds() {
+        let root = tempfile::tempdir().unwrap();
+        let artifact = fs::File::create(root.path().join("generated.jar")).unwrap();
+        artifact.set_len(64 * 1024 * 1024).unwrap();
+        assert!(scan(root.path()).is_err());
+        assert!(scan_after(root.path(), &Files::new()).is_err());
+        let verified = scan_verification(root.path(), &Files::new()).unwrap();
+        assert_eq!(
+            verified.get("generated.jar").unwrap().bytes.len(),
+            64 * 1024 * 1024
+        );
+        assert!(diff(&Files::new(), &verified, &OutputGuard::default()).is_err());
+        drop(verified);
+        artifact.set_len(64 * 1024 * 1024 + 1).unwrap();
+        assert_eq!(
+            scan_verification(root.path(), &Files::new()),
+            Err("snapshot file limit exceeded")
+        );
+        assert_eq!(VERIFICATION_LIMITS.total_bytes, 512 * 1024 * 1024);
+    }
+
+    #[test]
+    fn scan_and_validation_enforce_inclusive_file_and_aggregate_bounds() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(root.path().join("one"), b"1234").unwrap();
+        fs::write(root.path().join("two"), b"5678").unwrap();
+        let limits = Limits {
+            file_bytes: 4,
+            total_bytes: 8,
+        };
+        let files = scan_with(root.path(), None, limits).unwrap();
+        assert!(checked_paths(&Files::new(), &files, &OutputGuard::default(), limits).is_ok());
+        for limits in [
+            Limits {
+                file_bytes: 3,
+                total_bytes: 8,
+            },
+            Limits {
+                file_bytes: 4,
+                total_bytes: 7,
+            },
+        ] {
+            assert!(scan_with(root.path(), None, limits).is_err());
+            assert!(checked_paths(&Files::new(), &files, &OutputGuard::default(), limits).is_err());
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn scanner_rejects_symlinks() {
         let root = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("/etc/passwd", root.path().join("link")).unwrap();
         assert!(scan(root.path()).is_err());
+        assert!(scan_verification(root.path(), &Files::new()).is_err());
     }
 }

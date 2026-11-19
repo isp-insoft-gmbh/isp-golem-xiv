@@ -1,5 +1,20 @@
 # Evidence
 
+## 2026-11-19: Verifier-output cap regression
+
+The new consumer regression failed against unchanged code with `snapshot file limit exceeded`, retained in OS-temp `golem-verifier-bounds-red.log`.
+After the scoped change, the same consumer passed 1/1 and changes tests passed 6/6 on Windows.
+The consumer generates more than the old per-file and aggregate caps, verifies only frozen agent changes remain publishable, then checks a credential beyond the old file boundary still blocks publication.
+Boundary tests retain ordinary scan/publication rejection, accept the new exact per-file limit, reject one byte above it, and exercise inclusive aggregate bounds.
+The Unix symlink assertion remains in Linux CI; Windows results do not establish that case.
+Full required project gate -161 completed exit0 with `GOLEM_CHECK_ADVISORIES=false`, not advisory verification; full 43,832-byte log retained under OS temp with SHA256 `87cce32f9098c6000ec4eb415e4879b2637b9e50e60d9b33ae773734bec0f20f`.
+The source tests and unchanged WSL runtime suites passed; existing source-archive/provider opt-in tests remain ignored, not new skips.
+[Resource profile](evidence/verifier-resource-profile-20261119.json): exact 64/512 MiB invalid-UTF8 input accepted, aggregate plus one byte rejected, publication blocked; Windows debug 200,745ms and observed working-set peak950,775,808 bytes at100ms sampling.
+That is a representative observation, not a worst-case memory bound or Linux/release/live proof.
+Candidate production-library APIs also accepted the retained pristine Windows native-check output with279 original files unchanged,617 scanned files and zero publication changes; main wiring is separately covered by the consumer regression.
+Complete Linux verification pipeline, release/pin and live App outcome remain pending.
+No private target source or logs are included here.
+
 ## 2026-11-19: Nativev15 reviewed bytes and live atomic ops pin
 
 [Independent native integrity receipt](evidence/native-v15-integrity-20261119.json): release44509183907/source3d/tag ecc5814; ELF64 asset767337047, GitHub digest/sidecar/manifest match c8343ddee808405286c97b4073ad555472a35fee1ef5c33925ca2d58be018d58.
