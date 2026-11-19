@@ -78,7 +78,16 @@ pub(super) async fn onboarding(request: &mut Request, env: &Env) -> Result<Respo
     {
         return denied(403);
     }
-    if request.headers().get("Content-Type")?.as_deref() != Some("application/json") {
+    if !request
+        .headers()
+        .get("Content-Type")?
+        .is_some_and(|media_type| {
+            media_type
+                .split(';')
+                .next()
+                .is_some_and(|essence| essence.trim().eq_ignore_ascii_case("application/json"))
+        })
+    {
         return registration::secured(
             Response::error("JSON request required", 415)?,
             "text/plain; charset=utf-8",

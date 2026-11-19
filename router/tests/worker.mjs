@@ -498,6 +498,7 @@ try {
   assert.equal((await requestOnboarding({Authorization:'Bearer invalid-token'})).status,403);
   assert.equal((await requestOnboarding(undefined,{repository:'other-org/repo'})).status,400);
   assert.equal((await requestOnboarding(undefined,{repository:onboardRepo,extra:true})).status,400);
+  for(const type of ['text/plain','application/jsonx']) assert.equal((await requestOnboarding({Authorization:'Bearer valid-fixture-token','Content-Type':type})).status,415);
   assert.equal((await requestOnboarding(undefined,{repository:'x'.repeat(600)})).status,413);
   o.permission='read';
   assert.equal((await requestOnboarding()).status,403,'read/triage access cannot request repository writes');
@@ -517,13 +518,13 @@ try {
   assert.equal((await requestOnboarding()).status,409,'partial failure is not automatically resumed');
   assert.equal(o.branches.length,0); assert.equal(o.writes.length,0); assert.equal(o.pulls.length,0);
   state.refs.delete('refs/tags/golem-onboarding/150');
-  const concurrent = await Promise.all([requestOnboarding(),requestOnboarding()]);
+  const concurrent = await Promise.all([requestOnboarding({Authorization:'Bearer valid-fixture-token','Content-Type':'application/json; charset=utf-8'}),requestOnboarding()]);
   assert.equal(concurrent.filter(response=>response.status===201).length,1);
   assert.ok(concurrent.every(response=>[200,201,409].includes(response.status)));
   const created = await concurrent.find(response=>response.status===201).json();
   assert.deepEqual(created,{url:`https://github.com/${onboardRepo}/pull/1`,created:true});
   assert.equal(o.pulls.length,1);
-  const repeated = await requestOnboarding();
+  const repeated = await requestOnboarding({Authorization:'Bearer valid-fixture-token','Content-Type':'Application/JSON; charset=UTF-8'});
   assert.equal(repeated.status,200);
   assert.deepEqual(await repeated.json(),{url:created.url,created:false});
   o.pullState='closed';

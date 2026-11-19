@@ -1,0 +1,34 @@
+{
+  "kind": "signed-in live Firefox UI and independent GitHub readbacks",
+  "deployment": "bb9ed82d0ac7ec49ade725d885b37c8d9bb5a2aa",
+  "browser": "Firefox 160.0",
+  "repository": "isp-insoft-gmbh/isp-golem-xiv-test-ui-onboard-browser-20261118181609",
+  "script": {
+    "sha256": "371b587817ad9e032303b5c91046c5783c8168e61d770c3be3ca8391cd7c0f9c",
+    "bytes": 14687,
+    "sourceMatches": true,
+    "cacheControl": "private, no-store"
+  },
+  "sequence": [
+    "GitHub timestamp confirms at least three minutes without automatic PR",
+    "signed-in physical pointer click creates App PR",
+    "second pointer click returns same PR",
+    "tester explicitly closes PR",
+    "third pointer click returns same still-closed PR; total PR count one",
+    "tester explicitly reopens and squash-merges",
+    "fresh signed-in admin pagination shows enabled repository and hello, no starter action",
+    "independent GitHub reads bracket admin scan at same merge SHA",
+    "App-authored dashboard issue is pinned and contains all required sections and hello"
+  ],
+  "pull": "https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-ui-onboard-browser-20261118181609/pull/1",
+  "defaultBeforeMerge": "de9e35f7b1b4dd23cc7f4e4b5a0e637cc6e10717",
+  "merge": "6094a6e0afeb7e1fc12af60a45cdaf5d75760cd0",
+  "dashboard": "https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-ui-onboard-browser-20261118181609/issues/2",
+  "starterFilesExact": true,
+  "houseRulesMatch": true,
+  "scope": "No golem command issued; unrelated existing unsolicited PRs untouched.",
+  "limitations": [
+    "Separate actual Nushell acceptance helper failed HTTP415 before creation.",
+    "This browser flow does not validate the pending JSON media-type compatibility repair or full Slice4 acceptance."
+  ]
+}
