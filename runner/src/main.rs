@@ -225,7 +225,7 @@ fn verified_changes(
     after_agent: &golem_runner::changes::Files,
     guard: &OutputGuard,
 ) -> Result<Vec<golem_runner::changes::Change>> {
-    let after_verify = golem_runner::changes::scan_after(workspace, before)?;
+    let after_verify = golem_runner::changes::scan_verification(workspace, before)?;
     if after_agent
         .iter()
         .any(|(path, file)| after_verify.get(path) != Some(file))
@@ -234,7 +234,7 @@ fn verified_changes(
     }
     // Generated regular outputs are disposable, never part of the frozen publication.
     // Still scan every output and reject forbidden paths, links, floods and credentials.
-    golem_runner::changes::diff(after_agent, &after_verify, guard)?;
+    golem_runner::changes::validate_verification(after_agent, &after_verify, guard)?;
     golem_runner::changes::diff(before, after_agent, guard)
 }
 

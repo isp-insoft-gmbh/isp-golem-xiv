@@ -1,0 +1,21 @@
+{
+  "base": "da26ee26816cd84604c7051045e21486b8630e7b",
+  "sourceSha256": {
+    "runner/src/changes.rs": "cfca73664d5a5e028529d14c06ad996c85a39b1578d77d18efdeb8a9cf3126aa",
+    "runner/src/main.rs": "998a535cc7950b1c582f4e3dabca8d831e4cd756e60840c4cd0649662367b114"
+  },
+  "profile": {
+    "scope": "Windows production verifier validation API, 512MiB invalid UTF8; not Linux or live proof",
+    "exit": 0,
+    "elapsedMs": 200745,
+    "peakWorkingSetObservedBytes": 950775808,
+    "samplingMs": 100,
+    "result": "exact_verifier_64_512_mib=accepted aggregate_plus_one=rejected publication=blocked input=invalid-utf8",
+    "archiveAndPublicationCapsUnchanged": true
+  },
+  "caveats": [
+    "Windows debug build, not Linux release or live execution",
+    "Observed process high-water sample, not a hard memory guarantee",
+    "Existing harness-state exclusions remain unchanged"
+  ]
+}

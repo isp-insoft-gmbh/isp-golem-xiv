@@ -3,6 +3,17 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-19: Larger disposable verifier outputs, unchanged publication bounds
+
+Oliver explicitly approved 64 MiB per file and 512 MiB total for verifier-output scanning.
+Archive extraction, baseline and post-agent scans, and publication diffs remain at 4 MiB per file and 64 MiB total.
+Entry/depth/path/collision/link/hard-link/forbidden-path/credential guards remain unchanged.
+Verifier validation borrows changed paths rather than cloning disposable output bytes into candidate publication.
+Frozen agent inputs still may not change or disappear; verifier-added artifacts are validated, never published.
+Local pristine native check passed before the old production scan rejected an oversized file; this establishes local check-to-scan incompatibility, not the live failing phase or artifact.
+Live recovery still requires complete Linux verifier-to-scan coverage and a strictly bound useful App answer.
+No judge, target configuration, container resource, time or output-stream bounds change.
+
 ## 2026-11-19: Consume reviewed native bytes despite mutable release hosting
 
 - v15 release44509183907 passed at protected3d; annotated tag/source, ELF64, GitHub digest, sidecar and manifest independently match c8343ddee808405286c97b4073ad555472a35fee1ef5c33925ca2d58be018d58.

@@ -1322,6 +1322,47 @@ fn verifier_preserves_inputs_and_excludes_disposable_outputs() {
 }
 
 #[test]
+fn verifier_large_outputs_stay_disposable_and_credential_checked() {
+    let workspace = tempfile::tempdir().unwrap();
+    let source = workspace.path().join("source.txt");
+    std::fs::write(&source, b"original").unwrap();
+    let before = golem_runner::changes::scan(workspace.path()).unwrap();
+    std::fs::write(&source, b"agent change").unwrap();
+    let after_agent = golem_runner::changes::scan_after(workspace.path(), &before).unwrap();
+    let guard = OutputGuard::default();
+    let expected = golem_runner::changes::diff(&before, &after_agent, &guard).unwrap();
+    // Verifier-generated output exceeds both old caps, never the frozen publication.
+    let output = workspace.path().join("generated.jar");
+    std::fs::File::create(&output)
+        .unwrap()
+        .set_len(5 * 1024 * 1024)
+        .unwrap();
+    for index in 0..15 {
+        std::fs::File::create(workspace.path().join(format!("generated-{index}.jar")))
+            .unwrap()
+            .set_len(4 * 1024 * 1024)
+            .unwrap();
+    }
+    assert_eq!(
+        verified_changes(workspace.path(), &before, &after_agent, &guard).unwrap(),
+        expected
+    );
+    let secret = "verifier-generated-credential-sentinel";
+    let mut guard = OutputGuard::default();
+    guard.add(secret);
+    // A credential beyond the old per-file boundary must still block publication.
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .open(output)
+        .unwrap();
+    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(4 * 1024 * 1024 + 1)).unwrap();
+    let encoded: Vec<u8> = secret.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    file.write_all(&encoded).unwrap();
+    drop(file);
+    assert!(verified_changes(workspace.path(), &before, &after_agent, &guard).is_err());
+}
+
+#[test]
 fn writable_prompt_uses_pinned_definition_and_house_rules_not_continuation_config() {
     let workspace = tempfile::tempdir().unwrap();
     let configuration = tempfile::tempdir().unwrap();
