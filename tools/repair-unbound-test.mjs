@@ -17,7 +17,7 @@ let historicalText = currentWorkflow.toString('utf8');
 const currentMiseLine = '          version: 2026.11.10\n';
 assert.equal(historicalText.split(currentMiseLine).length - 1, 1, 'unexpected live Mise pin drift');
 historicalText = historicalText.replace(currentMiseLine, '          version: 2026.10.21\n');
-historicalText = removeOnce(historicalText, '          RUNNER_SHA256: c8343ddee808405286c97b4073ad555472a35fee1ef5c33925ca2d58be018d58\n');
+historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31\n');
 historicalText = removeOnce(historicalText, '          printf \'%s  golem-runner-linux-x86_64\\n\' "$RUNNER_SHA256" | sha256sum --check --strict -\n');
 historicalText = removeOnce(historicalText, '        timeout-minutes: 10\n');
 historicalText = removeOnce(historicalText, '          # Idempotent GETs only: 408/429/5xx/timeouts retry within a bounded window; checksum still gates.\n');
