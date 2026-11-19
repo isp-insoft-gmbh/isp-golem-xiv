@@ -1,0 +1,24 @@
+{
+  "deployment": "f37b2e3925ddcef37d8feef51906104263cedee4",
+  "repository": "isp-insoft-gmbh/isp-golem-xiv-test-ui-onboard-green-20261119101242",
+  "check": {
+    "id": "onboarding",
+    "ok": true,
+    "observed": ""
+  },
+  "sequence": [
+    "no automatic PR during loop_watch",
+    "explicit create",
+    "same-PR repeat",
+    "explicit close",
+    "closed-PR repeat without reopening",
+    "explicit tester reopen",
+    "caller squash merge",
+    "caller pinned dashboard"
+  ],
+  "pull": "https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-ui-onboard-green-20261119101242/pull/1",
+  "merged_sha": "65d0d9eb91ae88d0d65ef8c133b238b50f959aa5",
+  "dashboard": "https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-ui-onboard-green-20261119101242/issues/2",
+  "default_branch_unchanged_before_merge": true,
+  "agent_requested": false
+}

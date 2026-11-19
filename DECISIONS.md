@@ -3,6 +3,32 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-19: Distinguish nonzero container caller phases without exposing streams
+
+- Original Toktrak49b Pi/Codex canary44336881526 reported only generic container execution failure.
+  Later credential-free exact-target preparation succeeded on a v13 rebuild; neither fact identifies the historical failure phase or establishes auth failure.
+  Independent source/pinned-Pi review found no concrete home/refresh/schema defect to justify speculative auth repair.
+- Shared lifecycle receives only a fixed static caller message for nonzero start/attach outcome: preparation, harness or verification.
+  This identifies the caller, not proof that the harness launched, the provider failed or a target command ran.
+  Existing useful creation/validation errors, timeout handling, nested result boundaries and destruction acknowledgments stay unchanged; captured streams never enter these diagnostics.
+- Existing fake-Docker scenario matrix now reaches production preparation/v1/writable/verification callers, emits secret sentinels on failure and checks destruction-failure precedence.
+  Parent full local gate -120 passed under unchanged-lock advisory policy; Linux/Windows focused tests and narrow independent review found no concrete blocker.
+  No actual Docker/provider/live execution or historical-diagnosis claim.
+- Native publication was held until priority onboarding acceptance passed.
+  After reviewed release/artifact integrity and live ops pin, observe a fresh causal canary; do not request login without evidence.
+
+## 2026-11-19: Unchanged onboarding helper and caller passed after reviewed deployment
+
+- PR51 exact7f CI44490179837 passed; protected mergef37 tree matches reviewed7f.
+  Trunk CI44491782606 and deployment44491782598 passed; independent health exactf37.
+- Actual `onboarding-request` blob `a2fde3c1c6e8c5b1c0996fbc3db1a606da955272` is unchanged from authorized141; neither judge file changed during JSON compatibility repair.
+  Focused -121 executed it and caller merge/dashboard steps: exit0, `onboarding.ok:true`.
+  It verified the no-auto window, explicit creation/exact files/rules, open and closed repeat identity, no unexpected reopen/duplicate, then explicit tester reopen, unchanged default branch before merge, merge65d0 and pinned dashboard2.
+  Independent GitHub readbacks confirm merge/default head65d0 and exact App issue identity.
+- Frozen receipt hash `4e6a2756af4bbdb7e91d7f6d666fcde3bb6f0d89107ccc833a4ee27b0b584700` preserved unchanged at `evidence/onboarding-acceptance-20261119.json`.
+  Old-deployment unsolicited-PR red and intermediate415 failure remain recorded, not overwritten into success.
+  This completes the changed onboarding check, not the later model scenarios or full Slice4 acceptance.
+
 ## 2026-11-18: Accept the JSON media type, not one header spelling
 
 - Live unchanged acceptance helper on deployedbb9 completed its no-auto observation, then failed415 before creating any PR.

@@ -1,5 +1,13 @@
 # Evidence
 
+## 2026-11-19: Targeted onboarding acceptance green on deployedf37
+
+[Exact focused helper/caller receipt](evidence/onboarding-acceptance-20261119.json) records actual exit0 and `onboarding.ok:true` after exactf37 health verification.
+No automatic starter during the observation window; explicit create, repeated open/closed identity, no automatic reopen/duplication, explicit tester reopen, unchanged default branch before merge, merge65d0, then pinned dashboard2 with all sections and hello.
+Independent GitHub readbacks confirm merged/default head65d0 and dashboard2 author `isp-golem-xiv[bot]`.
+The actual acceptance helper is byte-identical to authorized141; JSON compatibility repair changed neither judge file.
+This is distinct from the separate signed-in UI proof below and does not claim full Slice3/4 or Toktrak execution.
+
 ## 2026-11-18: Deployed UI onboarding and JSON compatibility boundary
 
 [Signed-in live browser record](evidence/onboarding-live-20261118.json) verifies no automatic starter PR, physical UI creation and repeat, closed reuse, explicit tester reopen/merge, fresh enabled/hello admin state and pinned dashboard.
