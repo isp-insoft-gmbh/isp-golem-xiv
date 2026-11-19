@@ -32,7 +32,8 @@ jobs:
       - name: Download pinned public runner
         timeout-minutes: 10
         env:
-          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v13
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v15
+          RUNNER_SHA256: c8343ddee808405286c97b4073ad555472a35fee1ef5c33925ca2d58be018d58
         shell: bash
         run: |
           set -euo pipefail
@@ -46,6 +47,7 @@ jobs:
             --retry 4 --retry-delay 5 --retry-max-time 180 --connect-timeout 20 --max-time 60 \
             --output golem-runner-linux-x86_64.sha256 \
             "$RUNNER_RELEASE_URL/golem-runner-linux-x86_64.sha256"
+          printf '%s  golem-runner-linux-x86_64\n' "$RUNNER_SHA256" | sha256sum --check --strict -
           sha256sum --check --strict golem-runner-linux-x86_64.sha256
           chmod 700 golem-runner-linux-x86_64
       - name: Validate dispatch before selecting credentials
@@ -61,7 +63,7 @@ jobs:
         continue-on-error: true
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          version: 2026.11.9
+          version: 2026.11.10
           install: false
           cache: false
       - name: Prepare isolated pinned Claude subscription harness
