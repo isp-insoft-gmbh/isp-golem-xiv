@@ -1,5 +1,13 @@
 # Evidence
 
+## 2026-11-18: Deployed UI onboarding and JSON compatibility boundary
+
+[Signed-in live browser record](evidence/onboarding-live-20261118.json) verifies no automatic starter PR, physical UI creation and repeat, closed reuse, explicit tester reopen/merge, fresh enabled/hello admin state and pinned dashboard.
+Independent GitHub head reads before/after the admin refresh remain `6094a6e0afeb7e1fc12af60a45cdaf5d75760cd0`.
+This is distinct from the real Nu helper, which failed415 on valid parameterized JSON before creation.
+Credential-free request inspection establishes the header; causal product repair passed full local gate -116, with reviewed deployment and unchanged helper/caller rerun still pending.
+No full Slice4 acceptance or Toktrak working-agent claim.
+
 ## 2026-11-18: UI-requested onboarding development evidence
 
 [Local actual-browser record](evidence/onboarding-ui-20261118.json) records Firefox160, actual Rust admin HTML and delivered JS/CSS against a credential-free HTTP double.

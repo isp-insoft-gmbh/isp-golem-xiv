@@ -3,6 +3,18 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-18: Accept the JSON media type, not one header spelling
+
+- Live unchanged acceptance helper on deployedbb9 completed its no-auto observation, then failed415 before creating any PR.
+  Credential-free loopback inspection of the exact Nu command confirmed `Content-Type: application/json; charset=utf-8`.
+  The endpoint's exact-string comparison rejected valid parameterized JSON; this is a product compatibility defect, not an auth failure or an excuse to change the judge.
+- Match the case-insensitive media-type essence, preserving JSON parsing, body/time limits, membership, repository permissions and CSRF.
+  Runtime regressions exercise charset and case variants while continuing to reject text/plain and JSON lookalikes.
+  Full local required gate -116 passed under unchanged-lock advisory policy; reviewed deployment and unchanged helper/caller rerun remain pending.
+- Separately, signed-in live Firefox physical clicks onbb9 created the exact App starter files, reused the open/closed PR without duplication or reopening, followed by an explicit tester reopen/merge.
+  Fresh admin readback shows the exact repository and hello enabled, no starter action, with independent head reads fixed at6094; App dashboard2 is pinned with all sections.
+  See `evidence/onboarding-live-20261118.json`; this does not repair or pass the Nu helper.
+
 ## 2026-11-18: Starter PRs require an explicit UI request
 
 - Oliver rejected automatic starter PRs on push/App installation and explicitly selected implementation plus the matching specification/judge correction.

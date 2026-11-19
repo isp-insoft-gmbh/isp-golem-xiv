@@ -17,6 +17,26 @@
   Browser fixture is separate UI wiring evidence, not live GitHub writes or signed-in deployed UI proof.
   Independent exact changed onboarding check ran live against old deployment in owned sandbox `isp-golem-xiv-test-ui-onboard-red-20261118172608`; -104 process exit 0 but actual result `ok:false`, `push or installation opened an unsolicited starter PR`.
   That is expected red requirement evidence, not successful acceptance. Green live endpoint/caller sequence remains pending; local actual-browser button wiring is verified separately.
+  Product `540d8a9` plus separately authorized judge `141f410283b5743b69825d1dae691ca7e04db304` published in central PR #50; body read back, base085.
+  Full required local gate -110 exited0; Slice4 preflight26/26 passed after converting the existing admin evidence link to its HTTPS blob URL, with judge evidence lookup unchanged.
+  Initial PR run-index query empty; no GitHub CI completion inferred.
+  Exact-head CI `44351104848` completed success on `141f410`, watcher -111 exit0, including required Agent container controls.
+  Refreshed target085, clean strict eligibility and no reviews/threads; protected PR50 squash merged `bb9ed82d0ac7ec49ade725d885b37c8d9bb5a2aa`.
+  Merge tree equals reviewed141 tree `47ac737ee3fa0d73894c7fb3247b9b5c0b03137a`; verify CI deployment and exact health before live create→repeat→close→repeat→explicit reopen→merge.
+  Exactbb9 trunk CI `44353356058` completed success, watcher -112 exit0, including Agent container.
+  Deployment `44353355632` completed success on exactbb9, watcher -113 exit0; independent `/health` confirms fullbb9 SHA.
+  Live `/admin.js` byte-matches reviewed source: SHA256 `371b587817ad9e032303b5c91046c5783c8168e61d770c3be3ca8391cd7c0f9c`, 14687 bytes, private/no-store.
+  Focused live helper/caller driver -114 failed exit1 after successful no-auto window: actual changed check `ok:false`, `explicit starter request answered 415, not created`.
+  No PR created in its owned sandbox `isp-golem-xiv-test-ui-onboard-green-20261118181609`; inspect request Content-Type before any retry. Browser flow uses a separate owned sandbox.
+  Earlier local `date now | format date ...Z` labels were local time incorrectly suffixed Z; use actual offset/UTC conversion and GitHub timestamps. A derived absolute wait timed out read-only; no request or mutation happened in that wait.
+  Separate signed-in live Firefox found the exact owned browser sandbox after38 normal pagination clicks, correctly scoped starter action and session CSRF present (value never printed).
+  Authoritative GitHub commit timestamp + offset-aware clock proved more than3min no automatic PR; default head stayed `de9e35f`.
+  Actual pointer click created App PR #1 with exactly both starter files and matching house rules; UI repeat returned same URL. After explicit tester close, a further real UI click returned same still-closed PR with total1; tester explicitly reopened and merged it at `6094a6e0afeb7e1fc12af60a45cdaf5d75760cd0`.
+  Fresh signed-in admin scan completed after bounded continuation: exact owned repository shows Enabled, hello enabled, no starter action; independent head reads before/after remain6094. Pinned dashboard contents were checked; final receipt must use its actual GraphQL shape (number/title/body, no html_url field).
+  Nu request failure is separately diagnosed: credential-free echo of exact command shows `application/json; charset=utf-8`; strict product string comparison rejects this valid JSON media type.
+  Causal fix on isolated branch `fix/onboarding-json-media-type` atbb9: compare case-insensitive media-type essence, retain JSON/auth/CSRF/body guards, add charset/case positive and non-JSON/lookalike negative regressions. Full gate -116 completed exit0 under unchanged-lock advisory policy; no judge change or blind retry. Compatibility fix still needs reviewed PR/CI delivery, exact deployed SHA, then unchanged live helper/caller rerun.
+  Focused live driver prepared at `C:/Users/okr/AppData/Local/Temp/golem-ui-onboarding-live.nu`: sources the actual changed acceptance helper, then caller merge/pinned-dashboard path, no agent command; syntax only checked, execution pending exact deployed SHA.
+  Local Firefox screenshots inspected at390/1440; actual pointer requests0→1→2 used HTTP doubles, not production mutations. Preview process -108 stopped after verification.
 - **Current goal (2026-11-18): actual Toktrak execution, user authorized autonomous repair and Toktrak pushes.**
   Discovery alone is not completion; require a successful native run and actual App answer with the requested file-based findings.
   No new login requested or provider-authentication failure established.
