@@ -1,5 +1,12 @@
 # Evidence
 
+## 2026-11-20: Toktrak golems work end to end on v19
+
+[Recovery IDs](evidence/toktrak-recovery-20261120.json): a `@isp-golem-xiv bugs` mention ran as ops run44829426605 (attempt 1, live v19 workflow) and ended `changed`, strictly joined to its comment through the request, bind, audit and check records.
+The App opened Toktrak PR164, a test-first fix for JSON replay silently dropping a second event on one line; the agent ran `mise run verify`, coverage and PIT itself, so the post-agent scan, host verification, post-verify scan and publication all handled real build output.
+The composed pristine Linux proof on v19 ran Toktrak's `mise run verify` in 98 s with the largest workspace file at 52.5 MB and 262 MB in total, below the 64 MiB and 512 MiB workspace bounds.
+A read-only v17 canary had already replied with file-grounded findings.
+
 ## 2026-11-20: v19 pin
 
 [Native integrity](evidence/native-v19-integrity-20261120.json): release44779045328 on protected f48e678, tag9b63c334, ELF64 asset772655865 (6,109,696 bytes), GitHub/sidecar/manifest SHA256 `2ac557a59bc4d9b7f503043622a98b6a2c83d07ff9e13d5af702b2fa657ed81e`; the released bytes contain the new link errors and the 1024 process limit. Point-in-time self-check; hosting is mutable.
