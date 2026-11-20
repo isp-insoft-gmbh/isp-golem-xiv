@@ -138,7 +138,15 @@ async fn publish_result(
         Ok(output) => {
             if let Err(error) = github.reply(request, token, &output.text, guard).await {
                 github
-                    .check(request, token, "blocked", &output.model, run_id, guard)
+                    .check_reason(
+                        request,
+                        token,
+                        "blocked",
+                        &output.model,
+                        run_id,
+                        Some(error),
+                        guard,
+                    )
                     .await?;
                 return Err(error);
             }
@@ -157,7 +165,7 @@ async fn publish_result(
             // Attempt both independently: unavailable checks must not suppress requester feedback.
             let model = request.model.as_deref().unwrap_or("default");
             let check = github
-                .check(request, token, outcome, model, run_id, guard)
+                .check_reason(request, token, outcome, model, run_id, Some(error), guard)
                 .await;
             // Only static, trusted errors; raw agent output and diagnostics are never logged.
             let reply = github
@@ -185,6 +193,7 @@ async fn execute_agent(
     name: &str,
     guard: &OutputGuard,
 ) -> Result<Result<AgentOutput>> {
+    println!("golem phase: snapshot");
     let preparation = async {
         let archive = github.snapshot(request, token).await?;
         let temporary =
@@ -201,6 +210,7 @@ async fn execute_agent(
         Ok(prepared) => prepared,
         Err(error) => return Ok(Err(error)),
     };
+    println!("golem phase: agent");
     let execution = sandbox::run(
         &workspace,
         name,
@@ -482,6 +492,7 @@ impl RunContext<'_> {
     ) -> Result<(Result<WritableResult>, SeatReadback)> {
         // A Codex seat reaches Pi as a converted copy in Pi's own format.
         let pi = self.request.harness == "pi";
+        println!("golem phase: snapshot");
         let prepared = self
             .prepare_writable(token, guard)
             .await
@@ -504,11 +515,13 @@ impl RunContext<'_> {
             (Seat::Codex(_), None) => return Ok((Err("missing private seat home"), None)),
         };
         let operation = async {
+            println!("golem phase: target preparation");
             if let Err(error) =
-                sandbox::prepare_target(&workspace, &format!("{name}-prepare")).await?
+                sandbox::prepare_target(&workspace, &format!("{name}-prepare"), guard).await?
             {
                 return Ok(Err(error));
             }
+            println!("golem phase: agent");
             let execution = match sandbox::run_writable(
                 &workspace,
                 name,
@@ -523,6 +536,7 @@ impl RunContext<'_> {
                 Ok(execution) => execution,
                 Err(error) => return Ok(Err(error)),
             };
+            println!("golem phase: agent result");
             let output = match golem_runner::writable_result(
                 &self.request.harness,
                 self.request.model.as_deref(),
@@ -534,19 +548,7 @@ impl RunContext<'_> {
                 Ok(output) => output,
                 Err(error) => return Ok(Err(error)),
             };
-            let changes = match agent_workspace(&workspace, &before, guard) {
-                Err(error) => Err(error),
-                Ok(after_agent) => {
-                    let verified = sandbox::verify(
-                        &workspace,
-                        &format!("{name}-verify"),
-                        self.request.verify.as_deref(),
-                    )
-                    .await?;
-                    let changes = verified_changes(&workspace, &before, &after_agent, guard);
-                    verified.and(changes)
-                }
-            };
+            let changes = self.verified(&workspace, &before, name, guard).await?;
             Ok(Ok(WritableResult {
                 base_sha,
                 changes,
@@ -576,6 +578,34 @@ impl RunContext<'_> {
             .close()
             .map_err(|_| "cannot remove private runner workspace; publication blocked")?;
         Ok((result, readback))
+    }
+
+    /// The agent's checked changes after the target's own verification left them unchanged.
+    /// Outer error: verifier destruction unconfirmed.
+    async fn verified(
+        &self,
+        workspace: &Path,
+        before: &golem_runner::changes::Files,
+        name: &str,
+        guard: &OutputGuard,
+    ) -> Result<Result<Vec<golem_runner::changes::Change>>> {
+        println!("golem phase: agent workspace scan");
+        let after_agent = match agent_workspace(workspace, before, guard) {
+            Ok(after_agent) => after_agent,
+            Err(error) => return Ok(Err(error)),
+        };
+        println!("golem phase: verification");
+        let verified = sandbox::verify(
+            workspace,
+            &format!("{name}-verify"),
+            self.request.verify.as_deref(),
+            guard,
+        )
+        .await?;
+        Ok(verified.and_then(|()| {
+            println!("golem phase: verified workspace scan");
+            verified_changes(workspace, before, &after_agent, guard)
+        }))
     }
 
     // Outer error: feedback/check incomplete. Inner error: safely reported blocked execution.
@@ -633,6 +663,7 @@ impl RunContext<'_> {
             "no_change"
         };
         if !changes.is_empty() {
+            println!("golem phase: publication");
             match self
                 .github
                 .publish_changes(
@@ -705,7 +736,15 @@ impl RunContext<'_> {
         };
         let check = self
             .github
-            .check(self.request, token, "blocked", model, self.run_id, guard)
+            .check_reason(
+                self.request,
+                token,
+                "blocked",
+                model,
+                self.run_id,
+                Some(error),
+                guard,
+            )
             .await;
         label?;
         reply?;

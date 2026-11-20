@@ -8,3 +8,4 @@
 /mutants.out/
 /mutants.out.old/
 .pi/loop/state.db
+.wrangler/

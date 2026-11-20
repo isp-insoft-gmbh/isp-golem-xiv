@@ -56,9 +56,28 @@ def exercise-target [root: path, scratch: path] {
       if $verified.exit_code != 0 {
         error make {msg: $"prepared target Node verification failed: ($verified.stderr | str trim)"}
       }
+      observe-memory-kill $arguments $tool_mount
     } else if not ($prepared.stderr | str contains $fixture.minimum) or not ($prepared.stderr | str contains "required") or (($tools | path join paths) | path exists) {
       error make {msg: "unsupported target minimum did not fail specifically before tool activation"}
     }
+  }
+}
+
+# EXPERIMENT (not an assertion): what a memory-limit kill looks like from the host.
+def observe-memory-kill [arguments: list<string>, tool_mount: string] {
+  print ({experiment: cgroup, version: (^docker info --format '{{.CgroupVersion}} {{.CgroupDriver}} {{.ServerVersion}}' | str trim)} | to json -r)
+  let hog = r#'node -e 'const a = []; for (;;) a.push(Buffer.alloc(1 << 20, 1))''#
+  for shape in [
+    {name: single, command: $hog}
+    {name: compound, command: $"true; ($hog)"}
+    {name: wrapped, command: $"($hog) || exit 1"}
+  ] {
+    let name = $"golem-oom-probe-($shape.name)"
+    let run = ($arguments | where {|argument| $argument != '--rm' })
+    let result = ($shape.command | ^docker ...$run --name $name --memory=128m --memory-swap=128m --mount $"($tool_mount),readonly" $image --verify-target | complete)
+    let oom = (command-result docker -- inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' $name | get stdout | str trim)
+    command-result docker -- rm --force $name | ignore
+    print ({experiment: memory-kill, shape: $shape.name, exit: $result.exit_code, inspect: $oom} | to json -r)
   }
 }
 

@@ -1,4 +1,5 @@
-use golem_runner::{OUTPUT_BYTES_MAX, Result};
+use base64::Engine as _;
+use golem_runner::{OUTPUT_BYTES_MAX, OutputGuard, Result};
 use std::{
     path::{Path, PathBuf},
     process::{ExitStatus, Stdio},
@@ -12,6 +13,12 @@ use tokio::{
 const IMAGE: &str = "isp-golem-xiv-agent:v0";
 const FORBIDDEN_READ_ROOTS: [&str; 6] = ["proc", "sys", "dev", "home", "tmp", "run"];
 const TARGET_TIMEOUT_SECONDS: u64 = 600;
+/// The in-image watchdog starts after the host deadline and kills with exit 137, so the host
+/// always times out first: an exit 137 before then is the memory limit or another kill.
+const KILLED: &str = "container killed before its time budget (likely memory limit)";
+/// Per stream, what target preparation and verification leave in the private run log.
+const TAIL_LINES: usize = 200;
+const TAIL_BYTES: usize = 16 * 1024;
 /// Private per-run `CODEX_HOME`, outside /workspace; holds only the seat sign-in at start.
 const CODEX_HOME: &str = "/golem-codex";
 /// Private per-run Pi agent directory for a Codex seat, outside /workspace; holds only Pi's
@@ -314,6 +321,77 @@ fn create_container(
     Ok(create)
 }
 
+/// The last lines of one output stream, at most [`TAIL_LINES`] and [`TAIL_BYTES`], with
+/// control characters replaced so target output cannot rewrite the log display.
+fn tail(bytes: &[u8]) -> (&[u8], String) {
+    let start = bytes.len().saturating_sub(TAIL_BYTES);
+    let raw = bytes.get(start..).unwrap_or_default();
+    let text = String::from_utf8_lossy(raw);
+    // A cut through the middle of a line keeps only whole lines, unless no other line exists.
+    let mut lines: Vec<&str> = text.lines().collect();
+    if start > 0 && lines.len() > 1 {
+        lines.remove(0);
+    }
+    let kept = lines
+        .get(lines.len().saturating_sub(TAIL_LINES)..)
+        .unwrap_or_default();
+    let text = kept
+        .iter()
+        .map(|line| {
+            line.chars()
+                .map(|c| {
+                    if c.is_control() && c != '\t' {
+                        '\u{fffd}'
+                    } else {
+                        c
+                    }
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    (raw, text)
+}
+
+/// A stream's tail for the private run log, or why it is withheld. `token` stops Actions
+/// workflow commands for the tail, so target output cannot annotate or alter the run.
+fn output_report(
+    stage: &str,
+    stream: &str,
+    bytes: &[u8],
+    guard: &OutputGuard,
+    token: &str,
+) -> String {
+    let (raw, text) = tail(bytes);
+    if text.is_empty() {
+        return format!("golem {stage} {stream}: empty");
+    }
+    if golem_runner::changes::check_bytes(raw, guard).is_err() || guard.check(&text).is_err() {
+        return format!("golem {stage} {stream} tail withheld: matches a guarded credential");
+    }
+    format!(
+        "golem {stage} {stream} tail ({} lines):\n::stop-commands::{token}\n{text}\n::{token}::",
+        text.lines().count()
+    )
+}
+
+fn exit_label(status: Option<ExitStatus>) -> String {
+    match status {
+        None => "none (host deadline)".to_owned(),
+        Some(status) => status
+            .code()
+            .map_or_else(|| "signal".to_owned(), |code| code.to_string()),
+    }
+}
+
+/// What a container leaves in the private run log: its stage, exit, duration and output
+/// sizes always; its output only with `output_log`, never for agents.
+struct Report<'a> {
+    stage: &'static str,
+    execution_failure: &'static str,
+    output_log: Option<&'a OutputGuard>,
+}
+
 /// Outer errors prohibit ALL publication: destruction was not confirmed.
 /// Validation failures before any Docker operation are confirmed-safe inner errors.
 async fn lifecycle(
@@ -321,11 +399,12 @@ async fn lifecycle(
     name: &str,
     input: Option<&[u8]>,
     seconds: u64,
-    execution_failure: &'static str,
+    report: Report<'_>,
 ) -> Result<Result<Execution>> {
     // Include create/start/attach in one host wall-clock budget; the image has
     // its own watchdog, independent of Docker client/host cancellation.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(seconds);
+    let started = tokio::time::Instant::now();
+    let deadline = started + Duration::from_secs(seconds);
     let operation = async {
         create.stdout(Stdio::piped());
         execute(create, None, Duration::from_secs(seconds.min(60))).await?;
@@ -333,11 +412,33 @@ async fn lifecycle(
         start.args(["start", "--attach", "--interactive", name]);
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let (mut execution, status) = capture(start, input, remaining).await?;
-        if status.is_some_and(|status| matches!(status.code(), Some(124 | 137))) {
+        println!(
+            "golem container: {} exit {} after {}s, stdout {} bytes, stderr {} bytes",
+            report.stage,
+            exit_label(status),
+            started.elapsed().as_secs(),
+            execution.stdout.len(),
+            execution.stderr.len()
+        );
+        if let Some(guard) = report.output_log {
+            let mut token = [0; 18];
+            dryoc::rng::copy_randombytes(&mut token);
+            let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token);
+            for (stream, bytes) in [("stdout", &execution.stdout), ("stderr", &execution.stderr)] {
+                println!(
+                    "{}",
+                    output_report(report.stage, stream, bytes, guard, &token)
+                );
+            }
+        }
+        if status.is_some_and(|status| status.code() == Some(137)) {
+            return Err(KILLED);
+        }
+        if status.is_some_and(|status| status.code() == Some(124)) {
             execution.timed_out = true;
         }
         if !execution.timed_out && !status.is_some_and(|status| status.success()) {
-            return Err(execution_failure);
+            return Err(report.execution_failure);
         }
         Ok(execution)
     };
@@ -411,7 +512,11 @@ async fn agent(
         name,
         Some(prompt.as_bytes()),
         timeout_seconds,
-        "harness container execution failed",
+        Report {
+            stage: "agent",
+            execution_failure: "harness container execution failed",
+            output_log: None,
+        },
     )
     .await
 }
@@ -640,7 +745,11 @@ pub async fn run_writable(
 /// # Errors
 /// Outer error means destruction is unconfirmed; prohibit publication.
 /// Inner error means validation, installation, or the ten-minute budget failed.
-pub async fn prepare_target(workspace: &Path, name: &str) -> Result<Result<()>> {
+pub async fn prepare_target(
+    workspace: &Path,
+    name: &str,
+    guard: &OutputGuard,
+) -> Result<Result<()>> {
     let tools = match toolchain_path(workspace) {
         Ok(tools) => tools,
         Err(error) => return Ok(Err(error)),
@@ -672,7 +781,11 @@ pub async fn prepare_target(workspace: &Path, name: &str) -> Result<Result<()>> 
         name,
         None,
         TARGET_TIMEOUT_SECONDS,
-        "target preparation container execution failed",
+        Report {
+            stage: "target preparation",
+            execution_failure: "target preparation container execution failed",
+            output_log: Some(guard),
+        },
     )
     .await?
     .and_then(|execution| {
@@ -689,7 +802,12 @@ pub async fn prepare_target(workspace: &Path, name: &str) -> Result<Result<()>> 
 /// # Errors
 /// Outer error means destruction is unconfirmed; prohibit publication.
 /// Inner error means validation, command execution, or the ten-minute budget failed.
-pub async fn verify(workspace: &Path, name: &str, command: Option<&str>) -> Result<Result<()>> {
+pub async fn verify(
+    workspace: &Path,
+    name: &str,
+    command: Option<&str>,
+    guard: &OutputGuard,
+) -> Result<Result<()>> {
     let command = command.unwrap_or(":");
     if command.len() > OUTPUT_BYTES_MAX || command.contains('\0') {
         return Ok(Err("invalid verification command"));
@@ -705,7 +823,11 @@ pub async fn verify(workspace: &Path, name: &str, command: Option<&str>) -> Resu
         name,
         Some(command.as_bytes()),
         TARGET_TIMEOUT_SECONDS,
-        "verification container execution failed",
+        Report {
+            stage: "verification",
+            execution_failure: "verification container execution failed",
+            output_log: Some(guard),
+        },
     )
     .await?
     .and_then(|execution| {
@@ -1202,7 +1324,7 @@ mod tests {
                 "echo wrong-name",
             ),
             (
-                "image-timeout",
+                "killed",
                 "echo id",
                 "printf partial; printf diagnostic >&2; exit 137",
                 "echo \"$3\"",
@@ -1285,7 +1407,11 @@ mod tests {
             "golem-test",
             None,
             1,
-            "harness container execution failed",
+            Report {
+                stage: "agent",
+                execution_failure: "harness container execution failed",
+                output_log: None,
+            },
         )
         .await;
         match scenario.as_str() {
@@ -1304,17 +1430,15 @@ mod tests {
                     Ok(Err("harness container execution failed"))
                 ));
             }
+            "killed" => assert!(matches!(result, Ok(Err(KILLED)))),
             "create-timeout" => assert!(matches!(
                 result,
                 Ok(Err("container wall-clock budget exhausted"))
             )),
-            "timeout" | "image-timeout" => {
+            "timeout" => {
                 let execution = result.unwrap().unwrap();
                 assert!(execution.timed_out);
                 assert_eq!(execution.stdout, b"partial");
-                if scenario == "image-timeout" {
-                    assert_eq!(execution.stderr, b"diagnostic");
-                }
             }
             "success" => {
                 let execution = result.unwrap().unwrap();
@@ -1335,7 +1459,7 @@ mod tests {
             std::fs::create_dir(toolchain_path(&workspace).unwrap()).unwrap();
         }
         let result = match phase {
-            "prepare" => prepare_target(&workspace, "golem-test").await,
+            "prepare" => prepare_target(&workspace, "golem-test", &OutputGuard::default()).await,
             "v1" => run(&workspace, "golem-test", "secret-seat", None, "", 60)
                 .await
                 .map(|result| result.map(|_| ())),
@@ -1351,10 +1475,10 @@ mod tests {
             .await
             .map(|result| {
                 result.map(|execution| {
-                    assert_eq!(execution.timed_out, scenario == "image-timeout");
+                    assert!(!execution.timed_out);
                 })
             }),
-            "verify" => verify(&workspace, "golem-test", Some("")).await,
+            "verify" => verify(&workspace, "golem-test", Some(""), &OutputGuard::default()).await,
             _ => unreachable!(),
         };
         let expected = match scenario {
@@ -1371,13 +1495,8 @@ mod tests {
                 "verify" => "verification container execution failed",
                 _ => unreachable!(),
             })),
-            "image-timeout" => match phase {
-                "prepare" => Ok(Err("target preparation timed out")),
-                "v1" => Ok(Err("agent wall-clock budget exhausted")),
-                "writable" => Ok(Ok(())),
-                "verify" => Ok(Err("verification timed out")),
-                _ => unreachable!(),
-            },
+            // Never partial agent work or a budget timeout.
+            "killed" => Ok(Err(KILLED)),
             "success" => Ok(Ok(())),
             _ => unreachable!(),
         };
@@ -1397,6 +1516,80 @@ mod tests {
         )
         .await;
         assert!(matches!(result, Ok(Err("invalid sandbox timeout"))));
+    }
+
+    #[test]
+    fn output_report_bounds_sanitizes_and_fences_target_output() {
+        let guard = OutputGuard::default();
+        let bytes: Vec<u8> = (0..300)
+            .flat_map(|line| format!("line {line}\n").into_bytes())
+            .chain(b"::error::spoof\x1b[2Jend\r\n".iter().copied())
+            .collect();
+        let report = output_report("verification", "stdout", &bytes, &guard, "tok");
+        let lines: Vec<_> = report.lines().collect();
+        assert_eq!(lines[0], "golem verification stdout tail (200 lines):");
+        assert_eq!(lines[1], "::stop-commands::tok");
+        assert_eq!(lines[2], "line 101");
+        assert_eq!(lines[201], "::error::spoof\u{fffd}[2Jend");
+        assert_eq!(lines[202], "::tok::");
+        assert_eq!(lines.len(), 203);
+        assert_eq!(
+            output_report("verification", "stderr", b"", &guard, "tok"),
+            "golem verification stderr: empty"
+        );
+    }
+
+    #[test]
+    fn output_report_keeps_only_whole_lines_within_byte_bound() {
+        let mut bytes = vec![b'x'; TAIL_BYTES];
+        bytes.extend_from_slice(b"\nlast\n");
+        let report = output_report(
+            "verification",
+            "stdout",
+            &bytes,
+            &OutputGuard::default(),
+            "t",
+        );
+        assert_eq!(
+            report,
+            "golem verification stdout tail (1 lines):\n::stop-commands::t\nlast\n::t::"
+        );
+    }
+
+    #[test]
+    fn output_report_keeps_a_cut_line_when_no_whole_line_exists() {
+        let bytes = vec![b'x'; TAIL_BYTES + 100];
+        let report = output_report(
+            "verification",
+            "stdout",
+            &bytes,
+            &OutputGuard::default(),
+            "t",
+        );
+        assert_eq!(
+            report,
+            format!(
+                "golem verification stdout tail (1 lines):\n::stop-commands::t\n{}\n::t::",
+                "x".repeat(TAIL_BYTES)
+            )
+        );
+    }
+
+    #[test]
+    fn output_report_withholds_guarded_values_in_any_encoding() {
+        let mut guard = OutputGuard::default();
+        guard.add("sentinel-credential-value");
+        let utf16: Vec<u8> = "sentinel-credential-value"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        for bytes in [b"ok\nsentinel-credential-value\n".to_vec(), utf16] {
+            let report = output_report("target preparation", "stderr", &bytes, &guard, "t");
+            assert_eq!(
+                report,
+                "golem target preparation stderr tail withheld: matches a guarded credential"
+            );
+        }
     }
 
     #[tokio::test]
