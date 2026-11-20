@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-20",
+  "bugsMention": {
+    "comment": 7052173393,
+    "delivery": "dd3334b0-e531-11f1-845f-0b0a659aafde",
+    "run": 44829426605,
+    "attempt": 1,
+    "check": 136610199606,
+    "generation": "36e246e5-ba06-44a3-b7b1-13fe945015e1",
+    "requestTag": "c3d394ca0cb89a2435caef7180ccca91d3bdeeba",
+    "auditTag": "c52b54f7198f57ae4eebe879afa03e0a89af7f33",
+    "outcome": "changed",
+    "harness": "pi",
+    "provider": "openai-codex",
+    "model": "gpt-6.1-sol",
+    "workflowSha256": "c9c1cd242a5be70d1a7cf7af8d91ddb0ef2bacb08610763e711b6e49fc2e7514",
+    "reply": "https://github.com/isp-insoft-gmbh/toktrak/pull/156#issuecomment-7052641877",
+    "pullRequest": "https://github.com/isp-insoft-gmbh/toktrak/pull/164"
+  },
+  "v17Canary": {
+    "comment": 7036640270,
+    "run": 44715649586,
+    "outcome": "replied",
+    "reply": "https://github.com/isp-insoft-gmbh/toktrak/pull/156#issuecomment-7036839253"
+  },
+  "v19PristineVerify": {
+    "run": 44781678804,
+    "source": "51f14c9211aa0572b7cc54f14b0544c8e10377bc",
+    "verifyMs": 98452,
+    "scans": {
+      "baseline": true,
+      "prepared": true,
+      "verified": true
+    },
+    "metrics": {
+      "files": 882,
+      "new": 603,
+      "largestFileBytes": 52522805,
+      "totalBytes": 261925378
+    },
+    "containersRemoved": true
+  },
+  "scope": "IDs and counts only; no private source, logs or credentials"
+}
