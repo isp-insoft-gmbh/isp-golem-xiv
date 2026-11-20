@@ -23,10 +23,88 @@ pub const WORKSPACE_LIMITS: Limits = Limits {
     total_bytes: 512 * 1024 * 1024,
 };
 
+/// A regular file, or a symbolic link whose `bytes` are its UTF-8 target. Links are recorded,
+/// never followed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileState {
     pub bytes: Vec<u8>,
     pub executable: bool,
+    pub link: bool,
+}
+
+const LINK_TARGET_BYTES_MAX: usize = 1024;
+/// Git archives store longer link targets in a PAX `linkpath` record, which snapshot
+/// extraction does not accept; publishing only what extraction can read back keeps later runs
+/// on the branch working.
+const PUBLISHED_LINK_TARGET_BYTES_MAX: usize = 100;
+
+/// Where a relative link at `path` points, resolved lexically against the repository root.
+/// Rejects absolute, drive or backslash targets, `..` after a normal component (which could
+/// leave the root through an intermediate link), and anything resolving to or above the root.
+#[must_use]
+pub fn link_target_inside(path: &str, target: &str) -> Option<String> {
+    if target.is_empty()
+        || target.len() > LINK_TARGET_BYTES_MAX
+        || target.starts_with('/')
+        || target.contains(['\\', ':'])
+        || target.chars().any(char::is_control)
+    {
+        return None;
+    }
+    let mut resolved: Vec<&str> = path.split('/').collect();
+    resolved.pop()?;
+    let mut descending = false;
+    for part in target.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if descending {
+                    return None;
+                }
+                resolved.pop()?;
+            }
+            _ => {
+                descending = true;
+                resolved.push(part);
+            }
+        }
+    }
+    let joined = resolved.join("/");
+    (!joined.is_empty() && valid_path(&joined)).then_some(joined)
+}
+
+/// Records a link's target without following it.
+fn link_state(path: &Path) -> Result<FileState> {
+    let target = fs::read_link(path).map_err(|_| "cannot read snapshot link")?;
+    let target = target
+        .to_str()
+        .filter(|target| !target.is_empty() && target.len() <= LINK_TARGET_BYTES_MAX)
+        .ok_or("invalid snapshot link target")?;
+    Ok(FileState {
+        bytes: target.as_bytes().to_vec(),
+        executable: false,
+        link: true,
+    })
+}
+
+/// Whether a snapshot may contain this link: it stays inside the repository and does not itself
+/// stand at a protected path. A protected link would move the guarded content to an unguarded
+/// path (`.claude -> config` makes `config/settings.json` editable), so it is refused outright.
+#[must_use]
+pub fn snapshot_link_allowed(path: &str, target: &str) -> bool {
+    !forbidden(path) && link_target_inside(path, target).is_some()
+}
+
+/// A link may be published only if it stays inside the repository and points nowhere a golem
+/// may not change.
+fn publishable_link(path: &str, target: &[u8]) -> bool {
+    if target.len() > PUBLISHED_LINK_TARGET_BYTES_MAX {
+        return false;
+    }
+    std::str::from_utf8(target)
+        .ok()
+        .and_then(|target| link_target_inside(path, target))
+        .is_some_and(|resolved| !forbidden(&resolved))
 }
 pub type Files = BTreeMap<String, FileState>;
 
@@ -122,8 +200,10 @@ fn new_harness_state(path: &str, baseline: &Files) -> bool {
 }
 
 /// # Errors
-/// Rejects links, special files, nonportable paths, or snapshots exceeding explicit limits.
-/// Existing forbidden files are retained so changes, including deletion, can be detected.
+/// Rejects special files, hard links, nonportable paths, non-UTF-8 or oversized link targets, or
+/// snapshots exceeding explicit limits. Symbolic links are recorded with their target and never
+/// followed. Existing forbidden files are retained so changes, including deletion, can be
+/// detected.
 pub fn scan(root: &Path) -> Result<Files> {
     scan_with(root, None, SOURCE_LIMITS)
 }
@@ -183,8 +263,21 @@ fn scan_with(root: &Path, baseline: Option<&Files>, limits: Limits) -> Result<Fi
                 pending.push(path);
                 continue;
             }
+            if metadata.is_symlink() {
+                // The snapshot itself must never carry a protected link; see `snapshot_link_allowed`.
+                if baseline.is_none() && forbidden(&path) {
+                    return Err("snapshot contains a protected link");
+                }
+                let link = link_state(&entry.path())?;
+                total += link.bytes.len();
+                if total > limits.total_bytes {
+                    return Err("snapshot byte limit exceeded");
+                }
+                files.insert(path, link);
+                continue;
+            }
             if !metadata.is_file() {
-                return Err("snapshot contains link or special file");
+                return Err("snapshot contains special file");
             }
             if metadata.len() > limits.file_bytes as u64 {
                 return Err("snapshot file limit exceeded");
@@ -210,7 +303,14 @@ fn scan_with(root: &Path, baseline: Option<&Files>, limits: Limits) -> Result<Fi
             };
             #[cfg(not(unix))]
             let executable = false;
-            files.insert(path, FileState { bytes, executable });
+            files.insert(
+                path,
+                FileState {
+                    bytes,
+                    executable,
+                    link: false,
+                },
+            );
         }
     }
     Ok(files)
@@ -265,7 +365,15 @@ fn check_bytes(bytes: &[u8], guard: &OutputGuard) -> Result<()> {
 /// # Errors
 /// Rejects forbidden edits/deletions, invalid snapshots, or credential-bearing publication content.
 pub fn diff(before: &Files, after: &Files, guard: &OutputGuard) -> Result<Vec<Change>> {
-    Ok(checked_paths(before, after, guard, SOURCE_LIMITS)?
+    let paths = checked_paths(before, after, guard, SOURCE_LIMITS)?;
+    if paths.iter().any(|path| {
+        after
+            .get(*path)
+            .is_some_and(|file| file.link && !publishable_link(path, &file.bytes))
+    }) {
+        return Err("unsafe link target; publication blocked");
+    }
+    Ok(paths
         .into_iter()
         .map(|path| Change {
             path: path.clone(),
@@ -315,6 +423,10 @@ impl Ignored {
     fn from_baseline(baseline: &Files) -> Self {
         let mut matchers = Vec::new();
         for (path, file) in baseline {
+            // Like Git, a symlinked `.gitignore` is not read; its target is no rule text.
+            if file.link {
+                continue;
+            }
             let Some(directory) = path.strip_suffix(".gitignore") else {
                 continue;
             };
@@ -390,6 +502,15 @@ mod tests {
         FileState {
             bytes: bytes.to_vec(),
             executable: false,
+            link: false,
+        }
+    }
+
+    fn link(target: &str) -> FileState {
+        FileState {
+            bytes: target.as_bytes().to_vec(),
+            executable: false,
+            link: true,
         }
     }
 
@@ -525,6 +646,7 @@ mod tests {
                 FileState {
                     bytes: b"same".to_vec(),
                     executable: true,
+                    link: false,
                 },
             ),
         ]);
@@ -732,12 +854,159 @@ mod tests {
         }
     }
 
+    #[test]
+    fn link_targets_resolve_lexically_inside_the_repository_only() {
+        for (path, target, resolved) in [
+            ("docs/readme", "../README.md", Some("README.md")),
+            ("docs/readme", "./guide.md", Some("docs/guide.md")),
+            ("a/b/c", "../../x/y", Some("x/y")),
+            (
+                "legal/java.logging/LICENSE",
+                "../java.base/LICENSE",
+                Some("legal/java.base/LICENSE"),
+            ),
+            ("top", "../outside", None),
+            ("a/b", "../..", None),
+            ("a/b", "..", None),
+            ("link", "/etc/passwd", None),
+            ("link", "C:/Windows", None),
+            ("link", "sub\\file", None),
+            ("link", "", None),
+            ("a/link", "d/../../x", None),
+            ("a/link", "d/../x", None),
+            ("link", "con.txt", None),
+        ] {
+            assert_eq!(
+                link_target_inside(path, target).as_deref(),
+                resolved,
+                "{path} -> {target}"
+            );
+        }
+        assert_eq!(
+            link_target_inside("link", &"x".repeat(LINK_TARGET_BYTES_MAX + 1)),
+            None
+        );
+    }
+
+    #[test]
+    fn snapshots_never_carry_links_at_protected_paths() {
+        for (path, target) in [
+            (".claude", "harness-config"),
+            (".claude/settings.json", "../conf.json"),
+            ("sub/.codex", "../config"),
+            ("CLAUDE.md", "docs/agents.md"),
+            (".mcp.json", "mcp.json"),
+            (".github/workflows/ci.yml", "../../ci.yml"),
+            (".golems/hello.md", "../hello.md"),
+        ] {
+            assert!(!snapshot_link_allowed(path, target), "{path} -> {target}");
+        }
+        // Links into protected content are fine: writing through them changes the real,
+        // still-guarded path.
+        assert!(snapshot_link_allowed(
+            "docs/settings",
+            "../.claude/settings.json"
+        ));
+        assert!(snapshot_link_allowed("docs/readme", "../README.md"));
+    }
+
+    #[test]
+    fn publication_accepts_only_links_that_stay_inside_and_avoid_protected_paths() {
+        let before = Files::from([("README.md".into(), file(b"readme"))]);
+        let guard = OutputGuard::default();
+        let mut after = before.clone();
+        after.insert("docs/readme".into(), link("../README.md"));
+        let changes = diff(&before, &after, &guard).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert!(changes.first().unwrap().file.as_ref().unwrap().link);
+        let longest = "x".repeat(PUBLISHED_LINK_TARGET_BYTES_MAX);
+        let mut after = before.clone();
+        after.insert("longest".into(), link(&longest));
+        assert!(
+            diff(&before, &after, &guard).is_ok(),
+            "100-byte target round-trips"
+        );
+        let long = "x".repeat(PUBLISHED_LINK_TARGET_BYTES_MAX + 1);
+        for (path, target) in [
+            ("escape", "../outside"),
+            ("absolute", "/etc/passwd"),
+            ("climb", "sub/../../x"),
+            ("workflow", ".github/workflows/ci.yml"),
+            ("skills", ".claude/skills"),
+            ("rules", ".golems/hello.md"),
+            // Inside the repository, but too long for Git archives to round-trip without PAX.
+            ("long", long.as_str()),
+        ] {
+            let mut after = before.clone();
+            after.insert(path.into(), link(target));
+            assert_eq!(
+                diff(&before, &after, &guard),
+                Err("unsafe link target; publication blocked"),
+                "{path} -> {target}"
+            );
+        }
+        // A forbidden link path stays forbidden however safe its target.
+        let mut after = before.clone();
+        after.insert(".golems/alias".into(), link("../README.md"));
+        assert!(diff(&before, &after, &guard).is_err());
+        // Unchanged snapshot links are not re-judged; their targets are still credential-checked.
+        let baseline = Files::from([(".agents/skills".into(), link("../.claude/skills"))]);
+        assert_eq!(diff(&baseline, &baseline, &guard).unwrap(), vec![]);
+        let mut secret = OutputGuard::default();
+        secret.add("sensitive-test-secret");
+        let after = Files::from([("leak".into(), link("sensitive-test-secret"))]);
+        assert!(diff(&Files::new(), &after, &secret).is_err());
+    }
+
+    #[test]
+    fn symlinked_gitignore_files_are_not_read_as_rules() {
+        let before = Files::from([(".gitignore".into(), link("rules"))]);
+        let mut after = before.clone();
+        after.insert("rules".into(), file(b"source"));
+        assert!(publishable(&before, &after).unwrap().contains_key("rules"));
+    }
+
+    #[test]
+    fn ignored_links_are_disposable_but_still_validated_for_forbidden_paths() {
+        let before = Files::from([(".gitignore".into(), file(b"output/\n"))]);
+        let mut after = before.clone();
+        after.insert(
+            "output/runtime/legal/LICENSE".into(),
+            link("/absolute/elsewhere"),
+        );
+        assert_eq!(publishable(&before, &after).unwrap(), before);
+        assert!(validate_workspace(&before, &after, &OutputGuard::default()).is_ok());
+        after.insert("output/AGENTS.md".into(), link("x"));
+        assert!(validate_workspace(&before, &after, &OutputGuard::default()).is_err());
+    }
+
     #[cfg(unix)]
     #[test]
-    fn scanner_rejects_symlinks() {
+    fn scanner_records_links_without_following_them() {
         let root = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("/etc/passwd", root.path().join("link")).unwrap();
-        assert!(scan(root.path()).is_err());
-        assert!(scan_workspace(root.path(), &Files::new()).is_err());
+        fs::create_dir(root.path().join("dir")).unwrap();
+        std::os::unix::fs::symlink("/", root.path().join("dir/root")).unwrap();
+        let scanned = scan(root.path()).unwrap();
+        assert_eq!(scanned.get("link"), Some(&link("/etc/passwd")));
+        assert_eq!(scanned.get("dir/root"), Some(&link("/")));
+        assert_eq!(scanned.len(), 2, "never descends through a directory link");
+        assert!(diff(&Files::new(), &scanned, &OutputGuard::default()).is_err());
+        let protected = tempfile::tempdir().unwrap();
+        fs::create_dir(protected.path().join("config")).unwrap();
+        std::os::unix::fs::symlink("config", protected.path().join(".claude")).unwrap();
+        assert_eq!(
+            scan(protected.path()),
+            Err("snapshot contains a protected link")
+        );
+        let fifo = root.path().join("fifo");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert_eq!(scan(root.path()), Err("snapshot contains special file"));
     }
 }

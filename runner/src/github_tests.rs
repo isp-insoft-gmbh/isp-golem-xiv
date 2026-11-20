@@ -348,6 +348,7 @@ async fn publishing_uses_git_objects_nonforce_ref_and_reuses_owned_pull() {
         (200, json!([pull(&request, &sha)])),
         (200, json!({"tree":{"sha":"b".repeat(40)}})),
         (201, json!({"sha":"d".repeat(40)})),
+        (201, json!({"sha":"f".repeat(40)})),
         (201, json!({"sha":"e".repeat(40)})),
         (201, json!({"sha":new_sha})),
         (200, reference(&sha)),
@@ -360,6 +361,15 @@ async fn publishing_uses_git_objects_nonforce_ref_and_reuses_owned_pull() {
             file: Some(golem_runner::changes::FileState {
                 bytes: vec![0, 255],
                 executable: true,
+                link: false,
+            }),
+        },
+        golem_runner::changes::Change {
+            path: "src/alias".into(),
+            file: Some(golem_runner::changes::FileState {
+                bytes: b"file".to_vec(),
+                executable: false,
+                link: true,
             }),
         },
         golem_runner::changes::Change {
@@ -385,13 +395,17 @@ async fn publishing_uses_git_objects_nonforce_ref_and_reuses_owned_pull() {
         .unwrap();
     let seen = seen.join().unwrap();
     assert_eq!(seen[4].1["content"], "AP8=");
-    assert_eq!(seen[5].1["tree"][0]["mode"], "100755");
-    assert!(seen[5].1["tree"][1]["sha"].is_null());
-    assert_eq!(seen[6].1["parents"], json!([sha]));
-    assert_eq!(seen[8].1["force"], false);
-    assert!(seen[9].0.starts_with("PATCH "));
+    // A link is a blob holding its target, published with Git's symlink mode.
+    assert_eq!(seen[5].1["content"], "ZmlsZQ==");
+    assert_eq!(seen[6].1["tree"][0]["mode"], "100755");
+    assert_eq!(seen[6].1["tree"][1]["mode"], "120000");
+    assert_eq!(seen[6].1["tree"][1]["sha"], "f".repeat(40));
+    assert!(seen[6].1["tree"][2]["sha"].is_null());
+    assert_eq!(seen[7].1["parents"], json!([sha]));
+    assert_eq!(seen[9].1["force"], false);
+    assert!(seen[10].0.starts_with("PATCH "));
     assert!(
-        seen[9].1["body"]
+        seen[10].1["body"]
             .as_str()
             .unwrap()
             .contains("seat: member/anthropic\nmodel: observed-model")
@@ -411,6 +425,7 @@ async fn first_publication_creates_ref_and_pull_but_default_branch_is_never_writ
         file: Some(golem_runner::changes::FileState {
             bytes: b"content".to_vec(),
             executable: false,
+            link: false,
         }),
     }];
     let (github, seen) = server(vec![
@@ -478,6 +493,7 @@ async fn forbidden_edits_and_handled_secrets_never_reach_network() {
             file: Some(golem_runner::changes::FileState {
                 bytes,
                 executable: false,
+                link: false,
             }),
         }];
         assert!(

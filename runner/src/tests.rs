@@ -558,6 +558,7 @@ async fn typed_blocked_results_never_publish_even_allowed_changes_or_after_timeo
                             file: Some(golem_runner::changes::FileState {
                                 bytes: b"generic change".to_vec(),
                                 executable: false,
+                                link: false,
                             }),
                         }]),
                         output,
@@ -617,6 +618,7 @@ async fn timed_out_partial_changes_publish_incomplete_with_observed_model_only()
                     file: Some(golem_runner::changes::FileState {
                         bytes: b"partial change".to_vec(),
                         executable: false,
+                        link: false,
                     }),
                 }]),
                 output: golem_runner::partial_agent_result(b"", b"", &guard).unwrap(),
@@ -672,6 +674,7 @@ async fn publication_failure_retains_queue_claim_even_when_blocked_feedback_succ
                     file: Some(golem_runner::changes::FileState {
                         bytes: b"change".to_vec(),
                         executable: false,
+                        link: false,
                     }),
                 }]),
                 output: AgentOutput {
