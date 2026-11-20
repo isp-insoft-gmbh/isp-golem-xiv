@@ -1,5 +1,12 @@
 # Evidence
 
+## 2026-11-20: v18 pin
+
+[Native integrity](evidence/native-v18-integrity-20261120.json): release44752964837 on protected0ee6747, tag7de0234a, ELF64 asset772142689 (6,100,472 bytes), GitHub/sidecar/manifest SHA256 `18266711c2e5f576bb912526a591151897d268632b16a5ec7b8878107a97a2fa`; the released bytes contain `--pids-limit=1024` and not 128. Point-in-time self-check; hosting is mutable.
+Ops PR34 at e318d72 passed CI, including the create-only fixture showing Docker records the 1024 limit; merge6951e88 with reviewed-tree equality.
+The live workflow bytes equal this template byte for byte.
+Whether Toktrak's full `mise run verify` passes under the new limit is not yet shown.
+
 ## 2026-11-20: Thread cap in golem containers
 
 Instrumented private probe runs on Toktrak 216081e reported only build-step labels, fixed JVM reason strings and counts: check, 54 node and 12 tracker tests (8 passed, 4 skipped) passed, then the JUnit unit suite failed with `OutOfMemoryError: unable to create native thread`, 276 of 277 passed.
