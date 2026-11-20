@@ -423,6 +423,10 @@ impl Ignored {
     fn from_baseline(baseline: &Files) -> Self {
         let mut matchers = Vec::new();
         for (path, file) in baseline {
+            // Like Git, a symlinked `.gitignore` is not read; its target is no rule text.
+            if file.link {
+                continue;
+            }
             let Some(directory) = path.strip_suffix(".gitignore") else {
                 continue;
             };
@@ -952,6 +956,14 @@ mod tests {
         secret.add("sensitive-test-secret");
         let after = Files::from([("leak".into(), link("sensitive-test-secret"))]);
         assert!(diff(&Files::new(), &after, &secret).is_err());
+    }
+
+    #[test]
+    fn symlinked_gitignore_files_are_not_read_as_rules() {
+        let before = Files::from([(".gitignore".into(), link("rules"))]);
+        let mut after = before.clone();
+        after.insert("rules".into(), file(b"source"));
+        assert!(publishable(&before, &after).unwrap().contains_key("rules"));
     }
 
     #[test]
