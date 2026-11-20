@@ -1,5 +1,12 @@
 # Evidence
 
+## 2026-11-20: v19 pin
+
+[Native integrity](evidence/native-v19-integrity-20261120.json): release44779045328 on protected f48e678, tag9b63c334, ELF64 asset772655865 (6,109,696 bytes), GitHub/sidecar/manifest SHA256 `2ac557a59bc4d9b7f503043622a98b6a2c83d07ff9e13d5af702b2fa657ed81e`; the released bytes contain the new link errors and the 1024 process limit. Point-in-time self-check; hosting is mutable.
+Ops PR35 at 64f4e7a passed CI with no review threads; merge51f14c9 with reviewed-tree equality.
+The live workflow bytes equal this template byte for byte.
+Whether Toktrak's full verify and the following workspace scan now pass is not yet shown.
+
 ## 2026-11-20: jlink links after a fully green verify
 
 Private probe run44754962038 against v18 and Toktrak 216081e reported check, 54 node, 12 tracker, JUnit 277 of 277 and 12 tagged tests passing, and production runtime verification done; the post-verify production scan then exited 101 within 116 ms.
