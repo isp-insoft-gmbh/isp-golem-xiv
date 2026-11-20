@@ -32,8 +32,8 @@ jobs:
       - name: Download pinned public runner
         timeout-minutes: 10
         env:
-          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v18
-          RUNNER_SHA256: 18266711c2e5f576bb912526a591151897d268632b16a5ec7b8878107a97a2fa
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v19
+          RUNNER_SHA256: 2ac557a59bc4d9b7f503043622a98b6a2c83d07ff9e13d5af702b2fa657ed81e
         shell: bash
         run: |
           set -euo pipefail

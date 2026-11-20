@@ -1,0 +1,19 @@
+{
+  "release": "v19",
+  "releaseId": 452972855,
+  "releaseRun": 44779045328,
+  "source": "f48e67824433fbd91b2bbac02acbb898990c5c94",
+  "tagObject": "9b63c334a6e58945fc02f03375a8cb5dd912e20b",
+  "assetId": 772655865,
+  "size": 6109696,
+  "sha256": "2ac557a59bc4d9b7f503043622a98b6a2c83d07ff9e13d5af702b2fa657ed81e",
+  "elf": "ELF64 little-endian x86_64",
+  "staticPhaseLabelsPresent": true,
+  "embeddedMiseVersion": "2026.11.10",
+  "githubDigestMatches": true,
+  "sidecarMatches": true,
+  "manifestMatches": true,
+  "hostingImmutable": false,
+  "integrityScope": "point-in-time asset/source association; not build attestation",
+  "verifiedAt": "2026-11-20T17:13:09.993Z"
+}
