@@ -1,5 +1,12 @@
 # Evidence
 
+## 2026-11-20: v17 pin
+
+[Native integrity](evidence/native-v17-integrity-20261120.json): release44708792223 on protected11bdc6d, tag768101cc, ELF64 asset771195732 (6,100,472 bytes), GitHub/sidecar/manifest SHA256 `246a84e1873603811c6b8f24386aaf133c59f29137219203d7e5284ff425ba6a`; mutable hosting, point-in-time association only.
+Ops PR28 exact704cff5 CI44710216235, manual-gated head-matched merge70a4e4a with reviewed-tree equality; live workflow SHA ac4b9d3fa6e0d953590cbbdf83ad74947e3a238b0e768fa7dc5fc30f9e0692fe equals this template byte for byte.
+Historical reconstruction swaps only the current digest fragment; v2/v3 golden hashes and repair scenarios pass unchanged.
+No golem has answered on v17 yet.
+
 ## 2026-11-20: Single scan bounds and ignored build outputs
 
 Scheduled v16 runs 44647321005 (tester) and 44646416619 (refactor) reached harness execution and blocked with `snapshot file limit exceeded`; the safe diagnostic read only static runner literals, and its first attempt was discarded because gh labelled every step `UNKNOWN STEP` and matched no lines.
