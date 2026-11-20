@@ -3,6 +3,13 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-20: Golem containers allow 1024 processes and threads
+
+A pristine Toktrak `mise run verify` in the v17 verifier container passed check, node and tracker tests, then its JUnit suite failed with `OutOfMemoryError: unable to create native thread` (276 of 277 tests passed), at 7 s in one run and 19 s in another.
+Threads count toward `--pids-limit`, which was 128 for every golem container; agents running the same build hit the same cap.
+Oliver chose to raise the single runner limit to 1024 for preparation, agent and verifier containers alike.
+It still bounds fork bombs; memory (2 GiB), CPUs, read-only root, capabilities and all other container controls are unchanged.
+
 ## 2026-11-20: One definition per scan bound; ignored outputs never publish
 
 v16 scheduled tester and refactor runs both blocked with `snapshot file limit exceeded`: agents ran the target build, and the post-agent scan still used repository bounds, so the verifier-only bound raised on 2026-11-19 never applied there.

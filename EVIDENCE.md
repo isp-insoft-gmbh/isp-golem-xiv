@@ -1,5 +1,10 @@
 # Evidence
 
+## 2026-11-20: Thread cap in golem containers
+
+Instrumented private probe runs on Toktrak 216081e reported only build-step labels, fixed JVM reason strings and counts: check, 54 node and 12 tracker tests (8 passed, 4 skipped) passed, then the JUnit unit suite failed with `OutOfMemoryError: unable to create native thread`, 276 of 277 passed.
+The earlier scheduler-test blocker was removed by Toktrak PR163; this repair targets the next observed blocker only, and later verify stages remain unobserved in the container.
+
 ## 2026-11-20: v17 pin
 
 [Native integrity](evidence/native-v17-integrity-20261120.json): release44708792223 on protected11bdc6d, tag768101cc, ELF64 asset771195732 (6,100,472 bytes), GitHub/sidecar/manifest SHA256 `246a84e1873603811c6b8f24386aaf133c59f29137219203d7e5284ff425ba6a`; mutable hosting, point-in-time association only.

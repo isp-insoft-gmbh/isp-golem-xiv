@@ -279,7 +279,8 @@ fn create_container(
             "--read-only",
             "--cap-drop=ALL",
             "--security-opt=no-new-privileges",
-            "--pids-limit=128",
+            // Thread-heavy target test suites (JUnit) need more than 128; still bounds fork bombs.
+            "--pids-limit=1024",
             "--memory=2g",
             "--memory-swap=2g",
             "--cpus=2",
