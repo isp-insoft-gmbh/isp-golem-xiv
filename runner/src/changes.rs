@@ -33,6 +33,10 @@ pub struct FileState {
 }
 
 const LINK_TARGET_BYTES_MAX: usize = 1024;
+/// Git archives store longer link targets in a PAX `linkpath` record, which snapshot
+/// extraction does not accept; publishing only what extraction can read back keeps later runs
+/// on the branch working.
+const PUBLISHED_LINK_TARGET_BYTES_MAX: usize = 100;
 
 /// Where a relative link at `path` points, resolved lexically against the repository root.
 /// Rejects absolute, drive or backslash targets, `..` after a normal component (which could
@@ -86,6 +90,9 @@ fn link_state(path: &Path) -> Result<FileState> {
 /// A link may be published only if it stays inside the repository and points nowhere a golem
 /// may not change.
 fn publishable_link(path: &str, target: &[u8]) -> bool {
+    if target.len() > PUBLISHED_LINK_TARGET_BYTES_MAX {
+        return false;
+    }
     std::str::from_utf8(target)
         .ok()
         .and_then(|target| link_target_inside(path, target))
@@ -874,6 +881,14 @@ mod tests {
         let changes = diff(&before, &after, &guard).unwrap();
         assert_eq!(changes.len(), 1);
         assert!(changes.first().unwrap().file.as_ref().unwrap().link);
+        let longest = "x".repeat(PUBLISHED_LINK_TARGET_BYTES_MAX);
+        let mut after = before.clone();
+        after.insert("longest".into(), link(&longest));
+        assert!(
+            diff(&before, &after, &guard).is_ok(),
+            "100-byte target round-trips"
+        );
+        let long = "x".repeat(PUBLISHED_LINK_TARGET_BYTES_MAX + 1);
         for (path, target) in [
             ("escape", "../outside"),
             ("absolute", "/etc/passwd"),
@@ -881,6 +896,8 @@ mod tests {
             ("workflow", ".github/workflows/ci.yml"),
             ("skills", ".claude/skills"),
             ("rules", ".golems/hello.md"),
+            // Inside the repository, but too long for Git archives to round-trip without PAX.
+            ("long", long.as_str()),
         ] {
             let mut after = before.clone();
             after.insert(path.into(), link(target));
