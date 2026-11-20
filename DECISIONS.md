@@ -3,6 +3,17 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-19: Match the verified v16 pin after composed Linux scans
+
+Protectedc27 passed trunk CI/deployment/exact health; v16 release44551469572/source/tag/ELF/GitHub digest/sidecar/manifest match6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31.
+OpsPR25 pinned reviewed bytes before credentials; reviewed/merged trees and postmerge CI matched, with private-plan manual gates rather than claimed server protection.
+The public template now mirrors actual main workflowSHA77878193c3ea2eb60171060dcc648f062397bbd7de2ffff2a4fbc500a76f7107, retaining Mise10 and checksum/permission/cleanup fences.
+Only the current fixed-digest fragment in historical test reconstruction changes; original v2/v3 golden hashes and repair scenarios remain.
+Actual pristine Linux run44560461292 validated preparation/check plus baseline/post-preparation/post-verifier scans through a separately rebuilt source-pinned production-library helper, frozen scanned inputs and zero calculated publication changes.
+That composition is not the released executable scan entrypoint, actual publication, registered-live-secret guard or provider proof; existing harness-state exclusions remain.
+The earlier diagnostic rejected pre-start config, not target verification; Docker28.0.4 scratch evidence established Linux default-network representation bridge and unchanged launch flags.
+No historical live failing predicate is inferred from that later fixture; no additional model canary until matching template gates and fresh rollout/target checks.
+
 ## 2026-11-19: Larger disposable verifier outputs, unchanged publication bounds
 
 Oliver explicitly approved 64 MiB per file and 512 MiB total for verifier-output scanning.

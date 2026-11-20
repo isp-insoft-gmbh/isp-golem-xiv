@@ -1,0 +1,20 @@
+{
+  "release": "v16",
+  "releaseId": 451520869,
+  "releaseRun": 44551469572,
+  "source": "c27af84daa019d8ed3b5070646f9ea95b9af48ed",
+  "tagObject": "68808a70d72e6fa326a807a0ca81eec572d6251e",
+  "assetId": 768167338,
+  "size": 5062504,
+  "sha256": "6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31",
+  "elf": "ELF64 little-endian x86_64",
+  "staticPhaseLabelsPresent": true,
+  "embeddedMiseVersion": "2026.11.10",
+  "githubDigestMatches": true,
+  "sidecarMatches": true,
+  "manifestMatches": true,
+  "hostingImmutable": false,
+  "integrityScope": "point-in-time asset/source association; not build attestation",
+  "directory": "C:/Users/okr/AppData/Local/Temp/golem-v16-verified-assets",
+  "verifiedAt": "2026-11-19T15:16:13.036Z"
+}

@@ -1,0 +1,42 @@
+{
+  "run": 44560461292,
+  "source": "4cbcb806475bce381b2ce2f0131e0060f04de61d",
+  "attempt": 1,
+  "conclusion": "success",
+  "targetSource": "577fbe99b54539bbdb8828e668373e40da31fc9b",
+  "archiveSha256": "0764371c3ed2a95185519e3d61a66140b97d546d345e1acba7224157a2b9bd5e",
+  "trackedFiles": 279,
+  "runnerRelease": "v16",
+  "runnerSha256": "6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31",
+  "workflowSha256": "77878193c3ea2eb60171060dcc648f062397bbd7de2ffff2a4fbc500a76f7107",
+  "librarySource": "c27af84daa019d8ed3b5070646f9ea95b9af48ed",
+  "helperSha256": "dede4da9025bc4860a56f2f5c391c170fefc91fbcd26343c57f7742ac90f6a3a",
+  "scans": {
+    "baseline": true,
+    "prepared": true,
+    "verified": true
+  },
+  "allPhaseExitsZero": true,
+  "containers": [
+    {
+      "phase": "prepare",
+      "configuredScopeChecked": true,
+      "exit": 0,
+      "changedTrackedFiles": 0,
+      "destructionConfirmed": true
+    },
+    {
+      "phase": "verify",
+      "configuredScopeChecked": true,
+      "exit": 0,
+      "changedTrackedFiles": 0,
+      "destructionConfirmed": true
+    }
+  ],
+  "composedProofPassed": true,
+  "caveats": [
+    "Source-pinned rebuilt scanner, not released executable scan entrypoint",
+    "Existing harness-state exclusions and default guard retained",
+    "No agent/provider, actual publication, registered live secrets or historical failure phase proof"
+  ]
+}

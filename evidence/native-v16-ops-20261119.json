@@ -1,0 +1,18 @@
+{
+  "repository": "isp-insoft-gmbh/isp-golem-xiv-ops",
+  "source": "bd18415373999aa9640d0dc49f9ab31160df29dd",
+  "reviewed": "e3f7466353011c356a035b799d5369476b03ed99",
+  "postmergeCI": 44553592731,
+  "postmergeCIConclusion": "success",
+  "workflowBlob": "26b2fd98e8dffb19af3a62ab2d00c66afc51e186",
+  "workflowSha256": "77878193c3ea2eb60171060dcc648f062397bbd7de2ffff2a4fbc500a76f7107",
+  "nativeRelease": "v16",
+  "nativeSha256": "6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31",
+  "mise": "2026.11.10",
+  "fixedDigestBeforeCredentials": true,
+  "sidecarCheckRetained": true,
+  "liveBytesMatchReviewed": true,
+  "serverBranchProtection": "private-plan feature unavailable; manual exact-head CI/review gates",
+  "targetExecutionProven": false,
+  "verifiedAt": "2026-11-19T15:30:01.831Z"
+}

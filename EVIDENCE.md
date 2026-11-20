@@ -1,5 +1,18 @@
 # Evidence
 
+## 2026-11-19: v16 reviewed pin and composed pristine Linux scans
+
+[Native integrity](evidence/native-v16-integrity-20261119.json): release44551469572/sourcec27/tag68808a70, ELF64 asset768167338/5,062,504bytes, independent GitHub/sidecar/manifest SHA6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31.
+Mutable hosting means point-in-time association, not attestation.
+[Ops pin readback](evidence/native-v16-ops-20261119.json): exacte3f7 CI44553285492, manual-gated mergeBD/tree634ca201/postmerge44553592731, workflowSHA778 matching reviewed bytes with fixed digest before credentials.
+Later diagnostic merges retain those main workflow bytes; actual source4cbc readback equals this public candidate byte-for-byte.
+[Sanitized composed Linux result](evidence/native-v16-pristine-scans-20261119.json): exactrun44560461292/4cbc/attempt1, actual host archive/manifest, both fresh configured scopes, preparation/check and all three production-library scans accepted, frozen scanned inputs preserved, calculated publication0 and both removals acknowledged.
+The scanner is rebuilt from pinned publicc27 source, not the released executable scanner entrypoint; no actual agent/provider/publication or historical failing-phase proof.
+Existing harness-state exclusions and default-guard scope remain; no private source or raw logs included.
+Current-pin historical reconstruction failed with old digest, then all existing v2/v3 digest and repair/provenance/lifecycle/CAS scenarios passed after exact fragment update; judge and golden assertions unchanged.
+Complete local project gate -175 passed with `GOLEM_CHECK_ADVISORIES=false`, not advisory verification; host/wasm/Rust/unchanged WSL/runtime/repository gates passed, existing two opt-in cases remain ignored.
+Matching-template GitHub CI/deployment, successful new preflight execution and a useful bound App answer remain pending.
+
 ## 2026-11-19: Verifier-output cap regression
 
 The new consumer regression failed against unchanged code with `snapshot file limit exceeded`, retained in OS-temp `golem-verifier-bounds-red.log`.
