@@ -124,7 +124,7 @@ fn link_target(header: &tar::Header, relative: &Path, size: u64) -> Result<Strin
         .link_name_bytes()
         .and_then(|target| std::str::from_utf8(&target).ok().map(str::to_owned))
         .ok_or("invalid snapshot link")?;
-    if size != 0 || golem_runner::changes::link_target_inside(&name, &target).is_none() {
+    if size != 0 || !golem_runner::changes::snapshot_link_allowed(&name, &target) {
         return Err("snapshot contains an unsafe link");
     }
     Ok(target)
@@ -994,6 +994,19 @@ mod tests {
             vec![("snapshot/absolute", b"".as_slice(), Some("/etc/passwd"))],
             vec![("snapshot/climb", b"".as_slice(), Some("sub/../../x"))],
             vec![("snapshot/root", b"".as_slice(), Some("."))],
+            // A protected path must hold the guarded content itself, never point elsewhere.
+            vec![("snapshot/.claude", b"".as_slice(), Some("harness-config"))],
+            vec![(
+                "snapshot/.claude/settings.json",
+                b"".as_slice(),
+                Some("../conf.json"),
+            )],
+            vec![("snapshot/CLAUDE.md", b"".as_slice(), Some("docs/agents.md"))],
+            vec![(
+                "snapshot/.github/workflows/ci.yml",
+                b"".as_slice(),
+                Some("../../ci.yml"),
+            )],
             // A file below a link, or a link below a link, would write through the first link.
             vec![
                 ("snapshot/dir", b"".as_slice(), Some("real")),

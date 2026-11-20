@@ -87,6 +87,14 @@ fn link_state(path: &Path) -> Result<FileState> {
     })
 }
 
+/// Whether a snapshot may contain this link: it stays inside the repository and does not itself
+/// stand at a protected path. A protected link would move the guarded content to an unguarded
+/// path (`.claude -> config` makes `config/settings.json` editable), so it is refused outright.
+#[must_use]
+pub fn snapshot_link_allowed(path: &str, target: &str) -> bool {
+    !forbidden(path) && link_target_inside(path, target).is_some()
+}
+
 /// A link may be published only if it stays inside the repository and points nowhere a golem
 /// may not change.
 fn publishable_link(path: &str, target: &[u8]) -> bool {
@@ -256,6 +264,10 @@ fn scan_with(root: &Path, baseline: Option<&Files>, limits: Limits) -> Result<Fi
                 continue;
             }
             if metadata.is_symlink() {
+                // The snapshot itself must never carry a protected link; see `snapshot_link_allowed`.
+                if baseline.is_none() && forbidden(&path) {
+                    return Err("snapshot contains a protected link");
+                }
                 let link = link_state(&entry.path())?;
                 total += link.bytes.len();
                 if total > limits.total_bytes {
@@ -873,6 +885,28 @@ mod tests {
     }
 
     #[test]
+    fn snapshots_never_carry_links_at_protected_paths() {
+        for (path, target) in [
+            (".claude", "harness-config"),
+            (".claude/settings.json", "../conf.json"),
+            ("sub/.codex", "../config"),
+            ("CLAUDE.md", "docs/agents.md"),
+            (".mcp.json", "mcp.json"),
+            (".github/workflows/ci.yml", "../../ci.yml"),
+            (".golems/hello.md", "../hello.md"),
+        ] {
+            assert!(!snapshot_link_allowed(path, target), "{path} -> {target}");
+        }
+        // Links into protected content are fine: writing through them changes the real,
+        // still-guarded path.
+        assert!(snapshot_link_allowed(
+            "docs/settings",
+            "../.claude/settings.json"
+        ));
+        assert!(snapshot_link_allowed("docs/readme", "../README.md"));
+    }
+
+    #[test]
     fn publication_accepts_only_links_that_stay_inside_and_avoid_protected_paths() {
         let before = Files::from([("README.md".into(), file(b"readme"))]);
         let guard = OutputGuard::default();
@@ -946,6 +980,13 @@ mod tests {
         assert_eq!(scanned.get("dir/root"), Some(&link("/")));
         assert_eq!(scanned.len(), 2, "never descends through a directory link");
         assert!(diff(&Files::new(), &scanned, &OutputGuard::default()).is_err());
+        let protected = tempfile::tempdir().unwrap();
+        fs::create_dir(protected.path().join("config")).unwrap();
+        std::os::unix::fs::symlink("config", protected.path().join(".claude")).unwrap();
+        assert_eq!(
+            scan(protected.path()),
+            Err("snapshot contains a protected link")
+        );
         let fifo = root.path().join("fifo");
         assert!(
             std::process::Command::new("mkfifo")

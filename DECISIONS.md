@@ -13,6 +13,7 @@ New links in paths the snapshot's `.gitignore` ignores are disposable like other
 A changed link is published, as a Git symlink (mode 120000), only if its target is relative, contains no backslash, drive or control characters, uses `..` only as a leading prefix, resolves lexically inside the repository, and does not resolve into a path golems may not change.
 Published targets are limited to 100 bytes: Git archives store longer targets in a PAX `linkpath` record, which extraction does not accept, so a longer published link would block later runs on that branch.
 Forbidden link paths and credential checks on link targets apply as for files.
+A link may never stand at a protected path itself (`.claude`, `.codex`, `.pi`, `.agents`, `.golems`, `.git`, `CLAUDE.md`, `AGENTS.md`, `.mcp.json`, workflows): it would move guarded content to an unguarded path, so extraction and baseline scans refuse it; links into protected content stay allowed because writing through them changes the real, guarded path.
 Snapshot extraction accepts the same inside links, so a later run on a branch with a published link still works; links are created after every file, and a link below another link is rejected, so extraction never writes through a link.
 Allowing `..` only before normal components prevents escapes through intermediate links; it rejects some harmless targets.
 The duplicate permission block after `set_file_mode` in extraction was removed.
