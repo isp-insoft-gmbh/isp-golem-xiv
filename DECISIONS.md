@@ -3,6 +3,18 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-20: One definition per scan bound; ignored outputs never publish
+
+v16 scheduled tester and refactor runs both blocked with `snapshot file limit exceeded`: agents ran the target build, and the post-agent scan still used repository bounds, so the verifier-only bound raised on 2026-11-19 never applied there.
+Oliver asked for a single source of truth and approved this shape:
+`changes::SOURCE_LIMITS` (4 MiB per file, 64 MiB total) is the only definition for archives, baseline scans and published changes; `snapshot.rs` imports it.
+`changes::WORKSPACE_LIMITS` (64 MiB, 512 MiB) is the only definition for the workspace after agent or verifier; `scan_workspace` replaces both `scan_after` and `scan_verification`, `validate_workspace` replaces `validate_verification`.
+`publishable` drops new files that the snapshot's own `.gitignore` files ignore, as Git would; baseline bytes decide, so run-time edits cannot hide a change, and files present in the snapshot, including their deletion, always remain candidates.
+Every workspace change, ignored or not, is still checked for forbidden paths, links and handled credentials; only published bytes are frozen against verifier mutation, because verifiers legitimately rebuild ignored outputs.
+Git semantics come from the `ignore` crate's gitignore matcher (ripgrep, MIT or Unlicense, no walking used) rather than a hand-written subset that could silently drop agent files; a leading UTF-8 BOM is skipped like Git.
+The lock change arms the advisory gate: Oliver approved ignoring RUSTSEC-2026-0543 in `deny.toml`, `chrono` being unmaintained rather than vulnerable and reached only through the wasm `worker` crate (0.9.0 still requires it); yanked `serde-saphyr` moves 2.1.0 → 2.2.0.
+Peak memory of the new shape (agent and verifier workspaces both held, each up to 512 MiB) is unmeasured; the 2026-11-19 profile covered one scan only.
+
 ## 2026-11-19: Match the verified v16 pin after composed Linux scans
 
 Protectedc27 passed trunk CI/deployment/exact health; v16 release44551469572/source/tag/ELF/GitHub digest/sidecar/manifest match6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31.

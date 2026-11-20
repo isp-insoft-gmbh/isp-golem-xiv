@@ -219,23 +219,41 @@ async fn execute_agent(
     })
 }
 
+/// The workspace the agent left, after checking every change and its publication candidate.
+fn agent_workspace(
+    workspace: &Path,
+    before: &golem_runner::changes::Files,
+    guard: &OutputGuard,
+) -> Result<golem_runner::changes::Files> {
+    let after_agent = golem_runner::changes::scan_workspace(workspace, before)?;
+    golem_runner::changes::validate_workspace(before, &after_agent, guard)?;
+    golem_runner::changes::diff(
+        before,
+        &golem_runner::changes::publishable(before, &after_agent)?,
+        guard,
+    )?;
+    Ok(after_agent)
+}
+
 fn verified_changes(
     workspace: &Path,
     before: &golem_runner::changes::Files,
     after_agent: &golem_runner::changes::Files,
     guard: &OutputGuard,
 ) -> Result<Vec<golem_runner::changes::Change>> {
-    let after_verify = golem_runner::changes::scan_verification(workspace, before)?;
-    if after_agent
+    let published = golem_runner::changes::publishable(before, after_agent)?;
+    let after_verify = golem_runner::changes::scan_workspace(workspace, before)?;
+    if published
         .iter()
         .any(|(path, file)| after_verify.get(path) != Some(file))
     {
         return Err("verification mutated workspace; publication blocked");
     }
-    // Generated regular outputs are disposable, never part of the frozen publication.
-    // Still scan every output and reject forbidden paths, links, floods and credentials.
-    golem_runner::changes::validate_verification(after_agent, &after_verify, guard)?;
-    golem_runner::changes::diff(before, after_agent, guard)
+    // Ignored and verifier-generated outputs are disposable, never part of the frozen
+    // publication. Still scan every output and reject forbidden paths, links, floods and
+    // credentials.
+    golem_runner::changes::validate_workspace(after_agent, &after_verify, guard)?;
+    golem_runner::changes::diff(before, &published, guard)
 }
 
 /// What a Codex or Pi run on a Codex seat left in its private `auth.json`, in that harness's
@@ -516,11 +534,7 @@ impl RunContext<'_> {
                 Ok(output) => output,
                 Err(error) => return Ok(Err(error)),
             };
-            let after_agent =
-                golem_runner::changes::scan_after(&workspace, &before).and_then(|after_agent| {
-                    golem_runner::changes::diff(&before, &after_agent, guard).map(|_| after_agent)
-                });
-            let changes = match after_agent {
+            let changes = match agent_workspace(&workspace, &before, guard) {
                 Err(error) => Err(error),
                 Ok(after_agent) => {
                     let verified = sandbox::verify(
