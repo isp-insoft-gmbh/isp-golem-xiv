@@ -1,11 +1,17 @@
 # Evidence
 
+## 2026-11-20: jlink links after a fully green verify
+
+Private probe run44754962038 against v18 and Toktrak 216081e reported check, 54 node, 12 tracker, JUnit 277 of 277 and 12 tagged tests passing, and production runtime verification done; the post-verify production scan then exited 101 within 116 ms.
+A local Linux jlink of two modules produced three relative links under `legal/`; the panic text itself was not captured, so the link rejection is the strongly supported explanation rather than an observed message.
+Runner tests on Windows pass (library 49, binary 69 with 2 opt-in ignored); the Unix-only link scanning and extraction tests run in Linux CI.
+
 ## 2026-11-20: v18 pin
 
 [Native integrity](evidence/native-v18-integrity-20261120.json): release44752964837 on protected0ee6747, tag7de0234a, ELF64 asset772142689 (6,100,472 bytes), GitHub/sidecar/manifest SHA256 `18266711c2e5f576bb912526a591151897d268632b16a5ec7b8878107a97a2fa`; the released bytes contain `--pids-limit=1024` and not 128. Point-in-time self-check; hosting is mutable.
 Ops PR34 at e318d72 passed CI, including the create-only fixture showing Docker records the 1024 limit; merge6951e88 with reviewed-tree equality.
 The live workflow bytes equal this template byte for byte.
-Whether Toktrak's full `mise run verify` passes under the new limit is not yet shown.
+The full verify then passed under the new limit (see the entry above); the subsequent scan did not.
 
 ## 2026-11-20: Thread cap in golem containers
 

@@ -763,7 +763,13 @@ impl Github {
             let (mode, sha) = if let Some(file) = &change.file {
                 let blob = self.json(Method::POST, &format!("{prefix}/blobs"), token, Some(json!({"encoding":"base64", "content":general_purpose::STANDARD.encode(&file.bytes)}))).await?;
                 (
-                    if file.executable { "100755" } else { "100644" },
+                    if file.link {
+                        "120000"
+                    } else if file.executable {
+                        "100755"
+                    } else {
+                        "100644"
+                    },
                     Some(response_sha(&blob)?),
                 )
             } else {
@@ -1003,6 +1009,7 @@ fn validate_publication(
                 golem_runner::changes::FileState {
                     bytes: vec![0],
                     executable: false,
+                    link: false,
                 },
             );
         }

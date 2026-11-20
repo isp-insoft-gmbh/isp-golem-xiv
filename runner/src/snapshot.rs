@@ -21,6 +21,7 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
     let mut pending_path = None;
     let mut seen = HashSet::new();
     let mut spellings = HashMap::new();
+    let mut links = Vec::new();
     let mut total = 0_u64;
     for (index, entry) in archive
         .entries()
@@ -62,8 +63,14 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
         }
         let path = pending_path.take().unwrap_or(path);
         let relative = relative_path(&path, &mut root)?;
+        if kind.is_symlink() {
+            let target = link_target(entry.header(), &relative, size)?;
+            register_path(&relative, &mut seen, &mut spellings)?;
+            links.push((destination.join(relative), target));
+            continue;
+        }
         if !kind.is_file() && !kind.is_dir() {
-            return Err("snapshot contains a link or special file");
+            return Err("snapshot contains a hard link or special file");
         }
         register_path(&relative, &mut seen, &mut spellings)?;
         if relative.as_os_str().is_empty() {
@@ -93,16 +100,6 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
                     .mode()
                     .map_err(|_| "invalid snapshot file mode")?,
             )?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt as _;
-                let mode = entry.header().mode().map_err(|_| "invalid snapshot mode")?;
-                fs::set_permissions(
-                    &target,
-                    fs::Permissions::from_mode(if mode & 0o111 != 0 { 0o755 } else { 0o644 }),
-                )
-                .map_err(|_| "cannot set snapshot permissions")?;
-            }
         }
     }
     // The byte limit includes tar headers and padding, not just file payloads.
@@ -113,6 +110,46 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<()> {
     }
     if decoder.limit() == 0 || root.is_none() {
         return Err("snapshot expanded size exceeds limit or archive is empty");
+    }
+    create_links(&links)
+}
+
+/// Only links that stay inside the snapshot are accepted.
+fn link_target(header: &tar::Header, relative: &Path, size: u64) -> Result<String> {
+    let name = relative
+        .to_str()
+        .ok_or("invalid snapshot path")?
+        .replace('\\', "/");
+    let target = header
+        .link_name_bytes()
+        .and_then(|target| std::str::from_utf8(&target).ok().map(str::to_owned))
+        .ok_or("invalid snapshot link")?;
+    if size != 0 || golem_runner::changes::link_target_inside(&name, &target).is_none() {
+        return Err("snapshot contains an unsafe link");
+    }
+    Ok(target)
+}
+
+/// Links are created after every file, so no archive entry is ever written through a link.
+fn create_links(links: &[(PathBuf, String)]) -> Result<()> {
+    // A link below another link would make its parent creation write through the first link.
+    if links.iter().any(|(path, _)| {
+        links
+            .iter()
+            .any(|(other, _)| other != path && path.starts_with(other))
+    }) {
+        return Err("snapshot contains an unsafe link");
+    }
+    #[cfg(not(unix))]
+    if !links.is_empty() {
+        return Err("snapshot links require a Unix host");
+    }
+    #[cfg(unix)]
+    for (path, target) in links {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|_| "cannot create snapshot directory")?;
+        }
+        std::os::unix::fs::symlink(target, path).map_err(|_| "cannot create snapshot link")?;
     }
     Ok(())
 }
@@ -928,5 +965,68 @@ mod tests {
         ] {
             assert!(relative_path(Path::new(path), &mut None).is_err(), "{path}");
         }
+    }
+
+    /// Entries are (path, contents, link target); a target makes the entry a symbolic link.
+    fn link_archive(entries: &[(&str, &[u8], Option<&str>)]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
+        for (path, contents, target) in entries {
+            let mut header = tar::Header::new_ustar();
+            header.set_mode(0o644);
+            if let Some(target) = target {
+                header.set_entry_type(tar::EntryType::Symlink);
+                header.set_size(0);
+                header.set_link_name(target).unwrap();
+            } else {
+                header.set_entry_type(tar::EntryType::Regular);
+                header.set_size(contents.len() as u64);
+            }
+            header.set_cksum();
+            builder.append_data(&mut header, path, *contents).unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap()
+    }
+
+    #[test]
+    fn archive_links_must_stay_inside_and_never_be_written_through() {
+        for entries in [
+            vec![("snapshot/escape", b"".as_slice(), Some("../../outside"))],
+            vec![("snapshot/absolute", b"".as_slice(), Some("/etc/passwd"))],
+            vec![("snapshot/climb", b"".as_slice(), Some("sub/../../x"))],
+            vec![("snapshot/root", b"".as_slice(), Some("."))],
+            // A file below a link, or a link below a link, would write through the first link.
+            vec![
+                ("snapshot/dir", b"".as_slice(), Some("real")),
+                ("snapshot/dir/file", b"content".as_slice(), None),
+            ],
+            vec![
+                ("snapshot/a", b"".as_slice(), Some("b")),
+                ("snapshot/a/c", b"".as_slice(), Some("../x")),
+            ],
+        ] {
+            let target = tempfile::tempdir().unwrap();
+            assert!(
+                extract(&link_archive(&entries), target.path()).is_err(),
+                "{entries:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn archive_extracts_inside_links_as_links() {
+        let target = tempfile::tempdir().unwrap();
+        extract(
+            &link_archive(&[
+                ("snapshot/README.md", b"hello", None),
+                ("snapshot/docs/readme", b"", Some("../README.md")),
+            ]),
+            target.path(),
+        )
+        .unwrap();
+        let link = target.path().join("docs/readme");
+        assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(fs::read_link(&link).unwrap(), Path::new("../README.md"));
+        assert_eq!(fs::read(&link).unwrap(), b"hello");
     }
 }
