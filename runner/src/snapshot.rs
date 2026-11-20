@@ -1,5 +1,5 @@
 use flate2::read::GzDecoder;
-use golem_runner::{DispatchV1, Result};
+use golem_runner::{DispatchV1, Result, changes::SOURCE_LIMITS};
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write as _,
@@ -8,8 +8,8 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-const EXPANDED_BYTES_MAX: u64 = 64 * 1024 * 1024;
-const FILE_BYTES_MAX: u64 = 4 * 1024 * 1024;
+const EXPANDED_BYTES_MAX: u64 = SOURCE_LIMITS.total_bytes as u64;
+const FILE_BYTES_MAX: u64 = SOURCE_LIMITS.file_bytes as u64;
 const ENTRIES_MAX: usize = 10_000;
 const GLOBAL_METADATA_BYTES: u64 = 52;
 const LOCAL_METADATA_BYTES_MAX: u64 = 1040;

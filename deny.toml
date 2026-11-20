@@ -3,6 +3,11 @@ all-features = true
 
 [advisories]
 version = 2
+ignore = [
+  # Oliver approved 2026-11-20. Unmaintained, not a vulnerability; reached only through the
+  # wasm Cloudflare `worker` crate (0.8.7, and 0.9.0 still requires it). Drop once worker does.
+  { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; only via wasm worker crate, no maintained replacement upstream" },
+]
 
 [licenses]
 version = 2

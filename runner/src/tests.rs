@@ -1328,7 +1328,7 @@ fn verifier_large_outputs_stay_disposable_and_credential_checked() {
     std::fs::write(&source, b"original").unwrap();
     let before = golem_runner::changes::scan(workspace.path()).unwrap();
     std::fs::write(&source, b"agent change").unwrap();
-    let after_agent = golem_runner::changes::scan_after(workspace.path(), &before).unwrap();
+    let after_agent = golem_runner::changes::scan_workspace(workspace.path(), &before).unwrap();
     let guard = OutputGuard::default();
     let expected = golem_runner::changes::diff(&before, &after_agent, &guard).unwrap();
     // Verifier-generated output exceeds both old caps, never the frozen publication.
@@ -1360,6 +1360,61 @@ fn verifier_large_outputs_stay_disposable_and_credential_checked() {
     file.write_all(&encoded).unwrap();
     drop(file);
     assert!(verified_changes(workspace.path(), &before, &after_agent, &guard).is_err());
+}
+
+#[test]
+fn agent_build_outputs_ignored_by_the_snapshot_never_block_or_publish() {
+    let workspace = tempfile::tempdir().unwrap();
+    let root = workspace.path();
+    std::fs::write(root.join(".gitignore"), "output/\n").unwrap();
+    std::fs::write(root.join("source.txt"), b"original").unwrap();
+    let before = golem_runner::changes::scan(root).unwrap();
+    let guard = OutputGuard::default();
+    // The agent edits source and runs the target build: outputs exceed both source caps.
+    std::fs::write(root.join("source.txt"), b"agent change").unwrap();
+    std::fs::create_dir_all(root.join("output/deps")).unwrap();
+    for index in 0..14 {
+        std::fs::File::create(root.join(format!("output/deps/{index}.jar")))
+            .unwrap()
+            .set_len(5 * 1024 * 1024)
+            .unwrap();
+    }
+    let after_agent = agent_workspace(root, &before, &guard).unwrap();
+    let expected = golem_runner::changes::diff(
+        &before,
+        &golem_runner::changes::publishable(&before, &after_agent).unwrap(),
+        &guard,
+    )
+    .unwrap();
+    assert_eq!(
+        expected.iter().map(|c| c.path.as_str()).collect::<Vec<_>>(),
+        ["source.txt"]
+    );
+    // The verifier rebuilds and rewrites ignored outputs; only published bytes are frozen.
+    std::fs::write(root.join("output/deps/0.jar"), b"rebuilt").unwrap();
+    assert_eq!(
+        verified_changes(root, &before, &after_agent, &guard).unwrap(),
+        expected
+    );
+    // Not ignored: an oversized new file still blocks before any copy or publication.
+    std::fs::File::create(root.join("large.bin"))
+        .unwrap()
+        .set_len(5 * 1024 * 1024)
+        .unwrap();
+    assert_eq!(
+        agent_workspace(root, &before, &guard),
+        Err("publication file limit exceeded")
+    );
+    std::fs::remove_file(root.join("large.bin")).unwrap();
+    // Ignored output is still inspected: a handled credential blocks the run.
+    let mut guard = OutputGuard::default();
+    guard.add("agent-output-credential-sentinel");
+    std::fs::write(
+        root.join("output/log.txt"),
+        "agent-output-credential-sentinel",
+    )
+    .unwrap();
+    assert!(agent_workspace(root, &before, &guard).is_err());
 }
 
 #[test]

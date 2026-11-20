@@ -1,22 +1,24 @@
 use crate::{OutputGuard, Result};
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::{collections::BTreeMap, fs, io::Read as _, path::Path};
 
 const ENTRIES_MAX: usize = 20_000;
-const FILE_BYTES_MAX: usize = 4 * 1024 * 1024;
-const TOTAL_BYTES_MAX: usize = 64 * 1024 * 1024;
 const DEPTH_MAX: usize = 32;
 
+/// Byte bounds; the two values below are the only definitions of these caps.
 #[derive(Clone, Copy)]
-struct Limits {
-    file_bytes: usize,
-    total_bytes: usize,
+pub struct Limits {
+    pub file_bytes: usize,
+    pub total_bytes: usize,
 }
 
-const PUBLICATION_LIMITS: Limits = Limits {
-    file_bytes: FILE_BYTES_MAX,
-    total_bytes: TOTAL_BYTES_MAX,
+/// Repository content: snapshot archives, baseline scans and published changes.
+pub const SOURCE_LIMITS: Limits = Limits {
+    file_bytes: 4 * 1024 * 1024,
+    total_bytes: 64 * 1024 * 1024,
 };
-const VERIFICATION_LIMITS: Limits = Limits {
+/// Workspace after agent or verifier ran: build outputs are inspected, never published as such.
+pub const WORKSPACE_LIMITS: Limits = Limits {
     file_bytes: 64 * 1024 * 1024,
     total_bytes: 512 * 1024 * 1024,
 };
@@ -123,25 +125,18 @@ fn new_harness_state(path: &str, baseline: &Files) -> bool {
 /// Rejects links, special files, nonportable paths, or snapshots exceeding explicit limits.
 /// Existing forbidden files are retained so changes, including deletion, can be detected.
 pub fn scan(root: &Path) -> Result<Files> {
-    scan_with(root, None, PUBLICATION_LIMITS)
+    scan_with(root, None, SOURCE_LIMITS)
 }
 
-/// Scans after the agent against the snapshot: harness-created state under `.claude`, `.codex`,
-/// `.pi` or `.agents` that did not exist before is skipped entirely (not counted, not published,
-/// links allowed), while every file present in the snapshot is still compared.
+/// Scans the workspace after the agent or verifier against the snapshot, within
+/// [`WORKSPACE_LIMITS`]: harness-created state under `.claude`, `.codex`, `.pi` or `.agents`
+/// that did not exist before is skipped entirely (not counted, not published, links allowed),
+/// while every file present in the snapshot is still compared.
 ///
 /// # Errors
 /// As [`scan`] for everything outside skipped harness state.
-pub fn scan_after(root: &Path, baseline: &Files) -> Result<Files> {
-    scan_with(root, Some(baseline), PUBLICATION_LIMITS)
-}
-
-/// Scans disposable verifier outputs with larger byte bounds, never publication bounds.
-///
-/// # Errors
-/// As [`scan_after`], with 64 MiB per file and 512 MiB total; other guards are unchanged.
-pub fn scan_verification(root: &Path, baseline: &Files) -> Result<Files> {
-    scan_with(root, Some(baseline), VERIFICATION_LIMITS)
+pub fn scan_workspace(root: &Path, baseline: &Files) -> Result<Files> {
+    scan_with(root, Some(baseline), WORKSPACE_LIMITS)
 }
 
 fn scan_with(root: &Path, baseline: Option<&Files>, limits: Limits) -> Result<Files> {
@@ -270,7 +265,7 @@ fn check_bytes(bytes: &[u8], guard: &OutputGuard) -> Result<()> {
 /// # Errors
 /// Rejects forbidden edits/deletions, invalid snapshots, or credential-bearing publication content.
 pub fn diff(before: &Files, after: &Files, guard: &OutputGuard) -> Result<Vec<Change>> {
-    Ok(checked_paths(before, after, guard, PUBLICATION_LIMITS)?
+    Ok(checked_paths(before, after, guard, SOURCE_LIMITS)?
         .into_iter()
         .map(|path| Change {
             path: path.clone(),
@@ -279,12 +274,85 @@ pub fn diff(before: &Files, after: &Files, guard: &OutputGuard) -> Result<Vec<Ch
         .collect())
 }
 
-/// Checks scanned verifier changes without cloning disposable artifacts into publication content.
+/// Checks every workspace change, publishable or not, without cloning disposable artifacts.
 ///
 /// # Errors
 /// Rejects oversized outputs, forbidden changes, invalid paths, or credential-bearing bytes.
-pub fn validate_verification(before: &Files, after: &Files, guard: &OutputGuard) -> Result<()> {
-    checked_paths(before, after, guard, VERIFICATION_LIMITS).map(drop)
+pub fn validate_workspace(before: &Files, after: &Files, guard: &OutputGuard) -> Result<()> {
+    checked_paths(before, after, guard, WORKSPACE_LIMITS).map(drop)
+}
+
+/// The publication candidate: `after` without new files Git would not track per the
+/// baseline's `.gitignore` files. Baseline bytes decide, so edits during the run cannot
+/// hide a file; files present in the snapshot are always kept, including their deletion.
+///
+/// # Errors
+/// Rejects a kept file or total beyond [`SOURCE_LIMITS`] before copying it.
+pub fn publishable(before: &Files, after: &Files) -> Result<Files> {
+    let ignored = Ignored::from_baseline(before);
+    let mut total = 0usize;
+    let mut kept = Files::new();
+    for (path, file) in after {
+        if !before.contains_key(path) && ignored.ignores(path) {
+            continue;
+        }
+        total += file.bytes.len();
+        if file.bytes.len() > SOURCE_LIMITS.file_bytes {
+            return Err("publication file limit exceeded");
+        }
+        if total > SOURCE_LIMITS.total_bytes {
+            return Err("publication byte limit exceeded");
+        }
+        kept.insert(path.clone(), file.clone());
+    }
+    Ok(kept)
+}
+
+/// Matchers of the snapshot's `.gitignore` files, deepest directory first.
+struct Ignored(Vec<(String, Gitignore)>);
+
+impl Ignored {
+    fn from_baseline(baseline: &Files) -> Self {
+        let mut matchers = Vec::new();
+        for (path, file) in baseline {
+            let Some(directory) = path.strip_suffix(".gitignore") else {
+                continue;
+            };
+            if !(directory.is_empty() || directory.ends_with('/')) {
+                continue;
+            }
+            // Paths are matched relative to the directory, so the matcher root stays empty.
+            let mut builder = GitignoreBuilder::new("");
+            let text = String::from_utf8_lossy(&file.bytes);
+            // Like Git, a leading UTF-8 byte order mark is not part of the first rule.
+            for line in text.strip_prefix('\u{feff}').unwrap_or(&text).lines() {
+                // An unparsable pattern ignores nothing: its files stay publication candidates.
+                builder.add_line(None, line).ok();
+            }
+            if let Ok(matcher) = builder.build() {
+                matchers.push((directory.to_owned(), matcher));
+            }
+        }
+        matchers.sort_by_key(|(directory, _)| std::cmp::Reverse(directory.len()));
+        Self(matchers)
+    }
+
+    /// Git's precedence: the deepest `.gitignore` with a matching rule decides.
+    fn decides(&self, path: &str, is_dir: bool) -> Option<bool> {
+        self.0.iter().find_map(|(directory, matcher)| {
+            let relative = path.strip_prefix(directory.as_str())?;
+            let decision = matcher.matched(relative, is_dir);
+            (!decision.is_none()).then(|| decision.is_ignore())
+        })
+    }
+
+    /// Git never re-includes a file below an excluded directory.
+    fn ignores(&self, path: &str) -> bool {
+        path.match_indices('/')
+            .filter_map(|(end, _)| path.get(..end))
+            .any(|parent| self.decides(parent, true) == Some(true))
+            || self.decides(path, false) == Some(true)
+    }
 }
 
 fn checked_paths<'a>(
@@ -386,7 +454,7 @@ mod tests {
         )
         .unwrap();
         write("src.txt", b"changed");
-        let after = scan_after(root.path(), &before).unwrap();
+        let after = scan_workspace(root.path(), &before).unwrap();
         assert!(after.keys().all(|path| !path.starts_with(".pi/npm")
             && !path.starts_with(".claude/cache")
             && !path.starts_with("nested/.agents")));
@@ -397,7 +465,7 @@ mod tests {
         );
         // New files beside existing config are harness state too: skipped, never published.
         write(".claude/skills/a/extra.md", b"new");
-        let after = scan_after(root.path(), &before).unwrap();
+        let after = scan_workspace(root.path(), &before).unwrap();
         assert!(!after.contains_key(".claude/skills/a/extra.md"));
         assert!(
             after.contains_key(".claude/skills/a/SKILL.md"),
@@ -408,7 +476,7 @@ mod tests {
         assert!(
             diff(
                 &before,
-                &scan_after(root.path(), &before).unwrap(),
+                &scan_workspace(root.path(), &before).unwrap(),
                 &OutputGuard::default()
             )
             .is_err(),
@@ -419,7 +487,7 @@ mod tests {
         assert!(
             diff(
                 &before,
-                &scan_after(root.path(), &before).unwrap(),
+                &scan_workspace(root.path(), &before).unwrap(),
                 &OutputGuard::default()
             )
             .is_err(),
@@ -437,7 +505,7 @@ mod tests {
             assert!(
                 diff(
                     &before,
-                    &scan_after(root.path(), &before).unwrap(),
+                    &scan_workspace(root.path(), &before).unwrap(),
                     &OutputGuard::default()
                 )
                 .is_err(),
@@ -493,32 +561,149 @@ mod tests {
         fs::write(root.path().join("AGENTS.md"), b"existing").unwrap();
         assert_eq!(scan(root.path()).unwrap().len(), 1);
         let large = fs::File::create(root.path().join("large")).unwrap();
-        large.set_len(FILE_BYTES_MAX as u64 + 1).unwrap();
+        large.set_len(SOURCE_LIMITS.file_bytes as u64 + 1).unwrap();
         assert!(scan(root.path()).is_err());
         let collision = Files::from([("A".into(), file(b"a")), ("a".into(), file(b"b"))]);
         assert!(diff(&Files::new(), &collision, &OutputGuard::default()).is_err());
     }
 
     #[test]
-    fn verifier_byte_bounds_do_not_expand_agent_or_publication_bounds() {
+    fn workspace_byte_bounds_do_not_expand_source_or_publication_bounds() {
         let root = tempfile::tempdir().unwrap();
         let artifact = fs::File::create(root.path().join("generated.jar")).unwrap();
         artifact.set_len(64 * 1024 * 1024).unwrap();
         assert!(scan(root.path()).is_err());
-        assert!(scan_after(root.path(), &Files::new()).is_err());
-        let verified = scan_verification(root.path(), &Files::new()).unwrap();
+        let scanned = scan_workspace(root.path(), &Files::new()).unwrap();
         assert_eq!(
-            verified.get("generated.jar").unwrap().bytes.len(),
+            scanned.get("generated.jar").unwrap().bytes.len(),
             64 * 1024 * 1024
         );
-        assert!(diff(&Files::new(), &verified, &OutputGuard::default()).is_err());
-        drop(verified);
+        assert!(validate_workspace(&Files::new(), &scanned, &OutputGuard::default()).is_ok());
+        assert!(diff(&Files::new(), &scanned, &OutputGuard::default()).is_err());
+        assert_eq!(
+            publishable(&Files::new(), &scanned),
+            Err("publication file limit exceeded")
+        );
+        drop(scanned);
         artifact.set_len(64 * 1024 * 1024 + 1).unwrap();
         assert_eq!(
-            scan_verification(root.path(), &Files::new()),
+            scan_workspace(root.path(), &Files::new()),
             Err("snapshot file limit exceeded")
         );
-        assert_eq!(VERIFICATION_LIMITS.total_bytes, 512 * 1024 * 1024);
+        assert_eq!(WORKSPACE_LIMITS.total_bytes, 512 * 1024 * 1024);
+    }
+
+    fn ignore_rules(rules: &[(&str, &str)]) -> Files {
+        rules
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), file(text.as_bytes())))
+            .collect()
+    }
+
+    #[test]
+    fn new_files_ignored_by_the_baseline_are_never_publication_candidates() {
+        let mut before = ignore_rules(&[
+            (".gitignore", "output/\n*.log\n!keep.log\n"),
+            ("sub/.gitignore", "!trace.log\ngen/\n"),
+            ("output/tracked.txt", "tracked despite ignore"),
+        ]);
+        before.insert("src.txt".into(), file(b"code"));
+        let mut after = before.clone();
+        for path in [
+            "output/deps/big.jar",
+            "output/nested/x",
+            "run.log",
+            "sub/gen/a.class",
+            "keep.log",
+            "sub/trace.log",
+            "new.txt",
+        ] {
+            after.insert(path.into(), file(b"generated"));
+        }
+        after.insert("output/tracked.txt".into(), file(b"edited"));
+        after.remove("src.txt");
+        let kept = publishable(&before, &after).unwrap();
+        let changed: Vec<_> = diff(&before, &kept, &OutputGuard::default())
+            .unwrap()
+            .into_iter()
+            .map(|change| change.path)
+            .collect();
+        // Whitelists (root and deeper) are published; tracked ignored files and deletions stay.
+        assert_eq!(
+            changed,
+            [
+                "keep.log",
+                "new.txt",
+                "output/tracked.txt",
+                "src.txt",
+                "sub/trace.log"
+            ]
+        );
+    }
+
+    #[test]
+    fn ignore_rules_come_from_the_baseline_and_cannot_reinclude_below_excluded_directories() {
+        let before = ignore_rules(&[(".gitignore", "output/\n"), ("output/.keep", "")]);
+        let mut after = before.clone();
+        // Run-time edits neither hide a new file nor re-include ignored output.
+        after.insert(
+            ".gitignore".into(),
+            file(b"output/\n!output/x\nsecret.txt\n"),
+        );
+        after.insert("secret.txt".into(), file(b"agent change"));
+        after.insert("output/x".into(), file(b"generated"));
+        let kept = publishable(&before, &after).unwrap();
+        assert!(kept.contains_key("secret.txt") && kept.contains_key(".gitignore"));
+        assert!(!kept.contains_key("output/x"));
+        let marked = ignore_rules(&[(".gitignore", "\u{feff}output/\n")]);
+        let mut after = marked.clone();
+        after.insert("output/x".into(), file(b"generated"));
+        assert_eq!(publishable(&marked, &after).unwrap(), marked);
+        let nested = ignore_rules(&[(".gitignore", "build/\n"), ("build/.gitignore", "!y\n")]);
+        let mut after = nested.clone();
+        after.insert("build/y".into(), file(b"generated"));
+        assert!(
+            !publishable(&nested, &after)
+                .unwrap()
+                .contains_key("build/y")
+        );
+    }
+
+    #[test]
+    fn ignored_workspace_output_is_still_validated() {
+        let before = ignore_rules(&[(".gitignore", "output/\n")]);
+        let mut guard = OutputGuard::default();
+        guard.add("sensitive-test-secret");
+        for (path, bytes) in [
+            ("output/report.txt", b"sensitive-test-secret".as_slice()),
+            ("output/AGENTS.md", b"generated".as_slice()),
+        ] {
+            let mut after = before.clone();
+            after.insert(path.into(), file(bytes));
+            assert_eq!(publishable(&before, &after).unwrap(), before, "{path}");
+            assert!(
+                validate_workspace(&before, &after, &guard).is_err(),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn publication_candidate_is_bounded_before_copy() {
+        let before = Files::new();
+        let mut after = Files::new();
+        for index in 0..17 {
+            after.insert(
+                format!("new-{index}"),
+                file(&vec![0; SOURCE_LIMITS.file_bytes]),
+            );
+        }
+        assert_eq!(
+            publishable(&before, &after),
+            Err("publication byte limit exceeded")
+        );
+        after.retain(|path, _| path != "new-16");
+        assert_eq!(publishable(&before, &after).unwrap().len(), 16);
     }
 
     #[test]
@@ -553,6 +738,6 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("/etc/passwd", root.path().join("link")).unwrap();
         assert!(scan(root.path()).is_err());
-        assert!(scan_verification(root.path(), &Files::new()).is_err());
+        assert!(scan_workspace(root.path(), &Files::new()).is_err());
     }
 }

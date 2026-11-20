@@ -1,5 +1,13 @@
 # Evidence
 
+## 2026-11-20: Single scan bounds and ignored build outputs
+
+Scheduled v16 runs 44647321005 (tester) and 44646416619 (refactor) reached harness execution and blocked with `snapshot file limit exceeded`; the safe diagnostic read only static runner literals, and its first attempt was discarded because gh labelled every step `UNKNOWN STEP` and matched no lines.
+Runner Clippy and tests pass on Windows: library 46, binary 68 with the two existing opt-in cases ignored; new cases cover nested and negated rules, baseline-only rules, no re-inclusion below excluded directories, BOM, validation of ignored output, bounds before copy, and an agent build exceeding both repository bounds whose rewritten outputs neither block nor publish.
+Against the real Toktrak 577f snapshot and the retained output of its own `mise run check`, all 338 new files are ignored by the snapshot's `.gitignore`, validation passes and the publication diff is empty.
+After the advisory ignore and `serde-saphyr` update, `cargo deny check advisories` passes; without them it failed on RUSTSEC-2026-0543.
+Linux CI, release, pin and a useful App answer remain pending.
+
 ## 2026-11-19: v16 reviewed pin and composed pristine Linux scans
 
 [Native integrity](evidence/native-v16-integrity-20261119.json): release44551469572/sourcec27/tag68808a70, ELF64 asset768167338/5,062,504bytes, independent GitHub/sidecar/manifest SHA6d0cbe3be6a94a6adf7f93c9e3c1d57232bfdb991b0a20a969b0c9b830227b31.
