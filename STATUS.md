@@ -1,5 +1,9 @@
 # Status
 
+- **Runner diagnostics in review (2026-11-20, PR #64).**
+  Container stages log exit, duration and output sizes; preparation and verification print guarded, fenced output tails on every run; early exit 137 blocks as a kill; recorded memory kills block with an observational reason; phase lines and check reasons added.
+  Real memory kills exit 1 with `OOMKilled` set (run 44840098741), now asserted by the container test.
+  Unix lifecycle tests and real-Docker checks run only in Linux CI; not released or pinned yet.
 - **Toktrak golems work end to end on v19 (2026-11-20).**
   Mention `@isp-golem-xiv bugs` comment7052173393 → delivery dd3334b0-e531-11f1-845f-0b0a659aafde, run44829426605 attempt1 success on live v19 workflow c9c1cd24, check136610199606 `golem/bugs: changed`. Strict request/bind/audit/check join verified (generation36e246e5, request c3d394ca, audit c52b54f7; pi/openai-codex gpt-6.1-sol). First verifier call raced audit refs again; refs present 30s later, single rerun passed.
   App opened Toktrak PR #164 (base216081e, head7f9bfe4): `Json.java` enables FAIL_ON_TRAILING_TOKENS so replay no longer silently drops a second event on one line; failing-first tests for string/bytes/whitespace/replay; two HTTP fixtures had extra braces the old parser ignored. Agent ran verify, coverage and PIT itself → post-agent scan with heavy build output, host `mise run verify`, post-verify scan and publication all passed. Reviewed directly; one weak assertNotNull test is for human PR review. PR164 own CI running; humans decide merge.

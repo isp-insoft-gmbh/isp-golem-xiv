@@ -14,8 +14,11 @@ const IMAGE: &str = "isp-golem-xiv-agent:v0";
 const FORBIDDEN_READ_ROOTS: [&str; 6] = ["proc", "sys", "dev", "home", "tmp", "run"];
 const TARGET_TIMEOUT_SECONDS: u64 = 600;
 /// The in-image watchdog starts after the host deadline and kills with exit 137, so the host
-/// always times out first: an exit 137 before then is the memory limit or another kill.
-const KILLED: &str = "container killed before its time budget (likely memory limit)";
+/// always times out first: an exit 137 before then is another kill, never the time budget.
+const KILLED: &str = "container killed before its time budget";
+/// Docker's record that some process was killed at the memory limit. It is sticky and
+/// container-wide, so it is an observation beside the failure, not necessarily its cause.
+const MEMORY_LIMIT: &str = "container failed after a process in it was killed at its memory limit";
 /// Per stream, what target preparation and verification leave in the private run log.
 const TAIL_LINES: usize = 200;
 const TAIL_BYTES: usize = 16 * 1024;
@@ -375,6 +378,17 @@ fn output_report(
     )
 }
 
+/// Whether Docker recorded an out-of-memory kill anywhere in the container. Observed to include
+/// child processes on hosted Ubuntu CI (cgroup v2, Docker 29.4.2, run 44840098741), which
+/// `tools/agent-container-test.nu` keeps checking. Unknown means no.
+async fn memory_limited(name: &str) -> bool {
+    let mut inspect = docker();
+    inspect.args(["inspect", "--format", "{{.State.OOMKilled}}", name]);
+    execute(inspect, None, Duration::from_secs(30))
+        .await
+        .is_ok_and(|(stdout, _)| stdout.trim_ascii() == b"true")
+}
+
 fn exit_label(status: Option<ExitStatus>) -> String {
     match status {
         None => "none (host deadline)".to_owned(),
@@ -412,10 +426,17 @@ async fn lifecycle(
         start.args(["start", "--attach", "--interactive", name]);
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let (mut execution, status) = capture(start, input, remaining).await?;
+        let memory_limit =
+            status.is_some_and(|status| !status.success()) && memory_limited(name).await;
         println!(
-            "golem container: {} exit {} after {}s, stdout {} bytes, stderr {} bytes",
+            "golem container: {} exit {}{} after {}s, stdout {} bytes, stderr {} bytes",
             report.stage,
             exit_label(status),
+            if memory_limit {
+                ", memory limit hit"
+            } else {
+                ""
+            },
             started.elapsed().as_secs(),
             execution.stdout.len(),
             execution.stderr.len()
@@ -431,11 +452,13 @@ async fn lifecycle(
                 );
             }
         }
-        if status.is_some_and(|status| status.code() == Some(137)) {
-            return Err(KILLED);
-        }
+        // Exit 124 keeps its timeout handling even after a memory kill.
         if status.is_some_and(|status| status.code() == Some(124)) {
             execution.timed_out = true;
+        } else if memory_limit {
+            return Err(MEMORY_LIMIT);
+        } else if status.is_some_and(|status| status.code() == Some(137)) {
+            return Err(KILLED);
         }
         if !execution.timed_out && !status.is_some_and(|status| status.success()) {
             return Err(report.execution_failure);
@@ -1329,6 +1352,13 @@ mod tests {
                 "printf partial; printf diagnostic >&2; exit 137",
                 "echo \"$3\"",
             ),
+            ("memory-limit", "echo id", "exit 1", "echo \"$3\""),
+            (
+                "timeout-after-memory-limit",
+                "echo id",
+                "printf partial; exit 124",
+                "echo \"$3\"",
+            ),
             ("remove-failure", "echo id", "printf reply", "exit 1"),
             (
                 "remove-mismatch",
@@ -1347,7 +1377,13 @@ mod tests {
             let directory = tempfile::tempdir().unwrap();
             let log = directory.path().join("calls");
             let executable = directory.path().join("docker");
-            std::fs::write(&executable, format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\ncase \"$1\" in\ncreate) {create};;\nstart) {start};;\nrm) {remove};;\n*) exit 98;;\nesac\n", log.display())).unwrap();
+            // Only these scenarios have Docker record an out-of-memory kill.
+            let inspect = if scenario.contains("memory-limit") {
+                "echo true"
+            } else {
+                "echo false"
+            };
+            std::fs::write(&executable, format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\ncase \"$1\" in\ncreate) {create};;\nstart) {start};;\ninspect) {inspect};;\nrm) {remove};;\n*) exit 98;;\nesac\n", log.display())).unwrap();
             std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
             for phase in ["lifecycle", "prepare", "v1", "writable", "verify"] {
                 // Only the direct lifecycle probe uses a one-second host deadline.
@@ -1377,10 +1413,22 @@ mod tests {
                     String::from_utf8_lossy(&output.stderr)
                 );
                 let calls = std::fs::read_to_string(&log).unwrap();
+                // Only a container that exited unsuccessfully is asked about memory kills.
+                let failed = matches!(
+                    scenario,
+                    "start-failure"
+                        | "start-remove-failure"
+                        | "start-remove-mismatch"
+                        | "killed"
+                        | "memory-limit"
+                        | "timeout-after-memory-limit"
+                );
                 assert_eq!(
                     calls,
                     if scenario.starts_with("create-") {
                         "create\nrm\n"
+                    } else if failed {
+                        "create\nstart\ninspect\nrm\n"
                     } else {
                         "create\nstart\nrm\n"
                     },
@@ -1431,6 +1479,12 @@ mod tests {
                 ));
             }
             "killed" => assert!(matches!(result, Ok(Err(KILLED)))),
+            "memory-limit" => assert!(matches!(result, Ok(Err(MEMORY_LIMIT)))),
+            "timeout-after-memory-limit" => {
+                let execution = result.unwrap().unwrap();
+                assert!(execution.timed_out);
+                assert_eq!(execution.stdout, b"partial");
+            }
             "create-timeout" => assert!(matches!(
                 result,
                 Ok(Err("container wall-clock budget exhausted"))
@@ -1475,7 +1529,10 @@ mod tests {
             .await
             .map(|result| {
                 result.map(|execution| {
-                    assert!(!execution.timed_out);
+                    assert_eq!(
+                        execution.timed_out,
+                        scenario == "timeout-after-memory-limit"
+                    );
                 })
             }),
             "verify" => verify(&workspace, "golem-test", Some(""), &OutputGuard::default()).await,
@@ -1497,6 +1554,14 @@ mod tests {
             })),
             // Never partial agent work or a budget timeout.
             "killed" => Ok(Err(KILLED)),
+            "memory-limit" => Ok(Err(MEMORY_LIMIT)),
+            "timeout-after-memory-limit" => match phase {
+                "prepare" => Ok(Err("target preparation timed out")),
+                "v1" => Ok(Err("agent wall-clock budget exhausted")),
+                "writable" => Ok(Ok(())),
+                "verify" => Ok(Err("verification timed out")),
+                _ => unreachable!(),
+            },
             "success" => Ok(Ok(())),
             _ => unreachable!(),
         };
