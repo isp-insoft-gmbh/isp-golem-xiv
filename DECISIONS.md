@@ -3,6 +3,20 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-20: Container failures are diagnosable from the private run log
+
+Diagnosing why Toktrak's verification failed took five probe pull requests, because the runner discarded container output and named only the failing caller.
+Oliver chose to print a bounded tail of target preparation and verification output to the private Actions log on every run, passing or failing, for diagnosis and performance trends; SPEC already lets the private ops logs contain target code.
+This supersedes the 2026-11-19 entry's rule that captured streams never reach diagnostics, for these two credential-free stages only; agent output is still never logged.
+Each tail is at most 200 lines and 16 KiB per stream, is withheld entirely if it contains a guarded credential as UTF-8 or UTF-16, has control characters replaced, and is fenced by a random `stop-commands` token so target output cannot issue workflow commands.
+Every container stage also logs its exit code, duration and output sizes, a phase line precedes each runner step, and blocked or incomplete checks name their static reason, which the requester reply already showed.
+Oliver chose that an exit 137 before the host deadline blocks as a kill instead of counting as a timeout with partial publication: the in-image watchdog starts after the host deadline, so it never fires first.
+Exit 124 keeps its previous timeout handling; changing it was not decided.
+A hosted Linux run (cgroup v2, Docker 29.4.2) showed that real memory kills reach the host as exit 1, never 137, because the entrypoint reports a killed child as an ordinary failure, while Docker's `OOMKilled` record is set even when only a child process was killed.
+The runner therefore asks Docker after any unsuccessful exit and, if a memory kill was recorded, blocks with "container failed after a process in it was killed at its memory limit".
+The record is sticky and container-wide, set even when the command survived the kill and failed for another reason, so the message states an observation, not a cause.
+The container test keeps checking both shapes on real Docker.
+
 ## 2026-11-20: Workspace links are recorded, never followed, and published only when safe
 
 With the v18 process limit, a pristine Toktrak `mise run verify` passed fully in the verifier container (JUnit 277 of 277), then the production workspace scan panicked.

@@ -337,7 +337,9 @@ fn bounded(files: &Files, limits: Limits) -> Result<()> {
     Ok(())
 }
 
-fn check_bytes(bytes: &[u8], guard: &OutputGuard) -> Result<()> {
+/// # Errors
+/// The bytes contain a guarded value as UTF-8 or UTF-16 in either byte order.
+pub fn check_bytes(bytes: &[u8], guard: &OutputGuard) -> Result<()> {
     guard.check(&String::from_utf8_lossy(bytes))?;
     // Scan UTF-16 in both byte orders and alignments, including BOM-less binary containers.
     for offset in [0, 1] {

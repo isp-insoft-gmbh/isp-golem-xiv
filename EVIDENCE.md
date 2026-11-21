@@ -1,5 +1,12 @@
 # Evidence
 
+## 2026-11-20: How memory kills reach the host
+
+A temporary observation in `tools/agent-container-test.nu` ran the released agent image's verification entry with a 128 MiB limit and a Node memory hog on hosted Ubuntu CI run 44840098741 (cgroup v2, systemd driver, Docker 29.4.2).
+The hog alone, after `true;`, and wrapped as `|| exit 1` all ended with exit 1, and Docker reported `OOMKilled` true for each.
+No shape produced exit 137, so a 137 check alone would not have reported a single real memory kill.
+The container test now asserts this on every CI run, including a command that survives the kill and exits 3 with the record still set.
+
 ## 2026-11-20: Toktrak golems work end to end on v19
 
 [Recovery IDs](evidence/toktrak-recovery-20261120.json): a `@isp-golem-xiv bugs` mention ran as ops run44829426605 (attempt 1, live v19 workflow) and ended `changed`, strictly joined to its comment through the request, bind, audit and check records.

@@ -56,8 +56,31 @@ def exercise-target [root: path, scratch: path] {
       if $verified.exit_code != 0 {
         error make {msg: $"prepared target Node verification failed: ($verified.stderr | str trim)"}
       }
+      require-memory-kill-record $arguments $tool_mount
     } else if not ($prepared.stderr | str contains $fixture.minimum) or not ($prepared.stderr | str contains "required") or (($tools | path join paths) | path exists) {
       error make {msg: "unsupported target minimum did not fail specifically before tool activation"}
+    }
+  }
+}
+
+# The runner reports memory kills from Docker's OOMKilled record: the entrypoint reports a killed
+# child, like a build tool under `mise run verify`, as an ordinary exit code. The record is
+# container-wide and sticky, so it also stays set when the command survives a kill and fails
+# for another reason; the runner therefore words it as an observation, not a cause.
+def require-memory-kill-record [arguments: list<string>, tool_mount: string] {
+  let run = ($arguments | where {|argument| $argument != '--rm' })
+  let hog = r#'node -e 'const a = []; for (;;) a.push(Buffer.alloc(1 << 20, 1))''#
+  for shape in [
+    {name: cause, command: $"($hog) || exit 1", exit: 1}
+    {name: survived, command: $"($hog) || true; exit 3", exit: 3}
+  ] {
+    let name = $"golem-memory-kill-($shape.name)"
+    command-result docker -- rm --force $name | ignore
+    let result = ($shape.command | ^docker ...$run --name $name --memory=128m --memory-swap=128m --mount $"($tool_mount),readonly" $image --verify-target | complete)
+    let record = (command-result docker -- inspect --format '{{.State.OOMKilled}}' $name | get stdout | str trim)
+    command-result docker -- rm --force $name | ignore
+    if $result.exit_code != $shape.exit or $record != "true" {
+      error make {msg: $"memory kill ($shape.name): expected exit ($shape.exit) with OOMKilled true, got exit ($result.exit_code), OOMKilled ($record)"}
     }
   }
 }

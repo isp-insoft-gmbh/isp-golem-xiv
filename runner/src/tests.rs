@@ -127,7 +127,7 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
             let prompt = snapshot::writable_prompt(&workspace, &workspace, &request, &request.head_sha)?;
             guard.check(&prompt)?;
             let before = golem_runner::changes::scan(&workspace)?;
-            sandbox::prepare_target(&workspace, &names[0]).await.map_err(|_| "preparation destruction unconfirmed")?
+            sandbox::prepare_target(&workspace, &names[0], &guard).await.map_err(|_| "preparation destruction unconfirmed")?
                 .map_err(|_| "target preparation failed")?;
             let execution = sandbox::run_writable(&workspace, &name, sandbox::Credential::Token(&token), "claude", None, &prompt, 180)
                 .await.map_err(|_| "agent destruction unconfirmed")?.map_err(|_| "agent execution failed")?;
@@ -153,7 +153,7 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
             } else {
                 "test \"$(cat allowed-control.txt)\" = 'control passed.'"
             };
-            sandbox::verify(&workspace, &names[2], Some(verify)).await.map_err(|_| "verification destruction unconfirmed")?
+            sandbox::verify(&workspace, &names[2], Some(verify), &guard).await.map_err(|_| "verification destruction unconfirmed")?
                 .map_err(|_| "native verification failed")?;
             let changes = verified_changes(&workspace, &before, &after_agent, &guard)?;
             let responses = if blocked {
@@ -464,6 +464,7 @@ async fn post_agent_validation_failures_keep_observed_model_without_publication(
         );
         let summary = observed[2].1["output"]["summary"].as_str().unwrap();
         assert!(summary.contains("outcome: blocked"));
+        assert!(summary.contains(&format!("reason: {error}")));
         assert!(summary.contains("model: observed-model"));
         assert!(!summary.contains("unobserved"));
         assert_eq!(observed[2].1["conclusion"], "failure");
