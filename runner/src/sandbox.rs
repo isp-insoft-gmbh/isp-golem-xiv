@@ -1413,28 +1413,30 @@ mod tests {
                     String::from_utf8_lossy(&output.stderr)
                 );
                 let calls = std::fs::read_to_string(&log).unwrap();
-                // Only a container that exited unsuccessfully is asked about memory kills.
-                let failed = matches!(
-                    scenario,
-                    "start-failure"
-                        | "start-remove-failure"
-                        | "start-remove-mismatch"
-                        | "killed"
-                        | "memory-limit"
-                        | "timeout-after-memory-limit"
-                );
-                assert_eq!(
-                    calls,
-                    if scenario.starts_with("create-") {
-                        "create\nrm\n"
-                    } else if failed {
-                        "create\nstart\ninspect\nrm\n"
-                    } else {
-                        "create\nstart\nrm\n"
-                    },
-                    "{phase}/{scenario}"
-                );
+                assert_eq!(calls, expected_calls(scenario), "{phase}/{scenario}");
             }
+        }
+    }
+
+    /// The Docker commands a fake-Docker scenario must see, in order.
+    #[cfg(unix)]
+    fn expected_calls(scenario: &str) -> &'static str {
+        // Only a container that exited unsuccessfully is asked about memory kills.
+        let failed = matches!(
+            scenario,
+            "start-failure"
+                | "start-remove-failure"
+                | "start-remove-mismatch"
+                | "killed"
+                | "memory-limit"
+                | "timeout-after-memory-limit"
+        );
+        if scenario.starts_with("create-") {
+            "create\nrm\n"
+        } else if failed {
+            "create\nstart\ninspect\nrm\n"
+        } else {
+            "create\nstart\nrm\n"
         }
     }
 
@@ -1480,16 +1482,11 @@ mod tests {
             }
             "killed" => assert!(matches!(result, Ok(Err(KILLED)))),
             "memory-limit" => assert!(matches!(result, Ok(Err(MEMORY_LIMIT)))),
-            "timeout-after-memory-limit" => {
-                let execution = result.unwrap().unwrap();
-                assert!(execution.timed_out);
-                assert_eq!(execution.stdout, b"partial");
-            }
             "create-timeout" => assert!(matches!(
                 result,
                 Ok(Err("container wall-clock budget exhausted"))
             )),
-            "timeout" => {
+            "timeout" | "timeout-after-memory-limit" => {
                 let execution = result.unwrap().unwrap();
                 assert!(execution.timed_out);
                 assert_eq!(execution.stdout, b"partial");
