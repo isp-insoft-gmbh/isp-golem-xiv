@@ -47,13 +47,17 @@ The repository dashboard shows the last result per golem, not a historical ledge
 Same-seat and same-golem runs queue rather than overlap.
 Changes that pass the golem's verification command are published on its owned branch and pull request.
 
+A run first prepares the agent image: usually it loads a cached image within about a minute, but after a change to the image sources or the pinned Mise, at a UTC month boundary, or once GitHub evicted the cache after seven unused days, the first run builds it, which takes about three minutes.
+The ops `agent-image` workflow fills that cache on a miss after any trunk change to `runner.yml` or `agent-image.yml`, daily at 00:05 UTC, and when started by hand before an important run.
+
 Comment `@isp-golem-xiv stop` in the run's thread to request cancellation.
+The stop reaches the run when its runner admits it, right after preparation, so a stop during a cached start takes about a minute.
 Cancellation acknowledgment alone does not release execution ownership; reconciliation waits for a confirmed terminal workflow.
 Do not replay a delivery merely because a reply is slow.
 
 ## Read the organization dashboard
 
-The first Slice 4 admin dashboard increment is deployed at [/admin](https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/admin); full acceptance remains pending.
+The admin dashboard is at [/admin](https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/admin).
 Organization members sign in with GitHub; every data request rechecks current membership.
 
 - **Runs:** paginated metadata for the last 30 days, with repository, golem, trigger, seat, observed model, outcome, duration and ops log.
@@ -70,13 +74,22 @@ Private log links require separate access to `isp-golem-xiv-ops`.
 
 ## Diagnose a refusal or blocked run
 
-Read the refusal's remedy or the check summary first.
+Read the refusal's remedy or the check summary first; a `blocked` or `incomplete` check names its reason on a `reason:` line.
 Unknown golem → check its spelling and `.golems/` validation.
 No seat → register a supported seat, then make a new mention.
 Not a member → ask an organization owner to verify membership.
 Invalid definition → fix the golem configuration in a reviewed pull request.
 
-For `blocked`, inspect the private ops log and the verification failure or protected-path reason.
+For `blocked`, inspect the private ops log as described below.
+Common reasons:
+
+- `verification container execution failed` or `target preparation container execution failed`: the repository's own command failed; its output tail in the log shows why.
+- `container failed after a process in it was killed at its memory limit`: Docker recorded a memory kill (2 GiB per container); it may or may not have caused the failure.
+- `container killed before its time budget`: the container ended with SIGKILL before its time ran out.
+- `snapshot file limit exceeded` or `snapshot byte limit exceeded`: a file or the total was over the bounds, 4 MiB per file and 64 MiB in total for the repository snapshot, 64 MiB and 512 MiB for the workspace after the agent or the verification.
+- `verification mutated workspace; publication blocked`: the verification command changed files the agent produced.
+- `agent reported task blocked`: the golem itself declined; its explanation is currently neither posted nor logged.
+
 Never put target code, credentials, raw provider replies or private logs into the public code repository.
 A protected-path refusal must be fixed in the task or repository configuration, not by weakening runner guards.
 An `incomplete` run can publish only verified work; a later mention continues its owned branch.
@@ -86,12 +99,34 @@ Do not reset queue state, manually mark terminal, or blindly redispatch.
 Use the read-only defaults of `tools/repair-unbound.mjs`; any guarded repair needs matching provenance and deployed-source checks.
 For a broken provider sign-in, register a fresh replacement through Seats rather than copying an old local credential.
 
+## Read a run log
+
+The check's log link opens the private ops run; read it there or with `gh run view <id> --repo isp-insoft-gmbh/isp-golem-xiv-ops --log`, which prefixes each line with job, step and timestamp.
+Lines starting with the word `golem` come from the runner; output tails follow unprefixed between `::stop-commands::` markers, and the image build prints Docker's own output.
+Read-only runs print only the snapshot and agent phases and end with `golem completed: replied`.
+
+- `golem image:` in the preparation step: loaded from cache, or no usable cache, building, then built, cached; a build also runs the image's own self-tests.
+- `golem lifecycle:` admitted, containers_destroyed, publication_credentials_minted, publication_complete, reservation_released, in that order; a missing step shows where the run stopped.
+- `golem phase:` precedes each step reached: snapshot, target preparation, agent, agent result, agent workspace scan, verification, verified workspace scan (only after a passing verification), publication (only when there are changes); an error after a phase line belongs to that phase.
+- `golem dashboard:` whether the repository dashboard was updated, before publication_complete.
+- `golem container:` each container's stage, exit code, duration and output sizes, and whether a memory kill was recorded.
+- `golem target preparation` and `golem verification` print the last lines (at most 200 or 16 KiB) of each output stream on every run, or that the stream was empty; a tail containing a registered credential is withheld entirely, and agent output is never printed.
+- `golem seat:` for OpenAI Codex seats, also under Pi: unchanged, refreshed, or write-back failed; a failed write-back also appears in the check summary, and the next run may need a fresh sign-in; Anthropic seats print no seat line.
+- `golem runner failed:` the run's final error.
+
 ## Release and verify
 
 Changes reach `trunk` only through a pull request with required `ci` green on the exact head.
 CI performs deployments; operators do not deploy locally.
-Release runners with the repository release task, verify release assets, then pin the private ops workflow before a router change depends on new runner behavior.
-The public `ops/runner.yml` template and the live private workflow must match.
+The private ops repository's plan offers no branch protection, so merge its pull requests only after `ci` passed on the exact head and review threads are resolved.
 
-Full project completion requires explicit `mise run accept -- --slice 4` plus recorded browser evidence, not bare `mise run accept`.
+A runner change reaches golems in this order:
+
+1. Merge it, then run `mise run release -- '<summary>'` on a clean `trunk` equal to `origin/trunk` whose head passed `ci`; CI builds and publishes the next `v<n>`.
+2. Check the release: the downloaded asset's SHA-256 must equal GitHub's asset digest, the `.sha256` sidecar and `SHA256SUMS`; record it under `evidence/`.
+3. In the ops repository, pin `RUNNER_RELEASE_URL` and `RUNNER_SHA256` in `.github/workflows/runner.yml`; merging it starts `agent-image`, which logs `golem image: built, cached` when the image key changed and otherwise finds the cached image and skips the build.
+4. Copy the live `runner.yml` and `agent-image.yml` byte for byte into `ops/` here, adjusting `tools/repair-unbound-test.mjs` so historical workflows still reconstruct.
+5. The next golem run must log `golem image: loaded from cache`.
+
+After changes to promised behaviour, run `mise run accept -- --slice 4`; it spends about a dozen seat runs on fresh test repositories and deletes them unless `--keep` is given.
 Windows Worker suites run unchanged through WSL; setup and the explicit native diagnostic override are described in [DEVELOPMENT.md](DEVELOPMENT.md).

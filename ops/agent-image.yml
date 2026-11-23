@@ -1,14 +1,15 @@
 name: agent-image
 
 # Builds the agent image that runner.yml pins and caches it, so golem runs load it instead of
-# building, and a stop reaches them quickly. The image key carries the UTC month, hence the
-# monthly schedule.
+# building, and a stop reaches them quickly. A daily look rebuilds within a day after the
+# key's UTC month changes or GitHub evicts the cache after seven unused days; a hit costs
+# only the lookup.
 on:
   push:
     branches: [trunk]
     paths: [.github/workflows/runner.yml, .github/workflows/agent-image.yml]
   schedule:
-    - cron: "5 0 1 * *"
+    - cron: "5 0 * * *"
   workflow_dispatch:
 
 permissions:
