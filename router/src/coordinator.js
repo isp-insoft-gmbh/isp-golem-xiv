@@ -27,6 +27,8 @@ const decode = value => JSON.parse(new TextDecoder('utf-8', {fatal: true}).decod
 class Failure extends Error {
   constructor(status, stage = 'upstream', upstreamStatus = null) { super('coordinator unavailable'); this.status = status; this.stage = stage; this.upstreamStatus = upstreamStatus; }
 }
+// Static fields only, so the log shows why maintenance waits without exposing request data.
+const deferred = (what, error) => console.warn('coordinator retirement deferred', JSON.stringify({what, stage: error instanceof Failure ? error.stage : 'unexpected', upstream: error instanceof Failure ? error.upstreamStatus : null}));
 async function bounded(response, limit) {
   if (!response.body) return '';
   const reader = response.body.getReader();
@@ -151,6 +153,10 @@ export class Coordinator {
     }
     throw new Failure(503, 'journal_conflict');
   }
+  // Maintenance only: an idle tick must not rewrite an unchanged journal every minute.
+  async saveChanged() {
+    if (atob(encode(this.queue)) !== this.journalBytes) await this.save();
+  }
   validate(request) {
     if (!request || request.version !== 2 || !uuid.test(request.delivery_id) || !/^isp-insoft-gmbh\/[A-Za-z0-9_.-]{1,100}$/.test(request.repository) || !/^[A-Za-z0-9_-]{1,64}$/.test(request.golem) || !/^[A-Za-z0-9-]{1,39}$/.test(request.seat_login) || !['anthropic', 'openai-codex'].includes(request.provider) || !/^[0-9a-f]{40}$/.test(request.head_sha) || !positive(request.check_run_id) || (request.issue_number !== null && !positive(request.issue_number)) || (request.comment_id !== null && !positive(request.comment_id))) throw new Failure(400);
   }
@@ -184,16 +190,22 @@ export class Coordinator {
     }
     for (const row of candidates) {
       try { if (await this.adminAudit(row)) retired.push(row); }
-      catch { /* Audit publication or validation failure forbids retirement. */ }
+      catch (error) { deferred('audit', error); /* Audit publication or validation failure forbids retirement. */ }
     }
+    // A row leaves the journal only after its immutable receipt exists. A failed or conflicting
+    // receipt defers that retirement; it must never refuse the new request, which no caller retries.
+    const receipted = [];
     for (const row of retired) {
       const path = `${ops}/git/ref/tags/golem-terminal/${row.id}`;
-      const prior = await this.api(path, 'GET', undefined, true);
-      if (!prior) await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/golem-terminal/${row.id}`, sha: row.tag});
-      else if (prior.object.sha !== row.tag) throw new Failure(409);
+      try {
+        const prior = await this.api(path, 'GET', undefined, true);
+        if (!prior) await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/golem-terminal/${row.id}`, sha: row.tag});
+        else if (prior.object.sha !== row.tag) throw new Failure(409, 'receipt_conflict');
+        receipted.push(row);
+      } catch (error) { deferred('receipt', error); }
     }
-    if (retired.length) {
-      this.queue.records = this.queue.records.filter(r => !retired.includes(r));
+    if (receipted.length) {
+      this.queue.records = this.queue.records.filter(r => !receipted.includes(r));
       await this.save();
     }
     if (this.queue.records.length >= capacity) throw new Failure(429);
@@ -516,7 +528,7 @@ export class Coordinator {
       if (!row.run_id && !['stop_requested', 'terminal'].includes(row.state)) continue;
       checked++;
       // Commit scan progress before fallible I/O, so one irreparable check cannot starve others.
-      await this.save();
+      await this.saveChanged();
       try {
         if (row.state === 'terminal') {
           await this.adminAudit(row);
@@ -540,7 +552,7 @@ export class Coordinator {
         }
       } catch { /* Unknown execution or failed check repair retains ownership; scan other resources. */ }
     }
-    await this.save();
+    await this.saveChanged();
   }
   async operate(body) {
     if (!body || !['enqueue', 'bind', 'complete', 'stop', 'tick'].includes(body.action)) throw new Failure(400);
@@ -562,7 +574,11 @@ export class Coordinator {
     try {
       const body = JSON.parse(await bounded(request, bodyLimit));
       return Response.json(await this.serial(() => this.operate(body)));
-    } catch (error) { return Response.json({error: 'queue operation failed', safeFailure: error instanceof Failure ? error.stage : 'upstream'}, {status: error instanceof Failure ? error.status : 503}); }
+    } catch (error) {
+      // Static fields only: never request bodies, tokens or GitHub responses.
+      console.error('coordinator operation failed', JSON.stringify({status: error instanceof Failure ? error.status : 503, stage: error instanceof Failure ? error.stage : 'unexpected', upstream: error instanceof Failure ? error.upstreamStatus : null}));
+      return Response.json({error: 'queue operation failed', safeFailure: error instanceof Failure ? error.stage : 'upstream'}, {status: error instanceof Failure ? error.status : 503});
+    }
   }
   async alarm() {
     try { await this.serial(() => this.operate({action: 'tick'})); }
