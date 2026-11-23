@@ -17,7 +17,7 @@ export async function verifyAdminPage(script) {
   const log = id => `https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${id}`;
   const first = {run_id:1,repo:'<img src=x onerror=attack()>',golem:'hello',trigger:'mention',seat:'member/anthropic',model:'claude-sonnet-5-5',outcome:'blocked',duration_s:42,log:log(1),completed_at:'2026-11-16T10:00:00Z'};
   const second = {...first,run_id:2,model:null,duration_s:null,outcome:'replied',log:log(2),completed_at:'2026-11-16T11:00:00Z'};
-  const third = {...first,run_id:3,seat:'other/openai-codex',outcome:'no_change',duration_s:1,log:'https://attacker.invalid/',completed_at:'2026-11-16T12:00:00Z'};
+  const third = {...first,run_id:3,seat:'gone-person/openai-codex',outcome:'no_change',duration_s:1,log:'https://attacker.invalid/',completed_at:'2026-11-16T12:00:00Z'};
   const requests = [];
   async function fetch(path, options) {
     requests.push(path);
@@ -73,6 +73,8 @@ export async function verifyAdminPage(script) {
   assert.equal(metric('Workflow failures'), '1 / 3 (33.3%)');
   assert.equal(metric('Missing audits'), '1');
   assert.equal(metric('Runs before audits'), '2');
+  // A departed seat is known only by its secret name, yet still matches its hyphenated login's audits.
+  assert.match(ids.get('seats').textContent, /GONE_PERSON openai-codex left organization normalized identifier yes 2026-11-16T12:00:00Z unknown/);
   assert.match(ids.get('runs-status').textContent, /History incomplete: 1 missing audit, 2 malformed audits\. 2 earlier/);
   assert.match(ids.get('runs-status').textContent, /2 earlier runs predate audits \(before 2026-11-13\)\./);
   assert.equal(ids.get('more-runs').hidden, true);

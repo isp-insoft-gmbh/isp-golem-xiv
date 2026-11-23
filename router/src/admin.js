@@ -132,6 +132,9 @@
     renderSeats();
   }
 
+  // Seat secret names hold logins uppercased with '-' as '_'; departed seats are known only in that form.
+  const seatKey = (login, provider) => `${login.toUpperCase().replaceAll('-', '_')}/${provider}`;
+
   // Each seat's latest audited runs on loaded pages; sign-in expiry and refresh state are not recorded.
   function renderSeats() {
     if (!seatData) return;
@@ -139,14 +142,16 @@
     for (const row of rows) {
       if (row.run_id === null || typeof row.completed_at !== 'string') continue;
       const kind = ['changed', 'replied', 'no_change'].includes(row.outcome) ? 'success' : row.outcome === 'blocked' ? 'blocked' : null;
-      if (!kind) continue;
-      const entry = last.get(row.seat) ?? {};
+      const slash = row.seat.lastIndexOf('/');
+      if (!kind || slash < 1) continue;
+      const key = seatKey(row.seat.slice(0, slash), row.seat.slice(slash + 1));
+      const entry = last.get(key) ?? {};
       if (!entry[kind] || row.completed_at > entry[kind]) entry[kind] = row.completed_at;
-      last.set(row.seat, entry);
+      last.set(key, entry);
     }
     byId('seats').replaceChildren();
     table(byId('seats'), 'Registered seats', ['Person / identifier', 'Provider', 'Membership', 'Identity', 'Refreshing', 'Last successful run', 'Last blocked run'], seatData.seats.map(seat => {
-      const entry = last.get(`${seat.person.toLowerCase()}/${seat.provider}`) ?? {};
+      const entry = last.get(seatKey(seat.person, seat.provider)) ?? {};
       return [seat.person, seat.provider, seat.membership, seat.identity, seat.refreshing ? 'yes' : 'no', entry.success ?? null, entry.blocked ?? null];
     }));
   }
