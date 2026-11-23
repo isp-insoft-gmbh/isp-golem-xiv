@@ -3,6 +3,12 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-23: Golems carry Mise 2026.11.12
+
+Toktrak raised its Mise `min_version` to 2026.11.12 (Toktrak #166, merged 19:45Z), and both canary runs on Blacksmith then failed target preparation: the guarded output tail showed "mise version 2026.11.12 is required, but you are using 2026.11.10" (ops runs 45272876593 and 45273147964).
+Oliver approved advancing in the recorded order: the agent image's version assertion, CI's Mise for the container test and the supported-minimum fixture here, then a verified release, the ops runner pin with its Mise version, and the matching `ops/` template.
+A Mise bump in any target repository blocks its golems until golems carry that Mise; the failure is now named in the check and the run log.
+
 ## 2026-11-23: Queue and event records are rooted in blobs
 
 After the Blacksmith ops change, the router logged every retirement of one terminal row as deferred with GitHub status 403.
