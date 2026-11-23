@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   validate:
-    runs-on: blacksmith-4vcpu-ubuntu-2604
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     env:
       # Lockfile advisories were checked by the pull request; scheduled ci reports new ones.
@@ -31,7 +31,7 @@ jobs:
   deploy:
     needs: validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/trunk'
-    runs-on: blacksmith-4vcpu-ubuntu-2604
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     environment: production
     steps:
