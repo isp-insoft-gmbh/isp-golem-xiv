@@ -3,6 +3,17 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-23: CI and golems run on Blacksmith runners
+
+The organization's GitHub Actions budget stopped private-repository jobs (ops run 45250684632: "an Actions budget is preventing further use"), and every golem runs in the private ops repository.
+Oliver chose Blacksmith runners and trusts Blacksmith with what those jobs hold, including the App private key, seat sign-ins and private logs; Blacksmith's migration wizard opened the change for this repository.
+All jobs use `blacksmith-*-ubuntu-2404`, not 26.04: the runner is built for `x86_64-unknown-linux-gnu` and links the build host's glibc, so it must be built on an Ubuntu no newer than the one golems run on.
+Third-party actions stay pinned to full commit SHAs, as before.
+Blacksmith transparently serves `actions/cache` from a colocated, branch-scoped cache, so the agent image cache keeps its rule: only the save step right after preparation, before any seat, writes it.
+Sticky disks and Blacksmith's Docker layer builder commit their state at the end of a job, after the agent ran, so the golem runner does not use them for the agent image; public CI, where no agent runs, may.
+Blacksmith's Docker container caching keeps an organization-wide image store and merges newly pulled images back at the end of each job, including golem jobs after their agent ran.
+A digest-pinned base image does not protect a tampered local image store, so this stays an open risk until container caching is turned off for the organization or the risk is accepted.
+
 ## 2026-11-23: Seat health from audits; runs before audits counted apart
 
 SPEC promised a warning for refreshing seats close to expiry, but nothing the router can read holds an expiry: seat secrets are write-only, a run learns only an access token's expiry, a refresh token's lifetime is not published, and the start of an Anthropic setup token's year is never recorded.

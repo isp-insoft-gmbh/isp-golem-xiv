@@ -1,0 +1,5 @@
+# Blacksmith runner labels; GitHub sees these runners as self-hosted.
+self-hosted-runner:
+  labels:
+    - blacksmith-2vcpu-ubuntu-2404
+    - blacksmith-4vcpu-ubuntu-2404
