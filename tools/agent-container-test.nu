@@ -23,7 +23,7 @@ def exercise-target [root: path, scratch: path] {
   let uid = (^id -u | str trim)
   let gid = (^id -g | str trim)
   for fixture in [
-    {name: supported, minimum: "2026.11.10", expected: 0}
+    {name: supported, minimum: "2026.11.12", expected: 0}
     {name: unsupported, minimum: "9999.1.0", expected: 1}
   ] {
     let workspace = $scratch | path join $fixture.name workspace

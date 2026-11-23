@@ -8,7 +8,7 @@ COPY container.cjs /opt/golem/container.cjs
 COPY pi-report.js /opt/golem/pi-report.js
 COPY codex-result-schema.json /opt/golem/codex-result-schema.json
 ENV MISE_DATA_DIR=/opt/mise MISE_CONFIG_DIR=/opt/mise-config MISE_CACHE_DIR=/opt/mise-cache MISE_YES=1 CI=1 NPM_CONFIG_YES=true
-RUN mise --version | grep '^2026.11.10 ' \
+RUN mise --version | grep '^2026.11.12 ' \
     && mise install \
     && mise exec -- claude --version \
     && mise exec -- claude --help >/tmp/claude-help \
