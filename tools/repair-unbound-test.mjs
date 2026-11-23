@@ -17,7 +17,7 @@ let historicalText = currentWorkflow.toString('utf8');
 const currentMiseLine = '          version: 2026.11.10\n';
 assert.equal(historicalText.split(currentMiseLine).length - 1, 1, 'unexpected live Mise pin drift');
 historicalText = historicalText.replace(currentMiseLine, '          version: 2026.10.21\n');
-historicalText = removeOnce(historicalText, '          RUNNER_SHA256: d1ea983cbd523bc77f91c690920018b0c25bb1b2a913b3712e4661de553b34a5\n');
+historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 4a6110d9926d6a500e7c6534a927fc9c73bc034b1676fb9135b043e47b7ce58e\n');
 historicalText = removeOnce(historicalText, [
   '      - name: Name the agent image cache\n',
   '        id: image\n',
