@@ -1,11 +1,11 @@
 # Status
 
-- **Slice 4 acceptance: 46 of 47 (2026-11-21).** Only `stop` failed, because stop lands at runner bind after about 6 min of harness preparation.
-  PR #65 caches the agent image and shortens the Codex self-test (Oliver's choices); released as v20, pinned by ops PR #36 (`4078fa5`) with cache restore, a save before any seat step, and the `agent-image` warm-up, which built and cached 605.6 MB in run 45154007649.
-  Load path seen in production (run 45160957682); the rerun passed `stop` in 80 s but lost `validation` to a GitHub 504 in the judge's own pull request creation.
-  Next: judge reads back pull requests after a failed create (Oliver), then one more full `--slice 4` run; kept repositories with stamp `20261123115804` await deletion.
-  Kept test repositories with stamp `20261121104324` await deletion.
-- **Runner diagnostics in review (2026-11-20, PR #64).**
+- **Slice 4 acceptance passed: 47 of 47 (2026-11-23)** on deployed `87d2024` with runner v20; `stop` cancelled in 62 s.
+  Getting there: the first run (2026-11-21) failed only `stop`, which lands at runner bind after harness preparation, then about 6 min.
+  PR #65 cached the agent image and shortened the Codex self-test (Oliver's choices); v20 pinned by ops PR #36 (`4078fa5`) with cache restore, a save before any seat step and the `agent-image` warm-up; PR #67 made the judge read back a pull request whose creation lost its response to a GitHub 504.
+  All kept test repositories were deleted.
+  Remaining for Slice 4's goal per PLAN: the operator guide pass on `OPERATIONS.md`; recorded gaps (historical audit backfill, refreshing-seat expiry metadata) stay open; Oliver agreed with all three, not yet started.
+- **Runner diagnostics merged (2026-11-20, PR #64).**
   Container stages log exit, duration and output sizes; preparation and verification print guarded, fenced output tails on every run; early exit 137 blocks as a kill; recorded memory kills block with an observational reason; phase lines and check reasons added.
   Real memory kills exit 1 with `OOMKilled` set (run 44840098741), now asserted by the container test.
   Unix lifecycle tests and real-Docker checks run only in Linux CI; not released or pinned yet.

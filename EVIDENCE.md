@@ -1,5 +1,11 @@
 # Evidence
 
+## 2026-11-23: Slice 4 accepted
+
+The live `mise run accept -- --slice 4 --keep`, with the judge as merged in PR #67, on deployed `87d2024` (trunk CI 45172765960, deploy 45172766042, `/health` exact) exited 0 with all 47 gates ok: every Slice 1 to 4 promise in `contract.nuon`.
+It ran 11 golem runs on ops `4078fa5` with runner v20; the `slow` stop comment came at 12:52:23Z and run 45178371772 was cancelled at 12:53:25Z, 62 s later.
+The kept test repositories with stamp `20261123133454` were inspected for the stop timing and then deleted.
+
 ## 2026-11-23: Slice 4 rerun on v20, stop passes
 
 The second live `--slice 4 --keep` on deployed `c32a675` again passed 46 of 47 gates, now including `stop`: the stop comment came at 11:18:32Z and ops run 45164002906 was cancelled at 11:19:52Z, 80 s later, after an 18 s cache restore and 54 s of preparation.
