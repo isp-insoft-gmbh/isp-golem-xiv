@@ -1,5 +1,13 @@
 # Evidence
 
+## 2026-11-21: Slice 4 acceptance, stop latency
+
+The live `mise run accept -- --slice 4 --keep` on deployed `453dddd` passed 46 of 47 gates; only `stop` failed with "the runner run did not end within 3min".
+In `isp-golem-xiv-test-core-20261121104324`, the stop comment came at 10:35:16Z, three seconds after ops run 44895047853 was created.
+Its harness preparation ran from 10:35:20Z to 10:41:24Z; the run step began at 10:41:24Z and was cancelled at 10:41:27Z, when the runner bound, and the `golem/slow` check ended `stopped`.
+Preparation took 51 s in the Slice 2 pass on 2026-11-11 and 3 min 6 s in the Slice 3 pass on 2026-11-12, which cancelled 3 min 19 s after creation, just inside the limit plus polling; since 2026-11-13 it has taken about 6 min.
+In a CI timing run (45140662155) the Codex self-test took 240.6 s: each probe was killed at 120 s, and the trusted probe's MCP marker was present at the 10.5 s sample.
+
 ## 2026-11-20: How memory kills reach the host
 
 A temporary observation in `tools/agent-container-test.nu` ran the released agent image's verification entry with a 128 MiB limit and a Node memory hog on hosted Ubuntu CI run 44840098741 (cgroup v2, systemd driver, Docker 29.4.2).

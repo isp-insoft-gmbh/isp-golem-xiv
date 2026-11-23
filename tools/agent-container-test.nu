@@ -95,20 +95,24 @@ def exercise-image-cache [runner: path, mise: string, scratch: path] {
   "" | save --force $output
   let keyed = with-env {GITHUB_OUTPUT: $output} { command-result $runner -- --image-key $mise }
   let key = (open $output | str trim)
-  if $keyed.exit_code != 0 or not ($key =~ '^key=golem-agent-image-[0-9a-f]{64}$') {
+  let month = date now | date to-timezone UTC | format date '%Y-%m'
+  if $keyed.exit_code != 0 or not ($key =~ $'^key=golem-agent-image-[0-9a-f]{64}-($month)$') {
     error make {msg: $"image key: exit ($keyed.exit_code), output ($key)"}
   }
-  let digest = $key | str replace 'key=golem-agent-image-' ''
+  let digest = $key | parse 'key=golem-agent-image-{digest}-{rest}' | get 0.digest
   let cache = $scratch | path join agent-image.tar
+  let cold = date now
   let built = command-result $runner -- --prepare $mise $cache
-  # EXPERIMENT: Codex probe timeline and slow build steps.
-  print ($"($built.stdout)\n($built.stderr)" | lines | where {|l| $l =~ 'EXPERIMENT|#\d+ DONE \d{2,}' } | str join (char nl))
+  let cold = (date now) - $cold
   if $built.exit_code != 0 or not ($built.stdout | str contains "golem image: built, cached") or not ($cache | path exists) {
     error make {msg: $"image build did not write a cache: exit ($built.exit_code)"}
   }
   if (image-label) != $digest { error make {msg: "built image label differs from the image key"} }
   require-status "remove built image" 0 docker -- image rm --force $image
+  let warm = date now
   let loaded = command-result $runner -- --prepare $mise $cache
+  let warm = (date now) - $warm
+  print $"agent image: cold build and save ($cold), warm load ($warm), cache ((ls $cache | get 0.size))"
   if $loaded.exit_code != 0 or not ($loaded.stdout | str contains "golem image: loaded from cache") or (image-label) != $digest {
     error make {msg: $"cached image did not load: exit ($loaded.exit_code)"}
   }
@@ -122,6 +126,13 @@ def exercise-image-cache [runner: path, mise: string, scratch: path] {
   let rebuilt = command-result $runner -- --prepare $mise $other
   if $rebuilt.exit_code != 0 or not ($rebuilt.stdout | str contains "golem image: no usable cache, building") or (image-label) != $digest {
     error make {msg: $"mislabelled cache was not rebuilt: exit ($rebuilt.exit_code)"}
+  }
+  let corrupt = $scratch | path join corrupt-image.tar
+  "not an image archive" | save $corrupt
+  require-status "remove rebuilt image" 0 docker -- image rm --force $image
+  let recovered = command-result $runner -- --prepare $mise $corrupt
+  if $recovered.exit_code != 0 or not ($recovered.stdout | str contains "golem image: no usable cache, building") or (image-label) != $digest {
+    error make {msg: $"corrupt cache was not rebuilt: exit ($recovered.exit_code)"}
   }
 }
 

@@ -123,9 +123,11 @@ RUN --network=none set -eu; \
 # Codex through the real entry, production flags and stream filter, offline, with an invented
 # sign-in. Startup, flags and every --config override must load (a config error exits before
 # any event, with "Error loading config" on stderr) and the thread must start, which needs no
-# network; the turn cannot complete without network. The project's .codex/config.toml
-# declares a stdio MCP server that only leaves a marker: without the trust override it must
-# stay absent, with it Codex starts the server. This proves startup, project trust and filtered
+# network; the turn cannot complete without network, and offline Codex retries until killed.
+# The project's .codex/config.toml declares a stdio MCP server that only leaves a marker:
+# without the trust override it must stay absent for 30 s (the trusted server started within
+# about 10 s in CI), with it Codex starts the server, and that probe ends as soon as the
+# marker and the thread are there (at most 120 s). This proves startup, project trust and filtered
 # stream shape as root without the runtime mount, not authentication, refresh, hooks or the
 # result (live run).
 RUN --network=none set -eu; \
@@ -135,29 +137,28 @@ RUN --network=none set -eu; \
     printf '%s\n' '[mcp_servers.probe]' 'command = "/usr/bin/touch"' 'args = ["/tmp/golem-codex-mcp-marker"]' \
       >/workspace/.codex/config.toml; \
     codex_probe() { \
-      code=0; start="$(date +%s%N)"; : >"$root/timeline"; \
-      ( printf 'probe' | env -i PATH=/usr/local/bin:/usr/bin:/bin GOLEM_HARNESS=codex GOLEM_WRITABLE=0 HOME=/home/agent \
-        /usr/bin/timeout --signal=KILL 120 /usr/local/bin/node /opt/golem/container.cjs \
+      window="$1"; shift; code=0; \
+      printf 'probe' | env -i PATH=/usr/local/bin:/usr/bin:/bin GOLEM_HARNESS=codex GOLEM_WRITABLE=0 HOME=/home/agent \
+        /usr/bin/timeout --signal=KILL "$window" /usr/local/bin/node /opt/golem/container.cjs \
         exec --json --output-schema /opt/golem/codex-result-schema.json --skip-git-repo-check \
         --dangerously-bypass-approvals-and-sandbox --ephemeral --ignore-user-config --dangerously-bypass-hook-trust \
         --color never "$@" \
         --config 'web_search="disabled"' --config check_for_update_on_startup=false \
         --config analytics.enabled=false --config feedback.enabled=false --config 'history.persistence="none"' - \
-        >"$root/out" 2>"$root/err" ) & pid=$!; \
-      while kill -0 "$pid" 2>/dev/null; do \
-        printf '%s lines=%s err=%s marker=%s\n' "$(( ($(date +%s%N) - start) / 1000000 ))" "$(wc -l <"$root/out")" "$(wc -l <"$root/err")" "$(test -e /tmp/golem-codex-mcp-marker && echo yes || echo no)" >>"$root/timeline"; \
-        sleep 0.5; \
-      done; \
+        >"$root/out" 2>"$root/err" & pid=$!; \
+      if [ "$window" = 120 ]; then \
+        while kill -0 "$pid" 2>/dev/null \
+          && ! { test -e /tmp/golem-codex-mcp-marker && grep -q '"thread.started"' "$root/out"; }; do sleep 0.2; done; \
+        kill -TERM "$pid" 2>/dev/null || true; \
+      fi; \
       wait "$pid" || code=$?; \
-      echo "EXPERIMENT codex probe exit=$code"; \
-      uniq -f1 "$root/timeline" | sed 's/^/EXPERIMENT ms=/'; \
       cat "$root/out" "$root/err"; \
       test "$code" -ne 0; \
     }; \
     /usr/local/bin/node -e 'const b = s => Buffer.from(s).toString("base64url"); const jwt = b(JSON.stringify({alg: "RS256", typ: "JWT"})) + "." + b(JSON.stringify({exp: 4102444800, "https://api.openai.com/auth": {chatgpt_plan_type: "plus", chatgpt_account_id: "acct-probe"}})) + "." + b("x".repeat(256)); require("node:fs").writeFileSync("/golem-codex/auth.json", JSON.stringify({auth_mode: "chatgpt", OPENAI_API_KEY: null, tokens: {id_token: jwt, access_token: jwt, refresh_token: "rt_probe-not-a-real-refresh-token", account_id: "acct-probe"}, last_refresh: new Date().toISOString()}));'; \
-    codex_probe; \
+    codex_probe 30; \
     test ! -e /tmp/golem-codex-mcp-marker; \
-    codex_probe --config 'projects={"/workspace"={trust_level="trusted"}}'; \
+    codex_probe 120 --config 'projects={"/workspace"={trust_level="trusted"}}'; \
     if grep -F -e 'Error loading config' -e 'unexpected argument' "$root/err"; then exit 1; fi; \
     test -e /tmp/golem-codex-mcp-marker; \
     /usr/local/bin/node -e 'const fs = require("node:fs"); const text = fs.readFileSync(process.argv[1], "utf8").trim(); const records = text ? text.split("\n").map(JSON.parse) : []; const allowed = ["thread.started", "turn.started", "turn.completed", "turn.failed", "error", "item.completed"]; if (!records.some(r => r.type === "thread.started") || records.some(r => !allowed.includes(r.type)) || records.some(r => r.type === "turn.completed") || records.some(r => r.type === "item.completed" && !["agent_message", "error"].includes(r.item?.type))) process.exit(1);' "$root/out"

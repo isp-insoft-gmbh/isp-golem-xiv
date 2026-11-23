@@ -60,7 +60,8 @@ async fn run() -> Result<()> {
         ["--prepare", mise, cache] => {
             return sandbox::prepare(Path::new(mise), Some(Path::new(cache))).await;
         }
-        // The workflow's image cache key is exactly what `prepare` verifies on a loaded image.
+        // The workflow's image cache key: what `prepare` verifies on a loaded image, plus the
+        // UTC month, so unpinned base packages are rebuilt at least monthly.
         ["--image-key", mise] => {
             let output = environment("GITHUB_OUTPUT", 4096)?;
             let mut file = OpenOptions::new()
@@ -68,7 +69,13 @@ async fn run() -> Result<()> {
                 .open(output)
                 .map_err(|_| "cannot write workflow image key")?;
             let digest = sandbox::image_source_digest(Path::new(mise))?;
-            return writeln!(file, "key=golem-agent-image-{digest}")
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "system clock before 1970")?
+                .as_secs();
+            let minute = router::utc_minute(now);
+            let month = minute.get(..7).ok_or("cannot format image key month")?;
+            return writeln!(file, "key=golem-agent-image-{digest}-{month}")
                 .map_err(|_| "cannot write workflow image key");
         }
         _ => {}
