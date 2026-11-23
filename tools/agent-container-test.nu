@@ -85,12 +85,63 @@ def require-memory-kill-record [arguments: list<string>, tool_mount: string] {
   }
 }
 
+def image-label [] {
+  command-result docker -- image inspect --format '{{index .Config.Labels "org.isp-golem-xiv.source"}}' $image | get stdout | str trim
+}
+
+# A fresh build is cached; the cache loads only with a label matching the runner's own sources.
+def exercise-image-cache [runner: path, mise: string, scratch: path] {
+  let output = $scratch | path join github-output
+  "" | save --force $output
+  let keyed = with-env {GITHUB_OUTPUT: $output} { command-result $runner -- --image-key $mise }
+  let key = (open $output | str trim)
+  let month = date now | date to-timezone UTC | format date '%Y-%m'
+  if $keyed.exit_code != 0 or not ($key =~ $'^key=golem-agent-image-[0-9a-f]{64}-($month)$') {
+    error make {msg: $"image key: exit ($keyed.exit_code), output ($key)"}
+  }
+  let digest = $key | parse 'key=golem-agent-image-{digest}-{rest}' | get 0.digest
+  let cache = $scratch | path join agent-image.tar
+  let cold = date now
+  let built = command-result $runner -- --prepare $mise $cache
+  let cold = (date now) - $cold
+  if $built.exit_code != 0 or not ($built.stdout | str contains "golem image: built, cached") or not ($cache | path exists) {
+    error make {msg: $"image build did not write a cache: exit ($built.exit_code)"}
+  }
+  if (image-label) != $digest { error make {msg: "built image label differs from the image key"} }
+  require-status "remove built image" 0 docker -- image rm --force $image
+  let warm = date now
+  let loaded = command-result $runner -- --prepare $mise $cache
+  let warm = (date now) - $warm
+  print $"agent image: cold build and save ($cold), warm load ($warm), cache ((ls $cache | get 0.size))"
+  if $loaded.exit_code != 0 or not ($loaded.stdout | str contains "golem image: loaded from cache") or (image-label) != $digest {
+    error make {msg: $"cached image did not load: exit ($loaded.exit_code)"}
+  }
+  let other = $scratch | path join other-image.tar
+  let context = $scratch | path join other-context
+  mkdir $context
+  $"FROM ($image)\nLABEL org.isp-golem-xiv.source=other\n" | save ($context | path join Dockerfile)
+  require-status "build mislabelled image" 0 docker -- build --tag $image $context
+  require-status "save mislabelled image" 0 docker -- save --output $other $image
+  require-status "remove mislabelled image" 0 docker -- image rm --force $image
+  let rebuilt = command-result $runner -- --prepare $mise $other
+  if $rebuilt.exit_code != 0 or not ($rebuilt.stdout | str contains "golem image: no usable cache, building") or (image-label) != $digest {
+    error make {msg: $"mislabelled cache was not rebuilt: exit ($rebuilt.exit_code)"}
+  }
+  let corrupt = $scratch | path join corrupt-image.tar
+  "not an image archive" | save $corrupt
+  require-status "remove rebuilt image" 0 docker -- image rm --force $image
+  let recovered = command-result $runner -- --prepare $mise $corrupt
+  if $recovered.exit_code != 0 or not ($recovered.stdout | str contains "golem image: no usable cache, building") or (image-label) != $digest {
+    error make {msg: $"corrupt cache was not rebuilt: exit ($recovered.exit_code)"}
+  }
+}
+
 def exercise [root: path, scratch: path] {
   let runner = $root | path join dist golem-runner-linux-x86_64
   if not ($runner | path exists) { error make {msg: $"runner artifact missing: ($runner)"} }
   let mise = (which mise | get 0.path)
 
-  require-status "build pinned agent image" 0 $runner -- --prepare $mise
+  exercise-image-cache $runner $mise $scratch
   require-status "agent version" 0 docker -- run --rm -e GOLEM_TIMEOUT_SECONDS=10 $image --version
   require-status "zero timeout rejection" 64 docker -- run --rm -e GOLEM_TIMEOUT_SECONDS=0 $image --version
   exercise-target $root $scratch

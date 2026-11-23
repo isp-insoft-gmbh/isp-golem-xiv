@@ -174,28 +174,98 @@ async fn execute(
     Ok((execution.stdout, execution.stderr))
 }
 
+/// Everything the agent image is built from, besides the pinned Mise executable.
+const IMAGE_SOURCES: [(&str, &str); 5] = [
+    ("Dockerfile", include_str!("../agent.Dockerfile")),
+    ("agent.mise.toml", include_str!("../agent.mise.toml")),
+    ("container.cjs", include_str!("../container.cjs")),
+    ("pi-report.js", include_str!("../pi-report.js")),
+    (
+        "codex-result-schema.json",
+        include_str!("../codex-result-schema.json"),
+    ),
+];
+/// Image label naming the sources an image was built from.
+const SOURCE_LABEL: &str = "org.isp-golem-xiv.source";
+
+/// Hex SHA-256 over every image source and the Mise executable, each length-prefixed.
+///
+/// # Errors
+/// The Mise executable cannot be read.
+pub fn image_source_digest(mise: &Path) -> Result<String> {
+    use sha2::Digest as _;
+    use std::fmt::Write as _;
+    let mise = std::fs::read(mise).map_err(|_| "cannot read pinned mise executable")?;
+    let mut hash = sha2::Sha256::new();
+    for (name, contents) in IMAGE_SOURCES
+        .iter()
+        .map(|(name, contents)| (*name, contents.as_bytes()))
+        .chain([("mise", mise.as_slice())])
+    {
+        for part in [name.as_bytes(), contents] {
+            hash.update((part.len() as u64).to_be_bytes());
+            hash.update(part);
+        }
+    }
+    let mut digest = String::with_capacity(64);
+    for byte in hash.finalize() {
+        write!(digest, "{byte:02x}").map_err(|_| "cannot format image source digest")?;
+    }
+    Ok(digest)
+}
+
+/// Whether the local agent image was built from exactly these sources.
+async fn image_built_from(digest: &str) -> bool {
+    let mut inspect = docker();
+    inspect.args([
+        "image",
+        "inspect",
+        "--format",
+        &format!("{{{{index .Config.Labels \"{SOURCE_LABEL}\"}}}}"),
+        IMAGE,
+    ]);
+    execute(inspect, None, Duration::from_secs(30))
+        .await
+        .is_ok_and(|(stdout, _)| stdout.trim_ascii() == digest.as_bytes())
+}
+
+/// Loads a cached agent image if it was built from exactly these sources.
+async fn load_cached(cache: &Path, digest: &str) -> bool {
+    if !cache.is_file() {
+        return false;
+    }
+    let mut load = docker();
+    load.arg("load").arg("--input").arg(cache);
+    execute(load, None, Duration::from_secs(300)).await.is_ok() && image_built_from(digest).await
+}
+
+/// Builds the agent image, which runs its own self-tests, or loads it from `cache` when that
+/// holds an image built from exactly the same sources. A fresh build is saved to `cache` so a
+/// later run can load it; it is saved before any agent runs on this host.
+///
 /// # Errors
 /// Image staging, build failure, or the ten-minute build deadline.
-pub async fn prepare(mise: &Path) -> Result<()> {
+pub async fn prepare(mise: &Path, cache: Option<&Path>) -> Result<()> {
+    let digest = image_source_digest(mise)?;
+    if let Some(cache) = cache {
+        if load_cached(cache, &digest).await {
+            println!("golem image: loaded from cache");
+            return Ok(());
+        }
+        println!("golem image: no usable cache, building");
+    }
     let context = tempfile::tempdir().map_err(|_| "cannot create image build context")?;
     std::fs::copy(mise, context.path().join("mise"))
         .map_err(|_| "cannot stage pinned mise executable")?;
-    for (name, contents) in [
-        ("Dockerfile", include_str!("../agent.Dockerfile")),
-        ("agent.mise.toml", include_str!("../agent.mise.toml")),
-        ("container.cjs", include_str!("../container.cjs")),
-        ("pi-report.js", include_str!("../pi-report.js")),
-        (
-            "codex-result-schema.json",
-            include_str!("../codex-result-schema.json"),
-        ),
-    ] {
+    for (name, contents) in IMAGE_SOURCES {
         std::fs::write(context.path().join(name), contents)
             .map_err(|_| "cannot stage trusted image source")?;
     }
     let mut command = docker();
     command
-        .args(["build", "--pull", "--tag", IMAGE])
+        .args(["build", "--pull", "--label"])
+        .arg(format!("{SOURCE_LABEL}={digest}"))
+        .args(["--tag", IMAGE])
         .arg(context.path());
     command.stdout(Stdio::inherit()).stderr(Stdio::inherit());
     let mut child = command.spawn().map_err(|_| "cannot start image build")?;
@@ -205,6 +275,16 @@ pub async fn prepare(mise: &Path) -> Result<()> {
         .map_err(|_| "cannot wait for image build")?;
     if !status.success() {
         return Err("trusted image build failed");
+    }
+    if let Some(cache) = cache {
+        // A cache that cannot be written only costs the next run a build.
+        let mut save = docker();
+        save.args(["save", "--output"]).arg(cache).arg(IMAGE);
+        let saved = execute(save, None, Duration::from_secs(300)).await.is_ok();
+        println!(
+            "golem image: built, {}",
+            if saved { "cached" } else { "not cached" }
+        );
     }
     Ok(())
 }

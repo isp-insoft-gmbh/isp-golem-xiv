@@ -77,7 +77,7 @@ async fn linux_provider_writable_disposition_with_mock_publication() {
     let mut guard = OutputGuard::default();
     guard.add(&token);
     assert!(
-        sandbox::prepare(mise.as_deref().unwrap_or(Path::new("")))
+        sandbox::prepare(mise.as_deref().unwrap_or(Path::new("")), None)
             .await
             .is_ok(),
         "trusted image preparation failed"

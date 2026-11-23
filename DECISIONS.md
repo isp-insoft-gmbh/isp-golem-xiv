@@ -3,6 +3,21 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-21: Golems start faster so stop stays prompt
+
+Slice 4 acceptance failed only on `stop`: a stop reaches a dispatched run when its runner binds, and binding waits for harness preparation, which grew from about 40 s to about 6 min.
+240 s of it was the Codex offline self-test, whose two probes each waited out a 120 s kill timeout because offline Codex retries forever and the built-in `openai` provider's retry counts cannot be overridden.
+Oliver chose both remedies: cache the built image across runs, and end self-tests as soon as they are decided.
+The trusted Codex probe now ends once its MCP marker and `thread.started` are present (at most 120 s).
+The untrusted probe asserts that marker never appears, which no event decides early; Oliver chose a 30 s window instead of 120 s, about three times the 10.5 s by which the trusted server had started in CI.
+The runner labels the image with a SHA-256 over its staged sources and the pinned Mise executable; `--image-key` prints that digest plus the UTC month as the workflow cache key, so unpinned base packages are still rebuilt at least monthly.
+`--prepare <mise> <cache>` loads a cached image only if its label matches and otherwise builds, including the self-tests, and saves the new image.
+The label is self-asserted, so it only rejects stale or corrupt caches; integrity rests on who can write that cache key.
+The runner workflow will restore the cache before preparation and save it in an explicit step right after preparation, before any step that holds a seat or runs an agent, so an agent can never write an image a later run loads.
+Runs are dispatched on the ops default branch, whose caches only default-branch workflows write, and whoever can change those can already change the workflow itself.
+On hosted CI (run 45144744220) a cold build and save took 2 min 51 s, a warm load 9.6 s, and the cached image is 660.7 MB.
+A cold golem run therefore still sits at the three-minute stop limit, so the ops repository will warm the cache in its own workflow whenever its trunk or runner pin changes and monthly, and golem runs normally load a warm image.
+
 ## 2026-11-20: Container failures are diagnosable from the private run log
 
 Diagnosing why Toktrak's verification failed took five probe pull requests, because the runner discarded container output and named only the failing caller.

@@ -1,5 +1,9 @@
 # Status
 
+- **Slice 4 acceptance: 46 of 47 (2026-11-21).** Only `stop` failed, because stop lands at runner bind after about 6 min of harness preparation.
+  PR #65 caches the agent image and shortens the Codex self-test (Oliver's choices): cold preparation 2 min 51 s, warm 9.6 s on CI.
+  Then release v20, ops workflow with cache restore and save before any seat plus a cache-warming workflow, matching template, and a fresh `--slice 4` run.
+  Kept test repositories with stamp `20261121104324` await deletion.
 - **Runner diagnostics in review (2026-11-20, PR #64).**
   Container stages log exit, duration and output sizes; preparation and verification print guarded, fenced output tails on every run; early exit 137 blocks as a kill; recorded memory kills block with an observational reason; phase lines and check reasons added.
   Real memory kills exit 1 with `OOMKilled` set (run 44840098741), now asserted by the container test.

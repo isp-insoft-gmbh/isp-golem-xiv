@@ -49,16 +49,36 @@ fn selected_seat(request: &DispatchV1) -> Result<Seat> {
 }
 
 async fn run() -> Result<()> {
-    let arguments: Vec<String> = env::args().skip(1).take(3).collect();
-    if arguments
-        .first()
-        .is_some_and(|argument| argument == "--prepare")
-        && arguments.len() == 2
+    let arguments: Vec<String> = env::args().skip(1).take(4).collect();
+    match arguments
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .as_slice()
     {
-        return sandbox::prepare(Path::new(
-            arguments.get(1).ok_or("mise executable missing")?,
-        ))
-        .await;
+        ["--prepare", mise] => return sandbox::prepare(Path::new(mise), None).await,
+        ["--prepare", mise, cache] => {
+            return sandbox::prepare(Path::new(mise), Some(Path::new(cache))).await;
+        }
+        // The workflow's image cache key: what `prepare` verifies on a loaded image, plus the
+        // UTC month, so unpinned base packages are rebuilt at least monthly.
+        ["--image-key", mise] => {
+            let output = environment("GITHUB_OUTPUT", 4096)?;
+            let mut file = OpenOptions::new()
+                .append(true)
+                .open(output)
+                .map_err(|_| "cannot write workflow image key")?;
+            let digest = sandbox::image_source_digest(Path::new(mise))?;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|_| "system clock before 1970")?
+                .as_secs();
+            let minute = router::utc_minute(now);
+            let month = minute.get(..7).ok_or("cannot format image key month")?;
+            return writeln!(file, "key=golem-agent-image-{digest}-{month}")
+                .map_err(|_| "cannot write workflow image key");
+        }
+        _ => {}
     }
     let request = dispatch()?;
     if arguments.as_slice() == ["--validate"] {
