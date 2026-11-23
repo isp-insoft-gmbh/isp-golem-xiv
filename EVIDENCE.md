@@ -1,5 +1,13 @@
 # Evidence
 
+## 2026-11-23: v21 pin and a live seat refresh
+
+[Native integrity](evidence/native-v21-integrity-20261123.json): release run 45211449557 on `f76b0f0`, tag object `9ff07272`, ELF64 asset 783609658 (6,130,320 bytes), GitHub, sidecar and manifest SHA-256 `4a6110d9926d6a500e7c6534a927fc9c73bc034b1676fb9135b043e47b7ce58e`.
+Point-in-time self-check; hosting is mutable.
+Ops PR #38 merged as `67a9d60` with its tree equal to the reviewed head; live `runner.yml` (SHA-256 `74dc49ba6284334c67bb39699f3994c43e4cc0533c98b4104798047394572962`) is byte-equal to `ops/runner.yml` here, and its `agent-image` run 45214402736 found the unchanged image key and skipped build and save.
+The scheduled Toktrak `bugs` run 45088585900 on v19 (Pi on the OpenAI Codex seat) logged `golem seat: refreshed` and the seat secret was rewritten at 00:40:21Z.
+This is one observed successful refresh write-back; the next run accepting the rewritten sign-in, and a failed write-back, remain unobserved.
+
 ## 2026-11-23: Slice 4 accepted
 
 The live `mise run accept -- --slice 4 --keep`, with the judge as merged in PR #67, on deployed `87d2024` (trunk CI 45172765960, deploy 45172766042, `/health` exact) exited 0 with all 47 gates ok: every Slice 1 to 4 promise in `contract.nuon`.
