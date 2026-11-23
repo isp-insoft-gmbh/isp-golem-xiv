@@ -1705,11 +1705,16 @@ async fn persist_event_source(github: &Github, work: &EventWork) -> Result<()> {
     if message.len() > 131_072 {
         return Err(failure("event source limit exceeded"));
     }
-    let head = github
-        .get(&format!("/repos/{OPS}/git/ref/heads/trunk"))
+    // Rooted in a blob, never a commit: once ops workflows change, GitHub refuses the App the
+    // later done-receipt to a tag of an older trunk commit (403), stranding the event.
+    let blob = github
+        .post(
+            &format!("/repos/{OPS}/git/blobs"),
+            json!({"content":message,"encoding":"utf-8"}),
+        )
         .await?;
-    let sha = head
-        .pointer("/object/sha")
+    let sha = blob
+        .get("sha")
         .and_then(Value::as_str)
         .filter(|sha| valid_sha(sha))
         .ok_or_else(|| failure("invalid event source base"))?;
@@ -1717,7 +1722,7 @@ async fn persist_event_source(github: &Github, work: &EventWork) -> Result<()> {
     let object = github
         .post(
             &format!("/repos/{OPS}/git/tags"),
-            json!({"tag":tag,"message":message,"object":sha,"type":"commit"}),
+            json!({"tag":tag,"message":message,"object":sha,"type":"blob"}),
         )
         .await?;
     let sha = string(&object, "sha")?;

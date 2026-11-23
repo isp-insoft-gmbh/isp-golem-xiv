@@ -27,6 +27,19 @@ const decode = value => JSON.parse(new TextDecoder('utf-8', {fatal: true}).decod
 class Failure extends Error {
   constructor(status, stage = 'upstream', upstreamStatus = null) { super('coordinator unavailable'); this.status = status; this.stage = stage; this.upstreamStatus = upstreamStatus; }
 }
+// Git's object id of a blob, so a receipt can be checked without reading it back.
+async function blobSha(text) {
+  const body = new TextEncoder().encode(text);
+  const header = new TextEncoder().encode(`blob ${body.length}\0`);
+  const bytes = new Uint8Array(header.length + body.length);
+  bytes.set(header); bytes.set(body, header.length);
+  return [...new Uint8Array(await crypto.subtle.digest('SHA-1', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+}
+// Records are rooted in blobs, never in a commit: GitHub refuses an App without `workflows`
+// permission new refs to a commit whose workflows differ from the default branch, which would
+// strand every row in flight across a runner pin. A retirement receipt is a blob naming the
+// request tag; receipts that point at the request tag itself predate this and stay valid.
+const receiptText = row => `${row.tag}\n`;
 // Static fields only, so the log shows why maintenance waits without exposing request data.
 const deferred = (what, error) => console.warn('coordinator retirement deferred', JSON.stringify({what, stage: error instanceof Failure ? error.stage : 'unexpected', upstream: error instanceof Failure ? error.upstreamStatus : null}));
 async function bounded(response, limit) {
@@ -198,9 +211,15 @@ export class Coordinator {
     for (const row of retired) {
       const path = `${ops}/git/ref/tags/golem-terminal/${row.id}`;
       try {
+        const expected = await blobSha(receiptText(row));
         const prior = await this.api(path, 'GET', undefined, true);
-        if (!prior) await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/golem-terminal/${row.id}`, sha: row.tag});
-        else if (prior.object.sha !== row.tag) throw new Failure(409, 'receipt_conflict');
+        if (!prior) {
+          const blob = await this.api(`${ops}/git/blobs`, 'POST', {content: receiptText(row), encoding: 'utf-8'});
+          if (blob?.sha !== expected) throw new Failure(503, 'receipt_blob');
+          await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/golem-terminal/${row.id}`, sha: expected});
+        } else if (!(prior.object?.type === 'blob' && prior.object.sha === expected) && !(prior.object?.type === 'tag' && prior.object.sha === row.tag)) {
+          throw new Failure(409, 'receipt_conflict');
+        }
         receipted.push(row);
       } catch (error) { deferred('receipt', error); }
     }
@@ -223,8 +242,9 @@ export class Coordinator {
       request = saved;
     } else {
       request = {...request, queue_generation: crypto.randomUUID()};
-      const trunk = await this.api(`${ops}/git/ref/heads/trunk`);
-      tag = await this.api(`${ops}/git/tags`, 'POST', {tag: `golem-request/${request.delivery_id}`, message: JSON.stringify(request), object: trunk.object.sha, type: 'commit'});
+      const blob = await this.api(`${ops}/git/blobs`, 'POST', {content: JSON.stringify(request), encoding: 'utf-8'});
+      if (!/^[0-9a-f]{40}$/.test(blob?.sha)) throw new Failure(503);
+      tag = await this.api(`${ops}/git/tags`, 'POST', {tag: `golem-request/${request.delivery_id}`, message: JSON.stringify(request), object: blob.sha, type: 'blob'});
       await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/golem-request/${request.delivery_id}`, sha: tag.sha});
     }
     const row = {id: request.delivery_id, generation: request.queue_generation, seat: `${request.seat_login.toLowerCase()}/${request.provider}`, resource: `${request.repository.toLowerCase()}/${request.golem}`, tag: tag.sha, state: 'pending', dispatched: false, run_id: null, attempt: null};

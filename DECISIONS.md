@@ -3,6 +3,21 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-23: Queue and event records are rooted in blobs
+
+After the Blacksmith ops change, the router logged every retirement of one terminal row as deferred with GitHub status 403.
+A live probe with the App's installation token in the ops repository showed the pattern: a new tag ref to a blob, or to an annotated tag of a blob, is created (201); a ref to the row's request tag, to a tag chained on it, or straight to its commit `4078fa5`, which is no longer trunk and has different workflow files, is refused with 403 "Resource not accessible by integration"; a ref to the current trunk commit is created.
+The App has no `workflows` permission; the workflow difference is the best-supported cause, though GitHub's message is generic.
+Request tags, and the audits, run aliases and receipts chained on them, all pointed at the trunk commit current at admission, so every row in flight across a change to the ops workflows, which every runner pin is, could never be audited or retired and kept one of the 32 queue slots.
+Event sources and their done receipts had the same shape.
+Oliver chose blob-rooted records over granting the App `workflows: write`, which would let it rewrite workflows in every organization repository.
+New request tags and event source tags are annotated tags of a blob holding their message; a retirement receipt is a blob holding the request tag's id followed by a newline, so anyone can check it from Git's blob id without reading it.
+Receipts that point at the request tag itself remain valid, and the Slice 2 proof tools accept both forms.
+The coordinator test double models the probe: after a pin moves trunk, refs whose chain ends at an older commit get 403.
+Against the previous coordinator, the scenarios for a row in flight across a pin and for a legacy row with a blob receipt fail for exactly those reasons, while legacy-receipt compatibility passes on both.
+Rows admitted before this change stay commit-rooted: they still retire if audited before the next workflow change, as today's stuck row was, but one audited only after it can never be, so pin a runner only when no such row is unaudited.
+The repair helper's reviewed coordinator digest advances; its association rules for `dispatching` rows are unchanged, and it refuses `--apply` until this coordinator is deployed.
+
 ## 2026-11-23: Failed retirements no longer refuse admission; failures are logged
 
 A canary mention on Toktrak at 20:37:52Z got its 202, eyes reaction and a queued `golem/canary` check, but no `golem-request` tag, queue row or run.
