@@ -32,8 +32,8 @@ jobs:
       - name: Download pinned public runner
         timeout-minutes: 10
         env:
-          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v19
-          RUNNER_SHA256: 2ac557a59bc4d9b7f503043622a98b6a2c83d07ff9e13d5af702b2fa657ed81e
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v20
+          RUNNER_SHA256: d1ea983cbd523bc77f91c690920018b0c25bb1b2a913b3712e4661de553b34a5
         shell: bash
         run: |
           set -euo pipefail
@@ -66,12 +66,34 @@ jobs:
           version: 2026.11.10
           install: false
           cache: false
+      - name: Name the agent image cache
+        id: image
+        if: steps.mise.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: '"$RUNNER_TEMP/golem-runner-linux-x86_64" --image-key "$(command -v mise)"'
+      - name: Restore the agent image an earlier run built
+        id: image-cache
+        if: steps.image.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.image.outputs.key }}
+          path: ${{ runner.temp }}/golem-agent-image.tar
       - name: Prepare isolated pinned Claude subscription harness
         id: prepare
         if: steps.mise.outcome == 'success'
         continue-on-error: true
         shell: bash
-        run: '"$RUNNER_TEMP/golem-runner-linux-x86_64" --prepare "$(command -v mise)"'
+        run: '"$RUNNER_TEMP/golem-runner-linux-x86_64" --prepare "$(command -v mise)" "$RUNNER_TEMP/golem-agent-image.tar"'
+      # Saved before any step holds a seat or runs an agent, so no agent can write an image a later run loads.
+      - name: Keep a newly built agent image for later runs
+        if: steps.prepare.outcome == 'success' && steps.image.outcome == 'success' && steps.image-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          key: ${{ steps.image.outputs.key }}
+          path: ${{ runner.temp }}/golem-agent-image.tar
       - name: Run exactly one golem
         env:
           GOLEM_REQUEST: ${{ inputs.request }}

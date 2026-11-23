@@ -1,5 +1,13 @@
 # Evidence
 
+## 2026-11-23: v20 pin and a warmed agent image
+
+[Native integrity](evidence/native-v20-integrity-20261123.json): release run 45151177225 on `dc0dd34`, tag object `31e3ef80`, ELF64 asset 782428784 (6,129,872 bytes), GitHub, sidecar and manifest SHA-256 `d1ea983cbd523bc77f91c690920018b0c25bb1b2a913b3712e4661de553b34a5`; the released bytes contain the image cache, the 30 s Codex window and the memory-kill reason.
+Point-in-time self-check; hosting is mutable.
+Ops PR #36 merged as `4078fa5` with its tree equal to the reviewed head; live `runner.yml` (SHA-256 `9a8bb155e60b41567277d9d035d248ee1d6ad47ff3a2e888c13fa595da676c6f`) and `agent-image.yml` are byte-equal to `ops/` here.
+The push-triggered warm-up run 45154007649 resolved `actions/cache` at job setup, found no image for key `golem-agent-image-d8ffc233…-2026-11`, built it in 3 min 11 s including the save (Codex self-test 40.4 s instead of 240 s), printed `golem image: built, cached`, and saved 605.6 MB under that key on `refs/heads/trunk`.
+The load path has not run in production yet: the next golem run must show `golem image: loaded from cache` with its save step skipped.
+
 ## 2026-11-21: Slice 4 acceptance, stop latency
 
 The live `mise run accept -- --slice 4 --keep` on deployed `453dddd` passed 46 of 47 gates; only `stop` failed with "the runner run did not end within 3min".

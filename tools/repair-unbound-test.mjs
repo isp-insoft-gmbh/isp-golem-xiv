@@ -17,7 +17,34 @@ let historicalText = currentWorkflow.toString('utf8');
 const currentMiseLine = '          version: 2026.11.10\n';
 assert.equal(historicalText.split(currentMiseLine).length - 1, 1, 'unexpected live Mise pin drift');
 historicalText = historicalText.replace(currentMiseLine, '          version: 2026.10.21\n');
-historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 2ac557a59bc4d9b7f503043622a98b6a2c83d07ff9e13d5af702b2fa657ed81e\n');
+historicalText = removeOnce(historicalText, '          RUNNER_SHA256: d1ea983cbd523bc77f91c690920018b0c25bb1b2a913b3712e4661de553b34a5\n');
+historicalText = removeOnce(historicalText, [
+  '      - name: Name the agent image cache\n',
+  '        id: image\n',
+  '        if: steps.mise.outcome == \'success\'\n',
+  '        continue-on-error: true\n',
+  '        shell: bash\n',
+  '        run: \'"$RUNNER_TEMP/golem-runner-linux-x86_64" --image-key "$(command -v mise)"\'\n',
+  '      - name: Restore the agent image an earlier run built\n',
+  '        id: image-cache\n',
+  '        if: steps.image.outcome == \'success\'\n',
+  '        continue-on-error: true\n',
+  '        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0\n',
+  '        with:\n',
+  '          key: ${{ steps.image.outputs.key }}\n',
+  '          path: ${{ runner.temp }}/golem-agent-image.tar\n',
+].join(''));
+historicalText = removeOnce(historicalText, ' "$RUNNER_TEMP/golem-agent-image.tar"');
+historicalText = removeOnce(historicalText, [
+  '      # Saved before any step holds a seat or runs an agent, so no agent can write an image a later run loads.\n',
+  '      - name: Keep a newly built agent image for later runs\n',
+  '        if: steps.prepare.outcome == \'success\' && steps.image.outcome == \'success\' && steps.image-cache.outputs.cache-hit != \'true\'\n',
+  '        continue-on-error: true\n',
+  '        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0\n',
+  '        with:\n',
+  '          key: ${{ steps.image.outputs.key }}\n',
+  '          path: ${{ runner.temp }}/golem-agent-image.tar\n',
+].join(''));
 historicalText = removeOnce(historicalText, '          printf \'%s  golem-runner-linux-x86_64\\n\' "$RUNNER_SHA256" | sha256sum --check --strict -\n');
 historicalText = removeOnce(historicalText, '        timeout-minutes: 10\n');
 historicalText = removeOnce(historicalText, '          # Idempotent GETs only: 408/429/5xx/timeouts retry within a bounded window; checksum still gates.\n');

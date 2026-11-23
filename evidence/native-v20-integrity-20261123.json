@@ -1,0 +1,18 @@
+{
+  "release": "v20",
+  "releaseId": 455243925,
+  "releaseRun": 45151177225,
+  "source": "dc0dd34e594b67e6814a0fb680b22c80275ee6df",
+  "tagObject": "31e3ef803bcf8b31a2ab1d99da6a4b687fd76332",
+  "assetId": 782428784,
+  "size": 6129872,
+  "sha256": "d1ea983cbd523bc77f91c690920018b0c25bb1b2a913b3712e4661de553b34a5",
+  "elf": "ELF64 little-endian x86_64",
+  "newBehaviourPresent": true,
+  "githubDigestMatches": true,
+  "sidecarMatches": true,
+  "manifestMatches": true,
+  "hostingImmutable": false,
+  "integrityScope": "point-in-time asset/source association; not build attestation",
+  "verifiedAt": "2026-11-23T10:03:57.827Z"
+}
