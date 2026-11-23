@@ -1145,13 +1145,37 @@ await scenario('committed lost reservation, bind, terminal and retirement respon
   await f.restart(); await f.call('tick');
   assert.equal(f.dispatches.at(-1).delivery_id, b.delivery_id);
   f.failReceipt = true;
-  const c = request(); await f.enqueue(c, 503);
+  // A lost receipt response defers retirement; it never refuses the new request, which no caller retries.
+  const c = request(); await f.enqueue(c);
+  assert.equal(f.row(a.delivery_id).state, 'terminal', 'row stays until its receipt is confirmed');
+  assert.equal(f.row(c.delivery_id).state, 'pending');
   assert.equal(f.dispatches.length, 2);
   await f.restart();
   await f.enqueue(a);
-  assert.equal(f.dispatches.length, 2, 'retirement receipt deduplicates despite lost acknowledgment');
-  await f.enqueue(c);
-  assert.equal(f.dispatches.length, 2, 'same-seat successor is still pending');
+  assert.equal(f.dispatches.length, 2, 'a terminal row deduplicates its own replay');
+  const d = request(); await f.enqueue(d);
+  assert.equal(f.row(a.delivery_id), undefined, 'the committed receipt is found and the row retires');
+  assert.equal(f.dispatches.length, 2, 'same-seat successors are still pending');
+});
+
+await scenario('idle ticks with a terminal row rewrite no journal', async f => {
+  const req = request(); await f.enqueue(req); await f.bind(req); await f.complete(req);
+  await f.call('tick'); // Publishes the immutable audit; may persist the scan cursor.
+  const before = f.puts.length;
+  await f.call('tick'); await f.call('tick');
+  assert.equal(f.row(req.delivery_id).state, 'terminal', 'only an admission retires terminal rows');
+  assert.equal(f.puts.length, before, 'an unchanged journal is not rewritten');
+});
+
+await scenario('conflicting retirement receipt keeps the row and still admits', async f => {
+  const a = request(); await f.enqueue(a); await f.bind(a); await f.complete(a);
+  await f.call('tick');
+  // A receipt naming a different request tag is an integrity anomaly: never retire through it.
+  f.refs.set(`refs/tags/golem-terminal/${a.delivery_id}`, 'f'.repeat(40));
+  const b = request(); await f.enqueue(b);
+  assert.equal(f.row(a.delivery_id).state, 'terminal', 'row stays while its receipt conflicts');
+  assert.ok(f.row(b.delivery_id), 'the new request is admitted');
+  assert.equal(f.refs.get(`refs/tags/golem-terminal/${a.delivery_id}`), 'f'.repeat(40), 'the conflicting receipt is never replaced');
 });
 
 await scenario('incomplete legacy API metadata blocks grants', async f => {

@@ -47,6 +47,17 @@ fn failure(message: &'static str) -> worker::Error {
     worker::Error::RustError(message.into())
 }
 
+/// Loggable text for an error: our own failures carry fixed messages (`failure`); any other
+/// error is named only by its kind, since runtime messages are not ours to vouch for.
+fn error_label(error: &worker::Error) -> String {
+    match error {
+        worker::Error::RustError(message) => message.clone(),
+        worker::Error::JsError(_) => "JavaScript error".to_owned(),
+        worker::Error::SerdeJsonError(_) | worker::Error::Json(_) => "JSON error".to_owned(),
+        _ => "runtime error".to_owned(),
+    }
+}
+
 struct Deadline(JsValue);
 impl Drop for Deadline {
     fn drop(&mut self) {
@@ -1225,8 +1236,25 @@ async fn prepare_request(
 async fn admit_request(env: &Env, github: &Github, request: &Value) -> Result<()> {
     // Coordinator adds generation, durably reserves both resources, dispatches and reacts.
     // Retrying identical admission is safe; coordinator alone decides dispatch replay.
-    let response = coordinate_budgeted(env, github, "enqueue", json!({"request":request})).await?;
-    if !(200..300).contains(&response.status_code()) {
+    let mut response =
+        coordinate_budgeted(env, github, "enqueue", json!({"request":request})).await?;
+    let status = response.status_code();
+    if !(200..300).contains(&status) {
+        // The coordinator's failure stage is a fixed word such as `upstream` or `journal_conflict`.
+        let stage = response
+            .json::<Value>()
+            .await
+            .ok()
+            .and_then(|body| {
+                body.get("safeFailure")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .filter(|stage| {
+                stage.len() <= 32 && stage.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+            })
+            .unwrap_or_else(|| "unknown".to_owned());
+        worker::console_error!("queue admission failed; status={}; stage={}", status, stage);
         return Err(failure("queue admission failed; claim retained"));
     }
     Ok(())
@@ -2586,8 +2614,8 @@ async fn webhook(mut request: Request, env: Env, ctx: Context) -> Result<Respons
     let mention_request = mention.is_some() || !ticks.is_empty();
     ctx.wait_until(async move {
         // waitUntil has a 30-second post-response lifetime; cap our work below it.
-        if bounded(process(env, event, delivery, mention, delivery_id.clone(), digest, ticks), 27_000).await.is_err() {
-            worker::console_error!("webhook processing failed; delivery={}; claim may be retained; investigate before replay", delivery_id);
+        if let Err(error) = bounded(process(env, event, delivery, mention, delivery_id.clone(), digest, ticks), 27_000).await {
+            worker::console_error!("webhook processing failed; delivery={}; error={}; claim may be retained; investigate before replay", delivery_id, error_label(&error));
         }
     });
     if mention_request {

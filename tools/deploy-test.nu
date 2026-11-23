@@ -11,6 +11,8 @@ def main [] {
   assert equal ($metadata.bindings | where name == APP_CLIENT_SECRET | get 0.text) "dummy-client-secret"
   assert equal ($metadata.bindings | where name == COORDINATOR | get 0) {name: COORDINATOR, type: durable_object_namespace, class_name: Coordinator}
   assert equal $metadata.migrations {new_tag: "coordinator-sqlite-v1", steps: [{new_sqlite_classes: [Coordinator]}]}
+  # Custom failure logs persist; invocation logs, which would record request URLs, stay off.
+  assert equal $metadata.observability {enabled: true, logs: {enabled: true, invocation_logs: false, persist: true}, redact_query_string: true}
   let redeployment = deployment-metadata $version key secret client "coordinator-sqlite-v1"
   assert (not ("migrations" in $redeployment))
   assert error { deployment-metadata $version key secret client unknown }

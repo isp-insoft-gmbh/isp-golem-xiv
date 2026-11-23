@@ -14,6 +14,13 @@ export def deployment-metadata [version: string, private_key: string, webhook_se
   {
     main_module: "index.js"
     compatibility_date: "2026-11-01"
+    # Our own static failure logs only: invocation logs would record request URLs, such as the
+    # OAuth callback's code, so they stay off and query strings are redacted regardless.
+    observability: {
+      enabled: true
+      logs: {enabled: true, invocation_logs: false, persist: true}
+      redact_query_string: true
+    }
     bindings: [
       {name: APP_PRIVATE_KEY, type: secret_text, text: $private_key}
       {name: WEBHOOK_SECRET, type: secret_text, text: $webhook_secret}

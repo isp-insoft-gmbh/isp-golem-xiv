@@ -3,6 +3,19 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-23: Failed retirements no longer refuse admission; failures are logged
+
+A canary mention on Toktrak at 20:37:52Z got its 202, eyes reaction and a queued `golem/canary` check, but no `golem-request` tag, queue row or run.
+The only queue row then was a terminal row of a deleted acceptance repository; its immutable audit validated in a read-only replay, so `enqueue` had gone on to the retirement receipt, whose failure, like a journal conflict before it, aborted the whole admission.
+Which of the two failed is unknown: the Worker had no logs, and invocation analytics only showed every request completing.
+The router never retries an admission and keeps the delivery claim, so a refused admission lost the mention and left its check queued; the test "committed lost … retirement responses remain fenced" had pinned that refusal, assuming a retry.
+Now a failed audit or receipt only defers that row's retirement, which still requires its receipt; the new request is admitted.
+A receipt naming a different request tag used to fail the admission with 409; now the row stays terminal and is logged, holding no seat but one of the 32 queue slots until someone investigates.
+Journal write conflicts still refuse an admission, since the admission itself must be saved.
+Reconciliation ticks now skip journal writes that change nothing: with a terminal row present, every one-minute tick had committed twice and set off push webhooks; callbacks and admissions write as before.
+Router and coordinator log fixed failure stages and statuses, never request data; Worker observability keeps these logs, with invocation logs off so request URLs such as the OAuth callback's code are not recorded, and query strings redacted.
+The repair helper's reviewed coordinator digest advances to this coordinator; its association rules for `dispatching` rows are unchanged, and it refuses `--apply` until this coordinator is deployed.
+
 ## 2026-11-23: CI and golems run on Blacksmith runners
 
 The organization's GitHub Actions budget stopped private-repository jobs (ops run 45250684632: "an Actions budget is preventing further use"), and every golem runs in the private ops repository.
