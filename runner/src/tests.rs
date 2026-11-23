@@ -511,12 +511,10 @@ async fn malformed_writable_results_only_report_blocked_without_publication() {
         assert!(observed[0].0.contains("/pulls?"));
         assert!(observed[1].0.contains("/comments "));
         assert_eq!(observed[2].1["conclusion"], "failure");
-        assert!(
-            observed[1].1["body"]
-                .as_str()
-                .unwrap()
-                .contains("Run blocked:")
-        );
+        let body = observed[1].1["body"].as_str().unwrap();
+        assert!(body.contains("Run blocked:"));
+        // Untyped prose is never presented as the golem's explanation.
+        assert!(!body.contains("ordinary answer"));
         assert!(
             observed[2].1["output"]["summary"]
                 .as_str()
@@ -573,6 +571,10 @@ async fn typed_blocked_results_never_publish_even_allowed_changes_or_after_timeo
             assert_eq!(observed.len(), 3);
             assert!(observed[0].0.contains("/pulls?")); // Existing-PR label lookup only.
             assert!(observed[1].0.contains("/comments "));
+            // The human sees why the golem declined, after the static line.
+            let body = observed[1].1["body"].as_str().unwrap();
+            assert!(body.contains("Run blocked: agent reported task blocked."));
+            assert!(body.contains("\n\nUnable to fulfill task."));
             let summary = observed[2].1["output"]["summary"].as_str().unwrap();
             assert!(summary.contains("outcome: blocked"));
             assert!(summary.contains("model: observed-model"));
@@ -778,6 +780,7 @@ async fn blocked_label_failure_does_not_suppress_human_reply_or_check() {
                 .report_blocked(
                     "token",
                     "verification failed",
+                    None,
                     "model",
                     &OutputGuard::default()
                 )

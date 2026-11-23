@@ -3,6 +3,12 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-23: A blocked golem's reply says why
+
+SPEC says a `blocked` run needs a human, yet its reply only said "Run blocked: agent reported task blocked" and dropped the golem's own reason, which was neither posted nor logged.
+Oliver chose to quote the golem's message after that static line, guarded like any reply.
+Only a typed blocked result carries it; runs blocked by the runner itself, or with a missing or malformed disposition, keep the static reason alone, so untyped prose is never presented as an explanation.
+
 ## 2026-11-21: Golems start faster so stop stays prompt
 
 Slice 4 acceptance failed only on `stop`: a stop reaches a dispatched run when its runner binds, and binding waits for harness preparation, which grew from about 40 s to about 6 min.
