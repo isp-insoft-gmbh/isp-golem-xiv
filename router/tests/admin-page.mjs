@@ -15,9 +15,9 @@ export async function verifyAdminPage(script) {
   const ids = new Map(['runs-status','runs','more-runs','undispatched-status','more-undispatched','usage','health','seats-status','seats','repositories-status','repositories','more-repositories'].map(id => [id, new Element('div')]));
   const document = {getElementById: id => { assert.ok(ids.has(id)); return ids.get(id); }, createElement: tag => new Element(tag), createTextNode: text => ({textContent: String(text)})};
   const log = id => `https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${id}`;
-  const first = {run_id:1,repo:'<img src=x onerror=attack()>',golem:'hello',trigger:'mention',seat:'member/anthropic',model:'claude-sonnet-5-5',outcome:'blocked',duration_s:42,log:log(1)};
-  const second = {...first,run_id:2,model:null,duration_s:null,outcome:'replied',log:log(2)};
-  const third = {...first,run_id:3,seat:'other/openai-codex',outcome:'no_change',duration_s:1,log:'https://attacker.invalid/'};
+  const first = {run_id:1,repo:'<img src=x onerror=attack()>',golem:'hello',trigger:'mention',seat:'member/anthropic',model:'claude-sonnet-5-5',outcome:'blocked',duration_s:42,log:log(1),completed_at:'2026-11-16T10:00:00Z'};
+  const second = {...first,run_id:2,model:null,duration_s:null,outcome:'replied',log:log(2),completed_at:'2026-11-16T11:00:00Z'};
+  const third = {...first,run_id:3,seat:'gone-person/openai-codex',outcome:'no_change',duration_s:1,log:'https://attacker.invalid/',completed_at:'2026-11-16T12:00:00Z'};
   const requests = [];
   async function fetch(path, options) {
     requests.push(path);
@@ -27,12 +27,12 @@ export async function verifyAdminPage(script) {
     let body;
     if (path.startsWith('/v1/admin/runs')) {
       const page = new URL(path, 'https://router.invalid').searchParams.get('page');
-      body = {as_of:1794902400,from:'2026-10-18T00:00:00Z',to:'2026-11-17T00:00:00Z',runs:page === '1' ? [first,second] : [first,third],workflow_health:page === '1' ? [{run_id:1,conclusion:'failure'},{run_id:2,conclusion:'success'}] : [{run_id:1,conclusion:'failure'},{run_id:3,conclusion:'success'}],missing_audits:page === '1' ? 0 : 1,malformed_audits:0,pending:0,total_workflow_runs:4,listing_complete:page !== '1',next_page:page === '1' ? 2 : null};
+      body = {as_of:1794902400,from:'2026-10-18T00:00:00Z',to:'2026-11-17T00:00:00Z',runs:page === '1' ? [first,second] : [first,third],workflow_health:page === '1' ? [{run_id:1,conclusion:'failure'},{run_id:2,conclusion:'success'}] : [{run_id:1,conclusion:'failure'},{run_id:3,conclusion:'success'}],missing_audits:page === '1' ? 0 : 1,before_audits:page === '1' ? 0 : 2,malformed_audits:0,pending:0,total_workflow_runs:4,listing_complete:page !== '1',next_page:page === '1' ? 2 : null};
     } else if (path.startsWith('/v1/admin/undispatched')) {
       const page = new URL(path, 'https://router.invalid').searchParams.get('page');
       body = {as_of:1794902400,runs:page === '1' ? [{...first,request_id:'11111111-1111-4111-8111-111111111111',run_id:null,outcome:'stopped',model:null,log:null,duration_s:null}] : [],listing_complete:page !== '1',next_page:page === '1' ? 2 : null,after:page === '1' ? 'next-audit-page' : null,malformed_audits:page === '1' ? 2 : 0};
     } else if (path === '/v1/admin/seats') {
-      body = {complete:true,expiry_note:'Expiry unknown.',seats:[{person:'GONE_PERSON',provider:'openai-codex',membership:'left organization',identity:'normalized identifier',refreshing:true,expires_at:null}]};
+      body = {complete:true,expiry_note:'Not recorded.',seats:[{person:'GONE_PERSON',provider:'openai-codex',membership:'left organization',identity:'normalized identifier',refreshing:true},{person:'Member',provider:'anthropic',membership:'active',identity:'GitHub login',refreshing:false}]};
     } else if (path.startsWith('/v1/admin/repositories')) {
       const page = new URL(path, 'https://router.invalid').searchParams.get('page');
       body = {complete:page !== '1',total_repositories:2,next_page:page === '1' ? 2 : null,repositories:[page === '1' ? {repo:'isp-insoft-gmbh/unreadable',repository_id:1,enabled:null,metadata_status:'unavailable',golems:[]} : {repo:'isp-insoft-gmbh/healthy',repository_id:2,enabled:true,metadata_status:'available',golems:[{name:'bad',enabled:false,reason:'invalid definition'}]}]};
@@ -52,9 +52,13 @@ export async function verifyAdminPage(script) {
   assert.equal(ids.get('health').children[0].tag, 'dl', 'health uses semantic label/value pairs');
   assert.equal(metric('Workflow failures'), '1 / 2 (50.0%)');
   assert.equal(metric('Blocked'), '1');
-  assert.equal(metric('Refreshing seat expiry'), 'unknown');
+  assert.equal(metric('Seat refresh state'), 'not recorded');
+  assert.equal(metric('Runs before audits'), '0');
   assert.match(ids.get('seats').textContent, /GONE_PERSON openai-codex left organization/);
   assert.match(ids.get('seats').textContent, /unknown/);
+  // Last runs per seat come from loaded audits, matched case-insensitively by login.
+  assert.match(ids.get('seats').textContent, /Member anthropic active GitHub login no 2026-11-16T11:00:00Z 2026-11-16T10:00:00Z/);
+  assert.match(ids.get('seats-status').textContent, /sign-in expiry and refresh state are not recorded/);
   assert.match(ids.get('repositories').textContent, /Metadata unavailable; enabled state unknown/);
   assert.doesNotMatch(ids.get('repositories').textContent, /Not enabled/);
   assert.equal(ids.get('repositories').children.filter(child => child.tag === 'table').length, 0, 'no empty golem table for unreadable repository');
@@ -68,7 +72,11 @@ export async function verifyAdminPage(script) {
   assert.equal(pagedRows.filter(row => row.children[3].textContent === third.seat && row.children[6].textContent === third.outcome).length, 1, 'new audited run appends exactly once');
   assert.equal(metric('Workflow failures'), '1 / 3 (33.3%)');
   assert.equal(metric('Missing audits'), '1');
-  assert.match(ids.get('runs-status').textContent, /History incomplete: 1 missing audit/);
+  assert.equal(metric('Runs before audits'), '2');
+  // A departed seat is known only by its secret name, yet still matches its hyphenated login's audits.
+  assert.match(ids.get('seats').textContent, /GONE_PERSON openai-codex left organization normalized identifier yes 2026-11-16T12:00:00Z unknown/);
+  assert.match(ids.get('runs-status').textContent, /History incomplete: 1 missing audit, 2 malformed audits\. 2 earlier/);
+  assert.match(ids.get('runs-status').textContent, /2 earlier runs predate audits \(before 2026-11-13\)\./);
   assert.equal(ids.get('more-runs').hidden, true);
   assert.ok(!ids.get('runs').textContent.includes('attacker.invalid'));
   await ids.get('more-undispatched').onclick();
@@ -93,7 +101,7 @@ async function verifyMixedSourceRetry(script) {
   let fail = true;
   const run = {run_id:9,repo:'isp-insoft-gmbh/fixture',golem:'hello',trigger:'mention',seat:'member/anthropic',model:null,outcome:'replied',duration_s:42,log:null};
   const dashboard = harness(script, async path => {
-    if (path.startsWith('/v1/admin/runs')) return {as_of:1794902400,from:'start',to:'end',runs:[run],workflow_health:[{run_id:9,conclusion:'success'}],missing_audits:0,malformed_audits:0,pending:0,total_workflow_runs:1,listing_complete:true,next_page:null};
+    if (path.startsWith('/v1/admin/runs')) return {as_of:1794902400,from:'start',to:'end',runs:[run],workflow_health:[{run_id:9,conclusion:'success'}],missing_audits:0,before_audits:0,malformed_audits:0,pending:0,total_workflow_runs:1,listing_complete:true,next_page:null};
     if (path.startsWith('/v1/admin/undispatched')) {
       if (fail) return {errorStatus:503};
       return {as_of:1794902400,runs:[{...run,request_id:'22222222-2222-4222-8222-222222222222',run_id:null,outcome:'stopped',duration_s:null}],listing_complete:true,next_page:null,malformed_audits:0};
@@ -119,7 +127,7 @@ async function verifyRevokedPagination(script) {
   const run = {run_id:9,repo:'isp-insoft-gmbh/fixture',golem:'hello',trigger:'mention',seat:'member/anthropic',model:null,outcome:'replied',duration_s:42,log:null};
   const dashboard = harness(script, async path => {
     if (path.startsWith('/v1/admin/runs?page=2')) return {errorStatus:403};
-    if (path.startsWith('/v1/admin/runs')) return {as_of:1794902400,from:'start',to:'end',runs:[run],workflow_health:[{run_id:9,conclusion:'success'}],missing_audits:0,malformed_audits:0,pending:0,total_workflow_runs:2,listing_complete:false,next_page:2};
+    if (path.startsWith('/v1/admin/runs')) return {as_of:1794902400,from:'start',to:'end',runs:[run],workflow_health:[{run_id:9,conclusion:'success'}],missing_audits:0,before_audits:0,malformed_audits:0,pending:0,total_workflow_runs:2,listing_complete:false,next_page:2};
     if (path.startsWith('/v1/admin/undispatched')) return {as_of:1794902400,runs:[],listing_complete:true,next_page:null,malformed_audits:0};
     if (path === '/v1/admin/seats') return {complete:true,seats:[]};
     return {complete:true,total_repositories:0,next_page:null,repositories:[]};
@@ -150,7 +158,7 @@ async function verifyExpiredPagination(script) {
 
 async function verifyEmptyLoad(script) {
   const dashboard = harness(script, async path => path.startsWith('/v1/admin/runs')
-    ? {as_of:1794902400,from:'start',to:'end',runs:[],workflow_health:[],missing_audits:0,malformed_audits:0,pending:0,total_workflow_runs:0,listing_complete:true,next_page:null}
+    ? {as_of:1794902400,from:'start',to:'end',runs:[],workflow_health:[],missing_audits:0,before_audits:0,malformed_audits:0,pending:0,total_workflow_runs:0,listing_complete:true,next_page:null}
     : path.startsWith('/v1/admin/undispatched')
       ? {as_of:1794902400,runs:[],listing_complete:true,next_page:null,malformed_audits:0}
       : path === '/v1/admin/seats' ? {complete:true,expiry_note:'Expiry unknown.',seats:[]}
@@ -185,7 +193,7 @@ async function verifyInitialRetry(script) {
   let fail = true;
   const dashboard = harness(script, async path => {
     if (path.startsWith('/v1/admin/runs') && fail) { fail = false; return null; }
-    if (path.startsWith('/v1/admin/runs')) return {as_of:1794902400,from:'start',to:'end',runs:[],workflow_health:[],missing_audits:0,malformed_audits:0,pending:0,total_workflow_runs:0,listing_complete:true,next_page:null};
+    if (path.startsWith('/v1/admin/runs')) return {as_of:1794902400,from:'start',to:'end',runs:[],workflow_health:[],missing_audits:0,before_audits:0,malformed_audits:0,pending:0,total_workflow_runs:0,listing_complete:true,next_page:null};
     if (path.startsWith('/v1/admin/undispatched')) return {as_of:1794902400,runs:[],listing_complete:true,next_page:null,malformed_audits:0};
     if (path === '/v1/admin/seats') return {complete:true,expiry_note:'Expiry unknown.',seats:[]};
     return {complete:true,total_repositories:0,next_page:null,repositories:[]};
@@ -222,7 +230,7 @@ async function verifyOnboarding(script) {
       if (typeof mode === 'number') return {errorStatus:mode};
       return {responseStatus:200,created:false,url:mode};
     }
-    if (path.startsWith('/v1/admin/runs')) return {as_of:1,from:'start',to:'end',runs:[],workflow_health:[],missing_audits:0,malformed_audits:0,pending:0,total_workflow_runs:0,listing_complete:true,next_page:null};
+    if (path.startsWith('/v1/admin/runs')) return {as_of:1,from:'start',to:'end',runs:[],workflow_health:[],missing_audits:0,before_audits:0,malformed_audits:0,pending:0,total_workflow_runs:0,listing_complete:true,next_page:null};
     if (path.startsWith('/v1/admin/undispatched')) return {as_of:1,runs:[],listing_complete:true,next_page:null,malformed_audits:0};
     if (path === '/v1/admin/seats') return {complete:true,seats:[]};
     return {complete:true,total_repositories:4,next_page:null,repositories:[

@@ -9,6 +9,9 @@ use crate::{
 pub const PAGE_SIZE: u64 = 10;
 pub const PAGE_MAX: u64 = 100;
 pub const WINDOW_SECONDS: u64 = 30 * 86_400;
+/// Creation time of the first runner run with a sanitized audit (2026-11-13T12:51:43Z, run
+/// 43428751065); every earlier run predates audits, every later one has one.
+pub const AUDITED_SINCE: u64 = 1_794_574_303;
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -291,9 +294,9 @@ pub fn page(login: &str, csrf: &str) -> String {
 <summary>How to read these numbers</summary>
 <ul>
 <li>Runs use Actions creation time for the 30-day window; requests that never started use final check time.</li>
-<li>Only loaded, verified audits contribute to usage and outcome totals. Older missing audits need verified backfill; no history is invented.</li>
+<li>Only loaded, verified audits contribute to usage and outcome totals. Runs from before 2026-11-13 predate audits and are counted separately; no history is invented.</li>
 <li>Duration is Actions start to final target check completion, not agent-only or billing time.</li>
-<li>Unknown means no verified observation, including model and seat expiry. A secret's update time is not its expiry.</li>
+<li>Unknown means no verified observation. Seats show their latest successful and blocked runs among loaded audits; sign-in expiry and refresh state are not recorded, and a secret's update time is not its expiry.</li>
 <li>Workflow failure rate uses failed, timed-out, startup-failure, action-required and stale conclusions over loaded completed workflows.</li>
 <li>Pagination is bounded to 1,000 workflows and 100 pages per listing. Changing upstream data can shift pages; a scan limit leaves totals incomplete.</li>
 <li>Seats may include normalized identifiers for people who left. Repository metadata can be unavailable without the repository being disabled.</li>

@@ -62,14 +62,15 @@ Organization members sign in with GitHub; every data request rechecks current me
 
 - **Runs:** paginated metadata for the last 30 days, with repository, golem, trigger, seat, observed model, outcome, duration and ops log.
 - **Usage:** counts and observed time per paying person/provider over loaded verified records, not provider charges or billed Actions minutes.
-- **Health:** workflow failures, blocked/incomplete/stopped outcomes and coverage gaps.
-- **Seats:** registered providers and unmatched secret-name identities for people who left the organization.
+- **Health:** workflow failures, blocked/incomplete/stopped outcomes, missing audits, and runs from before audits existed.
+- **Seats:** registered providers with each seat's latest successful and blocked run among loaded audits, and unmatched secret-name identities for people who left the organization.
 - **Repositories:** installed repositories, enabled golems and invalid definitions; unavailable repository metadata does not prevent loading later repositories.
 
 Use the pagination controls before interpreting totals; partial, missing, malformed and pending records are explicitly labeled.
 Duration is Actions start to final target check completion, not billing time.
 Unknown values are not requested settings or inferred successful results.
-Historical audit backfill and refreshing-seat expiry metadata remain unfinished; expiry is not inferred from a secret's update time.
+Runs created before 2026-11-13 predate audits and are counted apart from missing audits; nothing is backfilled.
+Sign-in expiry and refresh state are not recorded, so the dashboard cannot warn before a seat expires; a failing seat shows as blocked runs, and a failed Codex refresh write-back adds a `seat refresh` note to that run's check, and expiry is never inferred from a secret's update time.
 Private log links require separate access to `isp-golem-xiv-ops`.
 
 ## Diagnose a refusal or blocked run
