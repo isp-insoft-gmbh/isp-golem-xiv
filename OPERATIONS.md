@@ -88,7 +88,7 @@ Common reasons:
 - `container killed before its time budget`: the container ended with SIGKILL before its time ran out.
 - `snapshot file limit exceeded` or `snapshot byte limit exceeded`: a file or the total was over the bounds, 4 MiB per file and 64 MiB in total for the repository snapshot, 64 MiB and 512 MiB for the workspace after the agent or the verification.
 - `verification mutated workspace; publication blocked`: the verification command changed files the agent produced.
-- `agent reported task blocked`: the golem itself declined; its explanation is currently neither posted nor logged.
+- `agent reported task blocked`: the golem itself declined; from runner v21 on, the reply quotes its explanation after this line.
 
 Never put target code, credentials, raw provider replies or private logs into the public code repository.
 A protected-path refusal must be fixed in the task or repository configuration, not by weakening runner guards.

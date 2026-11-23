@@ -249,6 +249,19 @@ async fn execute_agent(
     })
 }
 
+/// Why a parsed writable result must not publish; only a typed blocked result carries the
+/// golem's own explanation for the human.
+fn refusal(output: &AgentOutput, timed_out: bool) -> Option<(&'static str, Option<&str>)> {
+    match output.disposition {
+        Some(golem_runner::AgentDisposition::Blocked) => {
+            Some(("agent reported task blocked", Some(output.text.as_str())))
+        }
+        Some(golem_runner::AgentDisposition::Completed) => None,
+        _ if timed_out => None,
+        _ => Some(("missing writable disposition", None)),
+    }
+}
+
 /// The workspace the agent left, after checking every change and its publication candidate.
 fn agent_workspace(
     workspace: &Path,
@@ -642,25 +655,21 @@ impl RunContext<'_> {
             Ok(result)
         }) {
             Ok(result) => result,
-            Err(error) => return self.report_blocked(token, error, "unobserved", guard).await,
+            Err(error) => {
+                return self
+                    .report_blocked(token, error, None, "unobserved", guard)
+                    .await;
+            }
         };
         let model = result.output.model.as_str();
         let changes = match result.changes {
             Ok(changes) => changes,
-            Err(error) => return self.report_blocked(token, error, model, guard).await,
+            Err(error) => return self.report_blocked(token, error, None, model, guard).await,
         };
-        let blocked = if result.output.disposition == Some(golem_runner::AgentDisposition::Blocked)
-        {
-            Some("agent reported task blocked")
-        } else if !result.timed_out
-            && result.output.disposition != Some(golem_runner::AgentDisposition::Completed)
-        {
-            Some("missing writable disposition")
-        } else {
-            None
-        };
-        if let Some(reason) = blocked {
-            return self.report_blocked(token, reason, model, guard).await;
+        if let Some((reason, explanation)) = refusal(&result.output, result.timed_out) {
+            return self
+                .report_blocked(token, reason, explanation, model, guard)
+                .await;
         }
         if result.timed_out {
             result
@@ -670,7 +679,7 @@ impl RunContext<'_> {
         }
         let feedback = match self.github.feedback_eligible(self.request, token).await {
             Ok(feedback) => feedback,
-            Err(error) => return self.report_blocked(token, error, model, guard).await,
+            Err(error) => return self.report_blocked(token, error, None, model, guard).await,
         };
         let mut text = result.output.text.clone();
         let outcome = if result.timed_out {
@@ -701,7 +710,9 @@ impl RunContext<'_> {
                     text.push_str(&url);
                 }
                 Err(error) => {
-                    let _reported = self.report_blocked(token, error, model, guard).await?;
+                    let _reported = self
+                        .report_blocked(token, error, None, model, guard)
+                        .await?;
                     // Publication may have partially succeeded; retain ownership for repair.
                     return Err(error);
                 }
@@ -729,10 +740,12 @@ impl RunContext<'_> {
         Ok(Ok(()))
     }
 
+    /// `explanation` is the golem's own reason, already guarded like any reply text.
     async fn report_blocked(
         &self,
         token: &str,
         error: &'static str,
+        explanation: Option<&str>,
         model: &str,
         guard: &OutputGuard,
     ) -> Result<Result<()>> {
@@ -740,16 +753,13 @@ impl RunContext<'_> {
         let label = self.github.mark_blocked(self.request, token).await;
         let reply = match feedback {
             Ok(true) => {
-                self.github
-                    .reply(
-                        self.request,
-                        token,
-                        &format!(
-                            "Run blocked: {error}. Inspect the private Actions run for status."
-                        ),
-                        guard,
-                    )
-                    .await
+                let mut text =
+                    format!("Run blocked: {error}. Inspect the private Actions run for status.");
+                if let Some(explanation) = explanation {
+                    text.push_str("\n\n");
+                    text.push_str(explanation);
+                }
+                self.github.reply(self.request, token, &text, guard).await
             }
             Ok(false) => Ok(()),
             Err(error) => Err(error),
