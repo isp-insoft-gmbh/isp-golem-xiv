@@ -67,9 +67,10 @@ def exercise-target [root: path, scratch: path] {
 # child, like a build tool under `mise run verify`, as an ordinary exit code. The record is
 # container-wide and sticky, so it also stays set when the command survives a kill and fails
 # for another reason; the runner therefore words it as an observation, not a cause.
-# A hog can also fail its allocation and exit by itself instead of being killed, as seen on
-# Blacksmith runners; only an actual kill (exit 137) must leave the record, so each shape
-# retries until a kill happens and fails if none does.
+# Only an actual kill (hog exit 137) must leave the record, so each shape prints the hog's exit,
+# fails at once if a killed hog left no record, retries an attempt that ended without a kill,
+# and fails if none was killed. One Blacksmith run saw the survived shape exit 3 with no record
+# and no hog exit printed (trunk run 45270797820); which of the two it was is unknown.
 def require-memory-kill-record [arguments: list<string>, tool_mount: string] {
   let run = ($arguments | where {|argument| $argument != '--rm' })
   let hog = r#'node -e 'const a = []; for (;;) a.push(Buffer.alloc(1 << 20, 1))'; s=$?; echo "golem-hog-exit=$s" >&2'#
