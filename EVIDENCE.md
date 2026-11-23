@@ -405,7 +405,7 @@ This proves the previously failing changer, continuation and echo behaviours liv
 ## Unchanged full Slice 2 acceptance passed
 
 After Oliver granted the `delete_repo` and `workflow` gh scopes, private runtime PR #11 merged as `abf9489eea62f5f7aac43b1185f048a89e05591e` (CI `42946847311`); its runner.yml byte-matches the reviewed template (native v5 plus bounded download retries).
-All 18 Slice 2 preflight checks passed, then `mise run accept -- --slice 2 --keep` ran as activity `activity-d4ea3e67-2` and exited 0 with 2287 untruncated log bytes (`C:\Users\okr\AppData\Local\Temp\golem-slice2-kaTx7M\accept.log`, private).
+All 18 Slice 2 preflight checks passed, then `mise run accept -- --slice 2 --keep` ran locally and exited 0 with 2287 untruncated log bytes; the private log was not retained.
 The gate table had 32 rows, all ok: every Slice 1 and Slice 2 promise in `contract.nuon`, including the previously failing `change-pr`, `continue-branch` and `no-loop-event`.
 `accept.nu` and `contract.nuon` were clean and identical to trunk `3413531383f278a82c4428460dd9f758182a40c3`.
 Live `/health` reported version `3413531`, a docs-only successor (EVIDENCE.md, STATUS.md) of the fenced code `1b72c82`; its CI `42943643378` and deploy `42943643392` succeeded.
@@ -426,8 +426,8 @@ This proves authentication by both harnesses, not Pi refresh/write-back interope
 
 ## Local Slice 4 verification, not deployed acceptance
 
-Final `mise run test-worker` activity `activity-26d024ae-6` exited 0 in 42.17 seconds after fixture and retry-budget corrections.
-The retained full log at `C:/Users/okr/AppData/Local/Temp/golem-slice4-worker-final-20261117.log` records all four unchanged suites, including admin authorization/pagination, seat registration and oversized-body rejection.
+Final `mise run test-worker` exited 0 in 42.17 seconds after fixture and retry-budget corrections.
+Its full local log, since discarded, recorded all four unchanged suites, including admin authorization/pagination, seat registration and oversized-body rejection.
 `router/tests/worker.mjs` executes `verifyAdminPage` from `router/tests/admin-page.mjs`; merely running that export-only module directly would not execute its assertions.
 
 Firefox 160 rendered the actual Rust-generated page and actual `router/src/admin.js` through a local HTTP fixture with representative, invented API responses.
@@ -458,7 +458,7 @@ Authenticated Firefox verification matched `/health` version `0c06d46e5b07db04d2
 This verifies the model correction, independently of the earlier `da28fd6` rendering record.
 
 Before publication, the UI rewrite was verified locally as follows.
-Final parent full Worker gate `activity-26d024ae-21` completed with exit 0 in 60.21 s; terminal status and all four suite summaries confirmed from retained log `C:/Users/okr/AppData/Local/Temp/golem-admin-ui-final-regressions-20261117.log`, including the current DOM consumer, new stylesheet/CSP/method checks and 105 coordinator scenarios.
+Final parent full Worker gate completed with exit 0 in 60.21 s; terminal status and all four suite summaries were confirmed from its local log, since discarded, including the current DOM consumer, new stylesheet/CSP/method checks and 105 coordinator scenarios.
 Firefox 160 fixture verification used actual Rust-generated HTML plus current JS/CSS; 390 px viewport had document scroll width 390, with horizontal tables confined to labelled focusable regions.
 A populated retry scenario confirmed visible undispatched-source failure, disabled Retry during its request, then cleared error, one newly rendered undispatched record, one preserved dispatched record and unchanged dispatched usage count 1.
 Desktop pagination reached three displayed records (two dispatched, one undispatched) and two repositories without duplicated dispatched rows or document overflow at 1440 px.
@@ -482,5 +482,5 @@ Native ArrowRight moved the focused run-results region from 0 to 43.17 px, with 
 Both pagination controls disabled during requests and recovered; repository sections increased 1→2, completed workflow metadata 10→20, and missing audits 8→18 (`1480`).
 The audited rows stayed at two, with distinct log IDs `44089143230` and `43428751065`: successful pagination through an audit-empty page, not proof that new audited rows append live.
 The current DOM regression in `router/tests/admin-page.mjs` covers page 1 run IDs 1/2 and overlapping page 2 IDs 1/3; added explicit checks confirm the new audited row appears once and both existing run links remain unique, without changing production code or captured live evidence.
-The current order-independent DOM regression passed separately; follow-up full Worker gate `activity-26d024ae-26` completed exit 0 in 64.84 s with all four suite summaries (`C:/Users/okr/AppData/Local/Temp/golem-admin-ui-append-proof-worker-20261117.log`).
+The current order-independent DOM regression passed separately; follow-up full Worker gate completed exit 0 in 64.84 s with all four suite summaries.
 Full Slice 4 acceptance, complete historical reconstruction and refreshing-seat expiry remain unfinished.
