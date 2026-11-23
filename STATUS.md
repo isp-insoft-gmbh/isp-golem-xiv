@@ -2,7 +2,8 @@
 
 - **Slice 4 acceptance: 46 of 47 (2026-11-21).** Only `stop` failed, because stop lands at runner bind after about 6 min of harness preparation.
   PR #65 caches the agent image and shortens the Codex self-test (Oliver's choices); released as v20, pinned by ops PR #36 (`4078fa5`) with cache restore, a save before any seat step, and the `agent-image` warm-up, which built and cached 605.6 MB in run 45154007649.
-  Load path not yet seen in production; next: a fresh `--slice 4` run, whose first golem run must log `golem image: loaded from cache`.
+  Load path seen in production (run 45160957682); the rerun passed `stop` in 80 s but lost `validation` to a GitHub 504 in the judge's own pull request creation.
+  Next: judge reads back pull requests after a failed create (Oliver), then one more full `--slice 4` run; kept repositories with stamp `20261123115804` await deletion.
   Kept test repositories with stamp `20261121104324` await deletion.
 - **Runner diagnostics in review (2026-11-20, PR #64).**
   Container stages log exit, duration and output sizes; preparation and verification print guarded, fenced output tails on every run; early exit 137 blocks as a kill; recorded memory kills block with an observational reason; phase lines and check reasons added.

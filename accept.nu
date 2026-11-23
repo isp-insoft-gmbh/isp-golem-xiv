@@ -428,7 +428,7 @@ def onboarding [ctx: record] {
     let name = $"bad(random chars --length 6 | str lowercase)"
     gh-ok api -X POST $"repos/($repo)/git/refs" -f $"ref=refs/heads/($branch)" -f $"sha=($sha)" | ignore
     put-file $repo $".golems/($name).md" (golem {schedule: someday} "Invalid on purpose.") --branch $branch
-    let number = gh-ok pr create --repo $repo --head $branch --title "add invalid golem" --body "accept.nu validation scenario" | str trim | split row '/' | last | into int
+    let number = open-pr $repo $branch "add invalid golem" "accept.nu validation scenario"
     let head = gh-json api $"repos/($repo)/pulls/($number)" | get head.sha
     let run = wait-for $c $c.limits.validation {|| check-runs $repo $head $c.validation_check | where status == completed | get -o 0 }
     if $run == null { return $"no completed check ($c.validation_check) within ($c.limits.validation)" }
@@ -673,6 +673,23 @@ def --wrapped gh-ok [...args] {
 }
 
 def --wrapped gh-json [...args] { $in | gh-ok ...$args | from json }
+
+# Opens a pull request and returns its number. GitHub can create it and still lose the response
+# (HTTP 504), so a failed create is resolved by reading back the one open pull request with this
+# branch and title before failing with the original error.
+def open-pr [repo: string, branch: string, title: string, body: string] {
+  let created = ^gh pr create --repo $repo --head $branch --title $title --body $body | complete
+  if $created.exit_code == 0 { return ($created.stdout | str trim | split row '/' | last | into int) }
+  for attempt in 1..6 {
+    let open = ^gh pr list --repo $repo --head $branch --state open --json number,title | complete
+    if $open.exit_code == 0 {
+      let matching = $open.stdout | from json | where title == $title
+      if ($matching | length) == 1 { return ($matching | get 0.number) }
+    }
+    sleep 10sec
+  }
+  error make {msg: $"gh pr create --repo ($repo) --head ($branch) failed and no open pull request appeared: ($created.stderr | str trim)"}
+}
 
 def head-sha [repo: string] {
   let branch = gh-ok api $"repos/($repo)" --jq .default_branch | str trim
