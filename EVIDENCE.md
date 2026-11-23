@@ -1,5 +1,12 @@
 # Evidence
 
+## 2026-11-23: Slice 4 rerun on v20, stop passes
+
+The second live `--slice 4 --keep` on deployed `c32a675` again passed 46 of 47 gates, now including `stop`: the stop comment came at 11:18:32Z and ops run 45164002906 was cancelled at 11:19:52Z, 80 s later, after an 18 s cache restore and 54 s of preparation.
+The first v20 golem run, 45160957682, restored key `golem-agent-image-d8ffc233…-2026-11` (578 MB), logged `golem image: loaded from cache`, skipped its save step, and reached its runner step 75 s after the job started; its log also carries the new phase, container and fenced output-tail lines.
+Only `validation` failed: the judge's `gh pr create` received HTTP 504 from GitHub's GraphQL API, yet pull request #5 was created at 11:34:48Z and the product's `golems/validate` check concluded `failure` ("Invalid golems") 6 s later; the judge never reached the merge and dashboard half.
+Oliver chose to make the judge read back the open pull request for the branch and title after a failed create, leaving the promise unchanged, and to rerun.
+
 ## 2026-11-23: v20 pin and a warmed agent image
 
 [Native integrity](evidence/native-v20-integrity-20261123.json): release run 45151177225 on `dc0dd34`, tag object `31e3ef80`, ELF64 asset 782428784 (6,129,872 bytes), GitHub, sidecar and manifest SHA-256 `d1ea983cbd523bc77f91c690920018b0c25bb1b2a913b3712e4661de553b34a5`; the released bytes contain the image cache, the 30 s Codex window and the memory-kill reason.
