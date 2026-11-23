@@ -1030,6 +1030,10 @@ async function seatRegistration() {
   state.adminRuns.push({...state.adminRuns[0],id:200}); // retired historical run without v3 audit
   state.adminRuns.push({...state.adminRuns[0],id:201,status:'in_progress'});
   state.adminRuns.push(fixtureAudit(202));
+  // A run from before the first sanitized audit, while that time is still inside the 30-day window.
+  const auditedSince = Date.parse('2026-11-13T12:51:43Z');
+  const preAudit = Date.parse(completed) - 30 * 86400000 < auditedSince - 3600000;
+  if (preAudit) state.adminRuns.push({...state.adminRuns[0],id:203,created_at:'2026-11-13T11:51:43Z',run_started_at:'2026-11-13T11:51:43Z'});
   const invalidTag = state.tags.get((202).toString(16).padStart(40,'0'));
   invalidTag.message = JSON.stringify({...JSON.parse(invalidTag.message), instructions:'NEVER EXPOSE RAW REQUEST'});
   let runReply = await adminRequest('runs',{Authorization:'Bearer valid-fixture-token'});
@@ -1050,12 +1054,14 @@ async function seatRegistration() {
   assert.equal(secondPage.runs.length,1);
   assert.equal(secondPage.listing_complete,true);
   assert.equal(secondPage.page_complete,false);
-  assert.equal(secondPage.missing_audits,1);
+  assert.equal(secondPage.missing_audits,1,'a recent run without audit is missing');
+  assert.equal(secondPage.before_audits,preAudit ? 1 : 0,'a run from before audits is counted apart');
+  assert.equal(firstPage.before_audits,0);
   assert.equal(secondPage.malformed_audits,1);
   assert.equal(secondPage.pending,1);
   assert.equal(secondPage.next_page,null);
   assert.ok(!JSON.stringify(secondPage).includes('NEVER EXPOSE RAW REQUEST'));
-  assert.match(secondPage.coverage_note,/backfill/);
+  assert.match(secondPage.coverage_note,/predate sanitized audits/);
   // Immutable alias remains retrievable without live queue rows or the original request body.
   assert.equal(state.queue.some(r => r.delivery_id === '00000000-0000-4000-8000-000000000100'),false);
   for (const section of ['runs?page=0','runs?page=101','runs?page=1&page=2','runs?as_of=1','runs?unexpected=1']) assert.equal((await adminRequest(section)).status,400);
@@ -1088,8 +1094,8 @@ async function seatRegistration() {
   assert.equal(adminSeats.complete,true);
   assert.ok(adminSeats.seats.some(s => s.person === 'member' && s.membership === 'active'));
   assert.ok(adminSeats.seats.some(s => s.person === 'GONE_PERSON' && s.membership === 'left organization'));
-  assert.ok(adminSeats.seats.every(s => s.expires_at === null));
-  assert.match(adminSeats.expiry_note,/unknown/);
+  assert.ok(adminSeats.seats.every(s => !('expires_at' in s)),'no expiry is claimed');
+  assert.match(adminSeats.expiry_note,/not recorded/);
   const adminRepositoryFiles = repositoryFiles.get(installation[0].full_name);
   assert.ok(adminRepositoryFiles, 'selected installation repository has its own index fixture');
   assert.ok(!adminRepositoryFiles.has('admin-invalid.md'));

@@ -5,8 +5,8 @@
   const rows = [];
   const seen = new Set();
   const workflowHealth = new Map();
-  let windowEnd;
-  let missing = 0, malformed = 0, pending = 0, undispatchedMalformed = 0;
+  let windowEnd, seatData;
+  let missing = 0, beforeAudits = 0, malformed = 0, pending = 0, undispatchedMalformed = 0;
   const unknown = value => value === null || value === undefined ? 'unknown' : String(value);
 
   function table(parent, caption, headings, records) {
@@ -119,9 +119,9 @@
       ['Workflow failures', conclusions.length ? `${failures} / ${conclusions.length} (${failureRate})` : 'unknown'],
       ['Audited runs loaded', runRows.length], ['Known outcomes', known],
       ['Blocked', blocked], ['Incomplete', incomplete], ['Stopped', stopped],
-      ['Unknown outcomes', unknownOutcome], ['Missing audits', missing],
+      ['Unknown outcomes', unknownOutcome], ['Missing audits', missing], ['Runs before audits', beforeAudits],
       ['Malformed audits', malformed + undispatchedMalformed], ['Pending workflows', pending],
-      ['Refreshing seat expiry', 'unknown'],
+      ['Seat refresh state', 'not recorded'],
     ]) {
       const group = document.createElement('div');
       const term = document.createElement('dt'); term.textContent = label;
@@ -129,6 +129,26 @@
       group.append(term); group.append(detail); health.append(group);
     }
     byId('health').replaceChildren(); byId('health').append(health);
+    renderSeats();
+  }
+
+  // Each seat's latest audited runs on loaded pages; sign-in expiry and refresh state are not recorded.
+  function renderSeats() {
+    if (!seatData) return;
+    const last = new Map();
+    for (const row of rows) {
+      if (row.run_id === null || typeof row.completed_at !== 'string') continue;
+      const kind = ['changed', 'replied', 'no_change'].includes(row.outcome) ? 'success' : row.outcome === 'blocked' ? 'blocked' : null;
+      if (!kind) continue;
+      const entry = last.get(row.seat) ?? {};
+      if (!entry[kind] || row.completed_at > entry[kind]) entry[kind] = row.completed_at;
+      last.set(row.seat, entry);
+    }
+    byId('seats').replaceChildren();
+    table(byId('seats'), 'Registered seats', ['Person / identifier', 'Provider', 'Membership', 'Identity', 'Refreshing', 'Last successful run', 'Last blocked run'], seatData.seats.map(seat => {
+      const entry = last.get(`${seat.person.toLowerCase()}/${seat.provider}`) ?? {};
+      return [seat.person, seat.provider, seat.membership, seat.identity, seat.refreshing ? 'yes' : 'no', entry.success ?? null, entry.blocked ?? null];
+    }));
   }
 
   async function runs(page = 1) {
@@ -146,6 +166,7 @@
         if (!seen.has(key)) { seen.add(key); rows.push(record); }
       }
       missing += data.missing_audits;
+      beforeAudits += data.before_audits;
       malformed += data.malformed_audits;
       pending += data.pending;
       rollup();
@@ -153,7 +174,8 @@
       const coverage = data.listing_complete ? 'Workflow listing complete.' : data.next_page === null ? 'Scan limit reached; history incomplete.' : 'More workflows available.';
       const gaps = [[missing, 'missing audit'], [malformed + undispatchedMalformed, 'malformed audit'], [pending, 'pending workflow']]
         .filter(([count]) => count > 0).map(([count, label]) => `${count} ${label}${count === 1 ? '' : 's'}`).join(', ');
-      status('runs-status', `${data.from.slice(0, 10)} to ${data.to.slice(0, 10)} UTC. ${loadedRuns ? `${loadedRuns} audited ${loadedRuns === 1 ? 'run' : 'runs'} loaded` : 'No audited runs on loaded pages'}; ${data.total_workflow_runs} workflows reported. ${coverage}${gaps ? ` History incomplete: ${gaps}.` : ''}`, null);
+      const earlier = beforeAudits ? ` ${beforeAudits} earlier ${beforeAudits === 1 ? 'run predates' : 'runs predate'} audits (before 2026-11-13).` : '';
+      status('runs-status', `${data.from.slice(0, 10)} to ${data.to.slice(0, 10)} UTC. ${loadedRuns ? `${loadedRuns} audited ${loadedRuns === 1 ? 'run' : 'runs'} loaded` : 'No audited runs on loaded pages'}; ${data.total_workflow_runs} workflows reported. ${coverage}${gaps ? ` History incomplete: ${gaps}.` : ''}${earlier}`, null);
       button.hidden = data.next_page === null;
       button.onclick = data.next_page === null ? null : () => runs(data.next_page);
     } catch (error) { button.hidden = true; failed('runs-status', error, retry); }
@@ -184,10 +206,9 @@
 
   async function seats() {
     try {
-      const data = await get('/v1/admin/seats');
-      status('seats-status', `${data.complete ? 'Membership listing complete.' : 'Membership listing partial; departed status may be unknown.'} Seat expiry is unavailable.`, null);
-      byId('seats').replaceChildren();
-      table(byId('seats'), 'Registered seats', ['Person / identifier', 'Provider', 'Membership', 'Identity', 'Refreshing', 'Expiry'], data.seats.map(seat => [seat.person, seat.provider, seat.membership, seat.identity, seat.refreshing ? 'yes' : 'no', seat.expires_at]));
+      seatData = await get('/v1/admin/seats');
+      status('seats-status', `${seatData.complete ? 'Membership listing complete.' : 'Membership listing partial; departed status may be unknown.'} Last runs come from audited runs on loaded pages; sign-in expiry and refresh state are not recorded.`, null);
+      renderSeats();
     } catch (error) { failed('seats-status', error, seats); }
   }
 

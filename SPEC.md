@@ -151,7 +151,8 @@ The credential is encrypted in the browser; the router stores it without ever se
 - A refreshing sign-in must be separate from the one a person uses daily; otherwise one of them is logged out.
 - One seat serves every harness that works with its provider; which harnesses those are is listed in `contract.nuon`.
 - Each harness uses its own default model for a provider unless the golem names one.
-- A sign-in that expired or was revoked must be registered again; the dashboards warn before a known expiry.
+- A sign-in that expired or was revoked must be registered again.
+  Its expiry is not recorded, so the dashboard shows each seat's latest successful and blocked runs instead of warning before an expiry.
 - Registering again always replaces the previous sign-in.
 - People are responsible for using their accounts within their providers' terms.
 
@@ -226,8 +227,8 @@ Every organization member can open it after signing in with GitHub.
 |---|---|
 | Runs | the last 30 days: repository, golem, trigger, seat, model, outcome, duration, log link |
 | Usage | runs and time per person and provider |
-| Health | failure rate, blocked runs, refreshing seats close to expiry |
-| Seats | registered seats per person, and seats of people who left the organization |
+| Health | failure rate, blocked runs, audit coverage |
+| Seats | registered seats per person with their latest successful and blocked runs, and seats of people who left the organization |
 | Repositories | installed repositories, disabled golems, optional explicit starter-PR action where `.golems/` is missing |
 
 Everything shown is derived from GitHub: runs in the ops repository with one machine-readable audit record each, seat names, the App installation, and the golem index.

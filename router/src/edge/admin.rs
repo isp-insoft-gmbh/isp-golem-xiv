@@ -290,7 +290,7 @@ async fn undispatched(
         records.push(json!({"request_id":audit.request_id,"repo":audit.repository,"golem":audit.golem,"trigger":audit.trigger,"seat":audit.seat,"outcome":audit.outcome,"model":null,"duration_s":null,"log":null,"run_id":null,"completed_at":audit.completed_at}));
     }
     Ok(
-        json!({"runs":records,"page":page,"as_of":as_of,"next_page":(more && page < policy::PAGE_MAX).then_some(page+1),"after":if page < policy::PAGE_MAX {next} else {None},"listing_complete":!more,"malformed_audits":malformed,"coverage_note":"Undispatched requests by terminal check time; no agent execution or Actions log. Traverses the sanitized audit namespace, ten tags per request, at most 100 pages; partial until fully traversed. Historical missing audits need verified backfill."}),
+        json!({"runs":records,"page":page,"as_of":as_of,"next_page":(more && page < policy::PAGE_MAX).then_some(page+1),"after":if page < policy::PAGE_MAX {next} else {None},"listing_complete":!more,"malformed_audits":malformed,"coverage_note":"Undispatched requests by terminal check time; no agent execution or Actions log. Traverses the sanitized audit namespace, ten tags per request, at most 100 pages; partial until fully traversed. Requests from before sanitized audits are not listed."}),
     )
 }
 
@@ -382,7 +382,7 @@ async fn runs(github: &Github, page: u64, as_of: u64) -> Result<Value> {
     }
     let mut records = Vec::new();
     let mut workflow_health = Vec::new();
-    let (mut missing, mut malformed, mut pending) = (0, 0, 0);
+    let (mut missing, mut before_audits, mut malformed, mut pending) = (0, 0, 0, 0);
     for run in entries {
         let id = run
             .get("id")
@@ -403,7 +403,17 @@ async fn runs(github: &Github, page: u64, as_of: u64) -> Result<Value> {
             )
             .await?;
         if status == 404 {
-            missing += 1;
+            // Runs from before the first sanitized audit never had one; only later gaps are missing.
+            if run
+                .get("created_at")
+                .and_then(Value::as_str)
+                .and_then(policy::timestamp)
+                .is_some_and(|created| created < policy::AUDITED_SINCE)
+            {
+                before_audits += 1;
+            } else {
+                missing += 1;
+            }
             continue;
         }
         if status != 200 {
@@ -439,7 +449,7 @@ async fn runs(github: &Github, page: u64, as_of: u64) -> Result<Value> {
     let traversed = page * policy::PAGE_SIZE;
     let next = (traversed < total && page < policy::PAGE_MAX).then_some(page + 1);
     Ok(
-        json!({"runs":records,"workflow_health":workflow_health,"page":page,"as_of":as_of,"from":from,"to":to,"total_workflow_runs":total,"next_page":next,"listing_complete":traversed >= total,"page_complete":missing == 0 && malformed == 0 && pending == 0,"missing_audits":missing,"malformed_audits":malformed,"pending":pending,"history_complete":page == 1 && traversed >= total && missing == 0 && malformed == 0 && pending == 0,"coverage_note":"Actions runs created in this window only. Previously retired runs without sanitized audits need verified backfill; no history is fabricated. Undispatched requests have a separate paginated audit listing at /v1/admin/undispatched. GitHub search caps traversal at 1000 runs; changing upstream data can shift pages."}),
+        json!({"runs":records,"workflow_health":workflow_health,"page":page,"as_of":as_of,"from":from,"to":to,"total_workflow_runs":total,"next_page":next,"listing_complete":traversed >= total,"page_complete":missing == 0 && before_audits == 0 && malformed == 0 && pending == 0,"missing_audits":missing,"before_audits":before_audits,"malformed_audits":malformed,"pending":pending,"history_complete":page == 1 && traversed >= total && missing == 0 && before_audits == 0 && malformed == 0 && pending == 0,"coverage_note":"Actions runs created in this window only. Runs created before 2026-11-13T12:51:43Z predate sanitized audits and are counted apart from missing audits; no history is fabricated. Undispatched requests have a separate paginated audit listing at /v1/admin/undispatched. GitHub search caps traversal at 1000 runs; changing upstream data can shift pages."}),
     )
 }
 
@@ -506,12 +516,12 @@ async fn seats(github: &Github) -> Result<Value> {
     for (member, entries) in [(true, holders.registered), (false, holders.departed)] {
         for (login, providers) in entries {
             for provider in providers {
-                rows.push(json!({"person":login,"provider":provider,"membership":if member {"active"} else if complete {"left organization"} else {"unknown"},"identity":if member {"GitHub login"} else {"normalized secret-name identifier; not reversible"},"refreshing":provider == "openai-codex","expires_at":null}));
+                rows.push(json!({"person":login,"provider":provider,"membership":if member {"active"} else if complete {"left organization"} else {"unknown"},"identity":if member {"GitHub login"} else {"normalized secret-name identifier; not reversible"},"refreshing":provider == "openai-codex"}));
             }
         }
     }
     Ok(
-        json!({"seats":rows,"complete":complete,"expiry_note":"Expiry and refresh health unknown: secret names contain no expiry metadata. Update time is not expiry."}),
+        json!({"seats":rows,"complete":complete,"expiry_note":"Sign-in expiry and refresh state are not recorded: secrets are write-only and runs record no expiry. Update time is not expiry."}),
     )
 }
 

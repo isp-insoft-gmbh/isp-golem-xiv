@@ -3,6 +3,16 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-23: Seat health from audits; runs before audits counted apart
+
+SPEC promised a warning for refreshing seats close to expiry, but nothing the router can read holds an expiry: seat secrets are write-only, a run learns only an access token's expiry, a refresh token's lifetime is not published, and the start of an Anthropic setup token's year is never recorded.
+Refresh results are not router-readable either: a successful write-back is only printed to the private Actions log, and a failed one is a check-summary line that sanitized audits do not carry.
+Oliver first chose "router-only health" from a question that wrongly claimed audits and check notes already held write-back state; asked again with these facts, he chose audit-only signals.
+The seats table now shows each seat's latest successful (`changed`, `replied`, `no_change`) and latest blocked run among the audited runs loaded so far, matched by the audit's lowercased `login/provider`; the health panel states that seat refresh state is not recorded.
+SPEC's seat and dashboard lines now promise exactly that; warning before a sign-in expires remains an open gap that would need the runner to record expiry or refresh results.
+The 87 runner runs created before 2026-11-13T12:51:43Z, when run 43428751065 became the first with a sanitized audit, never had one, while all 47 later completed runs do.
+The dashboard counts such earlier runs as predating audits instead of as missing audits, so missing now means an audit that should exist; nothing is backfilled or fabricated, and these runs leave the 30-day window by mid-December.
+
 ## 2026-11-23: A blocked golem's reply says why
 
 SPEC says a `blocked` run needs a human, yet its reply only said "Run blocked: agent reported task blocked" and dropped the golem's own reason, which was neither posted nor logged.

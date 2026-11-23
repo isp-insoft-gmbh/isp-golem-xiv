@@ -4,7 +4,7 @@
   Getting there: the first run (2026-11-21) failed only `stop`, which lands at runner bind after harness preparation, then about 6 min.
   PR #65 cached the agent image and shortened the Codex self-test (Oliver's choices); v20 pinned by ops PR #36 (`4078fa5`) with cache restore, a save before any seat step and the `agent-image` warm-up; PR #67 made the judge read back a pull request whose creation lost its response to a GitHub 504.
   All kept test repositories were deleted.
-  Remaining for Slice 4's goal per PLAN: the operator guide pass on `OPERATIONS.md`; recorded gaps (historical audit backfill, refreshing-seat expiry metadata) stay open; Oliver agreed with all three, not yet started.
+  Follow-ups (2026-11-23): operator guide updated (PR #69); daily `agent-image` lookup (ops PR #37); blocked replies quote the golem's reason (PR #70, ships with v21); dashboard seat health from audits and runs before audits counted apart (this PR). Warning before a seat's sign-in expires stays an open gap.
 - **Runner diagnostics merged (2026-11-20, PR #64).**
   Container stages log exit, duration and output sizes; preparation and verification print guarded, fenced output tails on every run; early exit 137 blocks as a kill; recorded memory kills block with an observational reason; phase lines and check reasons added.
   Real memory kills exit 1 with `OOMKilled` set (run 44840098741), now asserted by the container test.
