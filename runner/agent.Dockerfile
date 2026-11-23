@@ -135,15 +135,22 @@ RUN --network=none set -eu; \
     printf '%s\n' '[mcp_servers.probe]' 'command = "/usr/bin/touch"' 'args = ["/tmp/golem-codex-mcp-marker"]' \
       >/workspace/.codex/config.toml; \
     codex_probe() { \
-      code=0; \
-      printf 'probe' | env -i PATH=/usr/local/bin:/usr/bin:/bin GOLEM_HARNESS=codex GOLEM_WRITABLE=0 HOME=/home/agent \
+      code=0; start="$(date +%s%N)"; : >"$root/timeline"; \
+      ( printf 'probe' | env -i PATH=/usr/local/bin:/usr/bin:/bin GOLEM_HARNESS=codex GOLEM_WRITABLE=0 HOME=/home/agent \
         /usr/bin/timeout --signal=KILL 120 /usr/local/bin/node /opt/golem/container.cjs \
         exec --json --output-schema /opt/golem/codex-result-schema.json --skip-git-repo-check \
         --dangerously-bypass-approvals-and-sandbox --ephemeral --ignore-user-config --dangerously-bypass-hook-trust \
         --color never "$@" \
         --config 'web_search="disabled"' --config check_for_update_on_startup=false \
         --config analytics.enabled=false --config feedback.enabled=false --config 'history.persistence="none"' - \
-        >"$root/out" 2>"$root/err" || code=$?; \
+        >"$root/out" 2>"$root/err" ) & pid=$!; \
+      while kill -0 "$pid" 2>/dev/null; do \
+        printf '%s lines=%s err=%s marker=%s\n' "$(( ($(date +%s%N) - start) / 1000000 ))" "$(wc -l <"$root/out")" "$(wc -l <"$root/err")" "$(test -e /tmp/golem-codex-mcp-marker && echo yes || echo no)" >>"$root/timeline"; \
+        sleep 0.5; \
+      done; \
+      wait "$pid" || code=$?; \
+      echo "EXPERIMENT codex probe exit=$code"; \
+      uniq -f1 "$root/timeline" | sed 's/^/EXPERIMENT ms=/'; \
       cat "$root/out" "$root/err"; \
       test "$code" -ne 0; \
     }; \
