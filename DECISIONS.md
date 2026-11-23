@@ -254,7 +254,7 @@ No judge, target configuration, container resource, time or output-stream bounds
   An independent review found undispatched failure/retry hidden in a disclosure; moving status and controls outside it resolved that finding.
   Retry disables during requests; expired pagination offers reload rather than resending an expired cursor; empty metadata never claims there were no runs.
 - Current DOM regressions passed, including mixed-source recovery retaining existing rows without adding undispatched work to usage.
-  Final parent full Worker gate `activity-26d024ae-21` completed with exit 0 in 60.21 s; all four suite summaries confirmed; CSS delivery, MIME, no-store, HTML reference, scoped CSP and non-GET rejection are covered.
+  Final parent full Worker gate completed with exit 0 in 60.21 s; all four suite summaries confirmed; CSS delivery, MIME, no-store, HTML reference, scoped CSP and non-GET rejection are covered.
 - Firefox 160 local HTTP fixture served actual Rust-rendered HTML and current JS/CSS.
   Desktop 1440 px and mobile 390 px had no document overflow; labelled tables keep their own horizontal overflow instead of making text unreadable.
   Real retry terminal state showed two rows (one dispatched, one undispatched), one unique dispatched log and usage count 1; final pagination showed three audited records (two dispatched, one undispatched).
@@ -281,7 +281,7 @@ No judge, target configuration, container resource, time or output-stream bounds
 - The first v3 audit producer incorrectly accepted `default` as an observed model identifier.
   A Rust regression went red (`Some("default")` versus expected `None`); new audits now record null, existing immutable v3 placeholders normalize to null at read time, and retirement accepts that historical unknown without rewriting its audit.
   This preserves provenance rather than inventing observations or changing published history.
-  Parent full Worker gate `activity-26d024ae-11` passed exit 0 in 73.53 s; pinned host/wasm Clippy, four admin tests and repair/digest checks passed.
+  Parent full Worker gate passed exit 0 in 73.53 s; pinned host/wasm Clippy, four admin tests and repair/digest checks passed.
   This only corrects the known placeholder; requested non-placeholder Codex model names still do not establish an independent provider observation.
 - Fresh run `44089143230` was blocked (`container execution failed`), not a successful harness proof.
   Its v3 audit and admin record bind the source comment/request/check/run and correctly report blocked/null-model/367 s; the container stage is not retained by current diagnostics.
@@ -312,8 +312,8 @@ No judge, target configuration, container resource, time or output-stream bounds
   Unknown-dispatch fencing and late-bind refusal remain intact.
 - Two parent full Worker gates failed integrated fixtures (selected-repository mismatch, then unsupported new check metadata reads exhausting the existing mock bound).
   Fixture resources were corrected; original scenarios, assertions and limits remain.
-  Parent gate `activity-26d024ae-5` then passed exit 0 in 69.84 s.
-  After the repository-pagination correction, final parent gate `activity-26d024ae-6` passed exit 0 in 42.17 s with all four suite summaries retained in `C:/Users/okr/AppData/Local/Temp/golem-slice4-worker-final-20261117.log`.
+  Parent gate then passed exit 0 in 69.84 s.
+  After the repository-pagination correction, final parent gate passed exit 0 in 42.17 s with all four suite summaries.
   Pinned Rust 1.99.1 Clippy passed on host and wasm; inherited Rust 1.100 had reported newer lints in unchanged code, so verification used explicit `rustup run 1.99.1` rather than modifying source for that environment.
   No judge changes, deployment or full Slice 4 acceptance claimed.
 
@@ -326,7 +326,7 @@ No judge, target configuration, container resource, time or output-stream bounds
 - WSL startup, tool discovery and suite failures propagate through the existing bounded command runner; no unbounded readiness probe or automatic native retry.
   Presence of `GOLEM_WORKER_TESTS_NATIVE` explicitly selects native diagnostic execution.
 - Oliver trusted this repository and installed its tools in WSL.
-  `mise run test-worker` completed as activity `activity-26d024ae-1` (exit 0, 210.41 s): runtime helpers, delivered Worker, integrated coordinator Worker, and coordinator SQLite/journal suites all passed through WSL.
+  `mise run test-worker` completed (exit 0, 210.41 s): runtime helpers, delivered Worker, integrated coordinator Worker, and coordinator SQLite/journal suites all passed through WSL.
   The delivered Worker suite includes the unchanged oversized-body 413 assertion; this is local built-artifact evidence, not deployed acceptance.
   Fmt, `x` Clippy and three unit tests passed; Linux PR CI remains the merge gate.
 
