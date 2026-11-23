@@ -2,7 +2,7 @@
 // node router/tests/coordinator.mjs [absolute miniflare module path] [--runner-contract]
 // --runner-contract additionally compiles the actual native audit publisher in OS temp.
 import assert from 'node:assert/strict';
-import {generateKeyPairSync, randomUUID} from 'node:crypto';
+import {createHash, generateKeyPairSync, randomUUID} from 'node:crypto';
 import {copyFile, mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {tmpdir} from 'node:os';
@@ -21,6 +21,9 @@ const repository = 'isp-insoft-gmbh/isp-golem-xiv-test-queue';
 const head = 'a'.repeat(40);
 const startedAt = '2026-11-13T01:00:00Z';
 const completedAt = '2026-11-13T01:00:42Z';
+const gitBlobSha = text => { const body = Buffer.from(text, 'utf8'); return createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${body.length}\0`), body])).digest('hex'); };
+// A retirement receipt is a blob holding the request tag's id.
+const receipt = tag => gitBlobSha(`${tag}\n`);
 const json = (status, value = {}) => new Answer(status === 204 ? null : JSON.stringify(value), {status, headers: {'Content-Type': 'application/json'}});
 function request(seat = 'member', golem = 'hello', extra = {}) {
   return {version: 2, delivery_id: randomUUID(), repository_id: 99, repository, head_sha: head, golem, issue_number: 1, comment_id: 100, actor_id: 42, actor_login: 'member', seat_login: seat, provider: 'anthropic', harness: 'claude', model: null, timeout_seconds: 1800, instructions: 'fixture', check_run_id: 10, trigger: 'mention', branch: `golems/${golem}`, verify: null, owner: null, ...extra};
@@ -29,6 +32,8 @@ class Fixture {
   constructor() {
     this.refs = new Map();
     this.tags = new Map();
+    this.blobs = new Map();
+    this.trunk = head;
     this.runs = new Map();
     this.dispatches = [];
     this.repositories = new Map([[repository, {status: 200, body: {id: 99, full_name: repository}}]]);
@@ -45,6 +50,20 @@ class Fixture {
     this.puts = [];
   }
   sha() { return (this.counter++).toString(16).padStart(40, '0'); }
+  // The object a ref finally points at, following annotated tags.
+  root(sha) {
+    for (let seen = 0; seen < 8; seen++) {
+      if (this.blobs.has(sha)) return {type: 'blob', sha};
+      const tag = this.tags.get(sha);
+      if (!tag) return {type: 'commit', sha};
+      if (tag.object.type !== 'tag') return tag.object;
+      sha = tag.object.sha;
+    }
+    return {type: 'commit', sha};
+  }
+  rootType(sha) { return this.root(sha).type; }
+  // A runner pin: trunk moves to a commit with different workflow files.
+  pin() { this.trunk = 'c'.repeat(40); }
   queue() { return JSON.parse(Buffer.from(this.index.content, 'base64')); }
   row(id) { return this.queue().records.find(row => row.id === id); }
   async github(req) {
@@ -110,14 +129,25 @@ class Fixture {
       if (fail) { this.failReadback = !this.confirmReadback; this.failWrite = null; return json(500, {message: 'credential must not escape'}); }
       return json(200, {content: {sha: this.index.sha}});
     }
-    if (p === `${ops}/git/ref/heads/trunk`) return json(200, {object: {sha: head, type: 'commit'}});
+    if (p === `${ops}/git/ref/heads/trunk`) return json(200, {object: {sha: this.trunk, type: 'commit'}});
     if (p === `${ops}/git/commits/${head}`) return json(200, {tree: {sha: head}});
     if (p === `${ops}/git/trees`) {
       this.initial = body.tree[0].content;
       return json(201, {sha: this.sha()});
     }
     if (p === `${ops}/git/commits`) return json(201, {sha: this.sha()});
+    if (p === `${ops}/git/blobs`) {
+      assert.equal(body.encoding, 'utf-8');
+      const sha = gitBlobSha(body.content);
+      this.blobs.set(sha, body.content);
+      return json(201, {sha});
+    }
     if (p === `${ops}/git/refs`) {
+      // As observed live: GitHub refuses an App without `workflows` permission a new ref whose tag
+      // chain ends at a commit other than trunk (403); chains ending at trunk or a blob are accepted.
+      const target = this.root(body.sha);
+      if (target.type === 'commit' && target.sha !== this.trunk && (this.tags.has(body.sha) || target.sha === head)) return json(403, {message: 'Resource not accessible by integration'});
+      if (body.ref.startsWith('refs/tags/') && !this.tags.has(body.sha) && !this.blobs.has(body.sha)) return json(422, {message: 'Object does not exist'});
       if (this.failAdmin && (body.ref.startsWith('refs/tags/golem-admin/') || body.ref.startsWith('refs/tags/golem-run/'))) return json(503);
       if (this.failAudit && body.ref.startsWith('refs/tags/golem-audit/')) return json(typeof this.failAudit === 'number' ? this.failAudit : 503);
       if (this.refs.has(body.ref)) return json(422);
@@ -134,7 +164,7 @@ class Fixture {
     if (p.startsWith(`${ops}/git/ref/`)) {
       const ref = `refs/${p.slice(`${ops}/git/ref/`.length)}`;
       const sha = this.refs.get(ref);
-      return sha ? json(200, {object: {sha, type: ref.startsWith('refs/tags/') ? 'tag' : 'commit'}}) : json(404);
+      return sha ? json(200, {object: {sha, type: this.blobs.has(sha) ? 'blob' : ref.startsWith('refs/tags/') ? 'tag' : 'commit'}}) : json(404);
     }
     if (p === `${ops}/git/tags`) {
       const sha = this.sha();
@@ -323,7 +353,7 @@ for (const failure of [null, 'audit', '403', '500', 'identity', 'attempt', 'heal
       const requestTag = row.tag;
       await f.enqueue(request('third', 'retirement', {check_run_id: 12}));
       assert.equal(f.row(req.delivery_id), undefined, 'different admission retires terminal row');
-      assert.equal(f.refs.get(`refs/tags/golem-terminal/${req.delivery_id}`), requestTag);
+      assert.equal(f.refs.get(`refs/tags/golem-terminal/${req.delivery_id}`), receipt(requestTag));
       await f.restart();
       const reachable = await f.github(new Request(`https://api.github.com${ops}/git/ref/tags/golem-audit/${req.delivery_id}`, {headers: {'X-GitHub-Api-Version': '2022-11-28'}}));
       const ref = await reachable.json();
@@ -372,7 +402,7 @@ for (const fault of ['wrong-name', 'wrong-type', 'wrong-object', 'wrong-sha', 'l
     const auditTag = terminal.auditTag;
     await f.enqueue(request('other', 'retire', {check_run_id: 11}));
     assert.equal(f.row(req.delivery_id), undefined);
-    assert.equal(f.refs.get(`refs/tags/golem-terminal/${req.delivery_id}`), terminal.tag);
+    assert.equal(f.refs.get(`refs/tags/golem-terminal/${req.delivery_id}`), receipt(terminal.tag));
     await f.restart();
     assert.equal(f.refs.get(`refs/tags/golem-audit/${req.delivery_id}`), auditTag);
     const audit = JSON.parse(f.tags.get(auditTag).message);
@@ -1016,7 +1046,7 @@ await scenario('full queue rotates retirement past two permanently unauditable t
   assert.equal(f.queue().records.length, 32, 'one safe retirement admits one replacement');
   assert.ok(f.row(incoming.delivery_id));
   assert.equal(f.row(audited.id), undefined);
-  assert.equal(f.refs.get(`refs/tags/golem-terminal/${audited.id}`), audited.tag);
+  assert.equal(f.refs.get(`refs/tags/golem-terminal/${audited.id}`), receipt(audited.tag));
   assert.equal(f.refs.get(`refs/tags/golem-run/9302`), auditSha);
   for (const req of requests.slice(0, 2)) {
     assert.equal(f.row(req.delivery_id).state, 'terminal');
@@ -1176,6 +1206,52 @@ await scenario('conflicting retirement receipt keeps the row and still admits', 
   assert.equal(f.row(a.delivery_id).state, 'terminal', 'row stays while its receipt conflicts');
   assert.ok(f.row(b.delivery_id), 'the new request is admitted');
   assert.equal(f.refs.get(`refs/tags/golem-terminal/${a.delivery_id}`), 'f'.repeat(40), 'the conflicting receipt is never replaced');
+});
+
+await scenario('rows in flight across an ops workflow change still audit and retire', async f => {
+  const a = request(); await f.enqueue(a);
+  const tag = f.row(a.delivery_id).tag;
+  assert.equal(f.rootType(tag), 'blob', 'request records are rooted in a blob, never a commit');
+  await f.bind(a);
+  f.pin(); // A runner pin lands while the run is in flight.
+  await f.complete(a); await f.call('tick');
+  assert.ok(f.refs.has(`refs/tags/golem-admin/${a.delivery_id}`), 'the audit is published after the change');
+  const b = request(); await f.enqueue(b);
+  assert.equal(f.row(a.delivery_id), undefined, 'the row retires after the change');
+  assert.equal(f.refs.get(`refs/tags/golem-terminal/${a.delivery_id}`), receipt(tag));
+});
+
+await scenario('legacy commit-rooted rows retire with a blob receipt after an ops workflow change', async f => {
+  const a = request(); await f.enqueue(a); await f.bind(a);
+  const tag = f.row(a.delivery_id).tag;
+  f.tags.get(tag).object = {type: 'commit', sha: head}; // As written before records were blob-rooted.
+  await f.complete(a); await f.call('tick');
+  assert.ok(f.refs.has(`refs/tags/golem-admin/${a.delivery_id}`), 'audited while workflows still matched');
+  f.pin();
+  const b = request(); await f.enqueue(b);
+  assert.equal(f.row(a.delivery_id), undefined, 'a blob receipt never touches the old commit');
+  assert.equal(f.refs.get(`refs/tags/golem-terminal/${a.delivery_id}`), receipt(tag));
+});
+
+await scenario('a receipt in the request-tag form still retires its row', async f => {
+  const a = request(); await f.enqueue(a); await f.bind(a); await f.complete(a); await f.call('tick');
+  const tag = f.row(a.delivery_id).tag;
+  f.refs.set(`refs/tags/golem-terminal/${a.delivery_id}`, tag); // Written before receipts became blobs.
+  const b = request(); await f.enqueue(b);
+  assert.equal(f.row(a.delivery_id), undefined, 'the legacy receipt is accepted');
+  assert.equal(f.refs.get(`refs/tags/golem-terminal/${a.delivery_id}`), tag, 'and never rewritten');
+});
+
+await scenario('a legacy commit-rooted row audited only after an ops workflow change waits without blocking admission', async f => {
+  const a = request(); await f.enqueue(a); await f.bind(a);
+  f.tags.get(f.row(a.delivery_id).tag).object = {type: 'commit', sha: head}; // As written before records were blob-rooted.
+  await f.complete(a);
+  f.pin(); // The pin lands before its audit is published.
+  await f.call('tick');
+  assert.ok(!f.refs.has(`refs/tags/golem-admin/${a.delivery_id}`), 'its audit cannot reach the old commit');
+  const b = request(); await f.enqueue(b);
+  assert.equal(f.row(a.delivery_id).state, 'terminal', 'it stays until someone resolves it');
+  assert.ok(f.row(b.delivery_id), 'admission continues');
 });
 
 await scenario('incomplete legacy API metadata blocks grants', async f => {

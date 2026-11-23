@@ -1,7 +1,7 @@
 // Delivered Rust Wasm + actual Coordinator/SQLite; only GitHub is doubled.
 // Transport/protocol proof, not native processor, provider or live GitHub proof.
 import assert from "node:assert/strict";
-import { createHmac, generateKeyPairSync, randomUUID } from "node:crypto";
+import { createHash, createHmac, generateKeyPairSync, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -24,7 +24,8 @@ const head = "a".repeat(40);
 const files = new Map(["hello", "second"].map(name => [`${name}.md`, "---\n---\nReply without changing files."]));
 const json = (status, value = {}) => new Answer(status === 204 ? null : JSON.stringify(value), { status, headers: { "Content-Type": "application/json" } });
 // GitHub Contents CAS + immutable refs/tags, translated from coordinator.mjs.
-const refs = new Map(), tags = new Map(), runs = new Map(), continuations = new Map(), checkResources = new Map();
+const refs = new Map(), tags = new Map(), blobs = new Map(), runs = new Map(), continuations = new Map(), checkResources = new Map();
+const gitBlobSha = text => { const body = Buffer.from(text, "utf8"); return createHash("sha1").update(Buffer.concat([Buffer.from(`blob ${body.length}\0`), body])).digest("hex"); };
 const startedAt = '2026-11-13T01:00:00Z', completedAt = '2026-11-13T01:00:42Z';
 const dispatches = [], checks = [], reactions = [], writes = [], refEvents = [];
 const unsupported = [];
@@ -108,6 +109,10 @@ async function githubFixture(request) {
   if (path === `${ops}/git/commits/${head}`) return json(200, { tree: { sha: head } });
   if (path === `${ops}/git/trees`) { initial = body.tree[0].content; return json(201, { sha: sha() }); }
   if (path === `${ops}/git/commits`) return json(201, { sha: sha() });
+  if (path === `${ops}/git/blobs` && method === "POST") {
+    assert.equal(body.encoding, "utf-8");
+    const value = gitBlobSha(body.content); blobs.set(value, body.content); return json(201, { sha: value });
+  }
   if (path === `${ops}/git/refs` && method === "POST") {
     if (refs.has(body.ref)) return json(422);
     if (body.ref.startsWith("refs/tags/golem-event-done/")) {
@@ -132,7 +137,7 @@ async function githubFixture(request) {
   if (path.startsWith(`${ops}/git/ref/`)) {
     const ref = `refs/${path.slice(`${ops}/git/ref/`.length)}`, value = refs.get(ref);
     refEvents.push({ method, ref, sha: value });
-    return value ? json(200, { ref, object: { sha: value, type: ref.startsWith("refs/tags/") ? "tag" : "commit" } }) : json(404);
+    return value ? json(200, { ref, object: { sha: value, type: blobs.has(value) ? "blob" : ref.startsWith("refs/tags/") ? "tag" : "commit" } }) : json(404);
   }
   if (path === `${ops}/git/tags` && method === "POST") {
     const value = sha(); tags.set(value, { ...body, object: {type:body.type,sha:body.object}, sha: value }); return json(201, { sha: value });
@@ -415,7 +420,8 @@ try {
   assert.equal(checks.length, 3);
   for (const sent of [first,dispatches[1]]) {
     const original = refs.get(`refs/tags/golem-request/${sent.delivery_id}`);
-    assert.equal(refs.get(`refs/tags/golem-terminal/${sent.delivery_id}`),original,"terminal receipt survives sanitized audit retirement");
+    assert.equal(tags.get(original).object.type, "blob", "request records are rooted in a blob");
+    assert.equal(refs.get(`refs/tags/golem-terminal/${sent.delivery_id}`),gitBlobSha(`${original}\n`),"terminal receipt names the request and survives sanitized audit retirement");
     const audit = JSON.parse(tags.get(refs.get(`refs/tags/golem-admin/${sent.delivery_id}`)).message);
     assert.equal(audit.outcome,"replied");
     assert.equal(audit.model,"fixture-observed-model");

@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import {spawn} from 'node:child_process';
-import {randomUUID} from 'node:crypto';
+import {createHash, randomUUID} from 'node:crypto';
+
+// A retirement receipt points at the request tag (before 2026-11-23) or at a blob naming it.
+const receiptMatches = (object, tag) => {
+  const text = Buffer.from(`${tag}\n`, 'utf8');
+  const blob = createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${text.length}\0`), text])).digest('hex');
+  return (object?.type === 'tag' && object.sha === tag) || (object?.type === 'blob' && object.sha === blob);
+};
 
 // Operational evidence only: real GitHub, Cloudflare cron, released native runner.
 // --setup deliberately creates neither issues, mentions nor workflow dispatches.
@@ -124,7 +131,7 @@ async function audit(repo, check, outcome) {
   need(queue.version === 2 && Array.isArray(queue.records) && queue.records.length <= 32, 'queue format invalid');
   const row = queue.records.find(r => r.id === req.delivery_id);
   if (row) need(row.tag === tag && row.generation === req.queue_generation && row.state === 'terminal' && row.run_id === runId && row.attempt === 1 && row.resource === `${repo}/${req.golem}` && row.seat === 'bugabinga/anthropic', 'terminal queue binding invalid');
-  else need((await api(`repos/${ops}/git/ref/tags/golem-terminal/${req.delivery_id}`)).object?.sha === tag, 'terminal receipt missing');
+  else need(receiptMatches((await api(`repos/${ops}/git/ref/tags/golem-terminal/${req.delivery_id}`)).object, tag), 'terminal receipt missing');
   console.log(`${req.golem}: ${outcome}; https://github.com/${ops}/actions/runs/${runId}; https://github.com/${repo}/runs/${check.id}`);
   need(typeof run.created_at === 'string' && Number.isFinite(Date.parse(run.created_at)), 'native workflow time unavailable');
   return {req, model, runId, createdAt: run.created_at};

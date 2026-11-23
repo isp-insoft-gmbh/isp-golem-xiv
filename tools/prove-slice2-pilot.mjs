@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import {spawn} from 'node:child_process';
-import {randomUUID} from 'node:crypto';
+import {createHash, randomUUID} from 'node:crypto';
+
+// A retirement receipt points at the request tag (before 2026-11-23) or at a blob naming it.
+const receiptMatches = (object, tag) => {
+  const text = Buffer.from(`${tag}\n`, 'utf8');
+  const blob = createHash('sha1').update(Buffer.concat([Buffer.from(`blob ${text.length}\0`), text])).digest('hex');
+  return (object?.type === 'tag' && object.sha === tag) || (object?.type === 'blob' && object.sha === blob);
+};
 
 const org = 'isp-insoft-gmbh';
 const ops = `${org}/isp-golem-xiv-ops`;
@@ -133,7 +140,7 @@ async function main() {
   const current = JSON.parse(decoded(await api(`repos/${ops}/contents/queue.json?ref=golem-state`)));
   const currentRow = current.records?.find(row => row.id === request.delivery_id);
   if (currentRow) requireThat(currentRow.state === 'terminal' && currentRow.tag === tagSha && currentRow.resource === `${repo}/pilot` && currentRow.seat === 'bugabinga/anthropic' && currentRow.run_id === runId && currentRow.generation === request.queue_generation && currentRow.attempt === 1, 'current reservation is not matching terminal owner');
-  else { const receipt = await api(`repos/${ops}/git/ref/tags/golem-terminal/${request.delivery_id}`); requireThat(receipt.object?.sha === tagSha, 'retired terminal receipt does not match immutable request'); }
+  else { const receipt = await api(`repos/${ops}/git/ref/tags/golem-terminal/${request.delivery_id}`); requireThat(receiptMatches(receipt.object, tagSha), 'retired terminal receipt does not match immutable request'); }
   const history = await api(`repos/${ops}/commits?sha=golem-state&path=queue.json&since=${encodeURIComponent(new Date(start).toISOString())}&until=${encodeURIComponent(new Date(end).toISOString())}&per_page=100`);
   requireThat(Array.isArray(history) && history.length > 0 && history.length < 100, 'bounded lifecycle history unavailable');
   let terminal = false, historicalBind = false;

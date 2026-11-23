@@ -179,7 +179,16 @@ async function github(request) {
     const ref = 'refs/' + path.slice(`/repos/${ops}/git/refs/`.length);
     return answer(state.refs.delete(ref) ? 204 : 404, null);
   }
+  if (path === `/repos/${ops}/git/blobs` && method === 'POST') {
+    assert.equal(body.encoding, 'utf-8');
+    state.blobs ??= new Map();
+    const sha = 'b' + String(state.blobs.size + 1).padStart(39, '0');
+    state.blobs.set(sha, body.content);
+    return answer(201, {sha});
+  }
   if (path === `/repos/${ops}/git/tags` && method === 'POST') {
+    // Records are rooted in blobs: a tag of a commit would strand later receipts after a pin.
+    if (body.tag?.startsWith('golem-event/')) assert.ok(body.type === 'blob' && state.blobs?.get(body.object) === body.message, 'event source wraps a blob of its message');
     const sha = String(state.tagId++).padStart(40, '0');
     state.tags.set(sha, {...body, sha});
     return answer(201, {sha});
