@@ -15,7 +15,8 @@ The runner labels the image with a SHA-256 over its staged sources and the pinne
 The label is self-asserted, so it only rejects stale or corrupt caches; integrity rests on who can write that cache key.
 The runner workflow will restore the cache before preparation and save it in an explicit step right after preparation, before any step that holds a seat or runs an agent, so an agent can never write an image a later run loads.
 Runs are dispatched on the ops default branch, whose caches only default-branch workflows write, and whoever can change those can already change the workflow itself.
-A first run after any source change or month boundary still builds cold, so the faster self-test is what must keep stop inside its limit on such runs.
+On hosted CI (run 45144744220) a cold build and save took 2 min 51 s, a warm load 9.6 s, and the cached image is 660.7 MB.
+A cold golem run therefore still sits at the three-minute stop limit, so the ops repository will warm the cache in its own workflow whenever its trunk or runner pin changes and monthly, and golem runs normally load a warm image.
 
 ## 2026-11-20: Container failures are diagnosable from the private run log
 
