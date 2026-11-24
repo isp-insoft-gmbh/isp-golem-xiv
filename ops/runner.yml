@@ -32,8 +32,8 @@ jobs:
       - name: Download pinned public runner
         timeout-minutes: 10
         env:
-          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v23
-          RUNNER_SHA256: 7f9ac78f7bae2b9446b826f339264ba973f56c92bc8fab5e59039c4255cb6ce1
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v24
+          RUNNER_SHA256: 52cb0ed74bd39a1003621256278f999bd288b8a07dcb1ac1e9dcfc57dcc09116
         shell: bash
         run: |
           set -euo pipefail
@@ -63,7 +63,7 @@ jobs:
         continue-on-error: true
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          version: 2026.11.12
+          version: 2026.11.14
           install: false
           cache: false
       - name: Name the agent image cache

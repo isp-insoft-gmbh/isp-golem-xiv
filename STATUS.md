@@ -6,11 +6,12 @@ Current state for whoever continues; history is in git, [DECISIONS.md](DECISIONS
 
 - **All slices accepted.** Slice 2 32/32, Slice 3 44/44, Slice 4 47/47 on deployed `87d2024` with runner v20 ([EVIDENCE.md](EVIDENCE.md), 2026-11-23).
   The operator guide ([OPERATIONS.md](OPERATIONS.md)) was brought up to date afterwards.
-- **Live:** router deployed from `trunk` (check `/health`); runner v23 (SHA-256 `7f9ac78f7bae2b9446b826f339264ba973f56c92bc8fab5e59039c4255cb6ce1`, Mise 2026.11.12) pinned in ops `trunk` `e4ae87d`; agent image cached under its source digest and checked daily by the ops `agent-image` workflow.
+- **Live:** router deployed from `trunk` (check `/health`); runner v24 (SHA-256 `52cb0ed74bd39a1003621256278f999bd288b8a07dcb1ac1e9dcfc57dcc09116`, Mise 2026.11.14) pinned in ops `trunk` `0caa920e`; agent image cached under its source digest and checked daily by the ops `agent-image` workflow.
 - **Runners:** all CI and golem runs use Blacksmith runners (Ubuntu 24.04 labels); releases keep upstream `actions/checkout`, since Blacksmith's checkout replaces annotated tags (v22 was burned by it).
 - **Queue and event records** are rooted in blobs, so runner pins no longer strand rows; every commit-rooted row admitted earlier has retired.
-- **Toktrak** runs Markdown-only golems on the OpenAI Codex seat through Pi; after its Mise 2026.11.12 bump (#166), a canary on v23 passed target preparation and its full lifecycle (EVIDENCE.md, 2026-11-24).
-  Its bug, performance and maintenance golems opened pull requests #164, #165 and #170, which await human review.
+- **Toktrak** runs Markdown-only golems on its OpenAI Codex and Anthropic seats; its bug, performance and security golems opened pull requests #164, #165 and #175, all merged.
+  On v24 a Claude Code canary on the Anthropic seat passed its full lifecycle (EVIDENCE.md, 2026-11-24); the documentation and refactor golems have not yet run on a current runner.
+  Renovate raises Toktrak's Mise minimum almost daily; until golems follow the target's Mise (decided, not built), each bump past 2026.11.14 breaks its golems again.
 
 ## In progress: development goals and documentation
 
