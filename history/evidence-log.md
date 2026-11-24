@@ -313,7 +313,7 @@ Fresh `v3` bot-owner, timeout/continuation and genuine scheduled execution are p
 
 ## Writable protocol pre-rollout validation
 
-[Private Linux/provider controls 42013269480](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/42013269480), workflow head `e8e7ee5cab7a14032a0175db31180a5726cef9cb`, job `127197354765`, completed successfully against candidate source `03867bac493c361a2ea0eb00815b91e7d672e13c`.
+Private Linux/provider controls run 42013269480 (deleted on 2026-11-24 during the ops cleanup; its log is no longer retrievable, while workflow head `e8e7ee5` is still reachable in the ops repository), workflow head `e8e7ee5cab7a14032a0175db31180a5726cef9cb`, job `127197354765`, completed successfully against candidate source `03867bac493c361a2ea0eb00815b91e7d672e13c`.
 Pinned test-source SHA-256 `9d64df8e097cf03b9865a6dcae9211ab12cd87c9a66a8c3e5a0a5056b9915229` was verified before adding metadata-only diagnostics; original source and assertions remained unchanged around that insertion.
 Exactly one ignored integration test ran and passed both sequential actual-provider cases using the Linux container and observed `claude-sonnet-5-5`.
 Protected request returned typed blocked, left protected content unchanged, and passed blocked-feedback/no-publication mock assertions.
@@ -371,7 +371,7 @@ No failed task was redispatched, reset or manually terminalized during diagnosis
 Public PR #14 candidate `080713783a75e4218806f8e1671a0eb39ec0a1ad` passed full canonical Linux CI `42039276650`, job `127285477751`, including all required steps and all four complete Worker-suite stages.
 The oversized-body assertion remained byte-identical to previous trunk; committed diff check passed.
 Retained Windows Miniflare/Undici resets are not resolved by this Linux pass.
-Private test-only PR #9, exact head `229f2ca3ac154ffa4a073bce45eab61e00707993`, provider workflow `42040986651`/job `127291413828`, completed successfully.
+Private test-only PR #9, exact head `229f2ca3ac154ffa4a073bce45eab61e00707993`, provider workflow `42040986651`/job `127291413828`, completed successfully (run deleted on 2026-11-24 during the ops cleanup; its log is no longer retrievable, while head `229f2ca` is still reachable in the ops repository).
 The job checked public source `0807137` and unchanged `runner/src/tests.rs` SHA-256 `b304179a8ae0487ea876213099b0b31c19973392b8c3a358abb28ef9a1bc4c75` before credential exposure.
 Exactly one selected actual Linux/provider integration test passed: protected typed blocked, original deterministic allowed typed completed, unchanged changer-style commit request typed completed; observed model claude-sonnet-5-5.
 Original exact file/count/bytes/mode and mock Git-object/PR publication assertions remained enforced; changer also required its exact nonce file and non-executable mode.
