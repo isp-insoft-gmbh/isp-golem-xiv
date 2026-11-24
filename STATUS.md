@@ -12,6 +12,17 @@ Current state for whoever continues; history is in git, [DECISIONS.md](DECISIONS
 - **Toktrak** runs Markdown-only golems on the OpenAI Codex seat through Pi; after its Mise 2026.11.12 bump (#166), a canary on v23 passed target preparation and its full lifecycle (EVIDENCE.md, 2026-11-24).
   Its bug, performance and maintenance golems opened pull requests #164, #165 and #170, which await human review.
 
+## In progress: development goals and documentation
+
+Oliver re-evaluated the goals in [DEVELOPMENT.md](DEVELOPMENT.md) (DECISIONS.md, 2026-11-24); each open goal lands as its own pull request:
+
+1. Done here: README rewritten, golem examples in the documentation parsed by the product's parser, stale goals corrected.
+2. An introductory Confluence page in R&D › Agentic Coding, in German.
+3. Line coverage ratchet per crate with `cargo-llvm-cov` and a committed baseline.
+4. `insta` snapshots for replies, check summaries and the dashboard; `proptest` for parsers and seat names.
+5. Payload parsers tested with real webhook deliveries captured from the App, scrubbed.
+6. The mdBook site on GitHub Pages: user documentation, release notes, CI reports.
+
 ## Ordering constraints
 
 - **A target's Mise bump blocks its golems** until the agent image asserts, and ops pins, that Mise: advance the image assertion, CI Mise and supported-minimum fixture here, release and verify a runner, pin URL, SHA-256 and Mise in one ops commit, then update `ops/`.

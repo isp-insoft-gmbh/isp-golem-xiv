@@ -26,7 +26,7 @@ The style is [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/d
 - `rustfmt` with defaults.
 - Clippy groups `all`, `pedantic`, `suspicious`, `complexity`, `perf`, and `style` as warnings; CI turns every warning into an error.
 - `unsafe_code` is forbidden; `let_underscore_drop` and `irrefutable_let_patterns` are denied.
-- Code that handles external input, above all the router, denies `unwrap_used`, `expect_used`, `indexing_slicing`, and `panic` outside tests.
+- Every crate denies `unwrap_used`, `expect_used`, `indexing_slicing`, and `panic` outside tests, because the router, the runner and the xtask all handle external input.
 - A lint is only silenced at the narrowest scope, with a reason in a comment.
 - Beyond Rust, one tool per class of bug, all installed by mise, all part of `mise run ci`, all blocking:
 
@@ -62,7 +62,7 @@ Tests protect behavior, not construction history.
 | snapshot | stable text a human reviews: replies, check run summaries, dashboard Markdown | every changed snapshot is reviewed and traced to code |
 | property | parsers, the seat-name mapping, fallback selection, anything with an input space | invariants instead of hand-picked examples |
 | mutation | the code being written, while it is written | stronger tests; never a gate |
-| coverage | a diagnostic, not a target | a ratchet: line and branch coverage per crate, kept in a committed baseline file updated by the pull request that changes it, may only drop with a reason in the pull request, e.g. removed code or I/O glue covered by `accept.nu` |
+| coverage | a diagnostic, not a target | a ratchet: line coverage per crate (the pinned stable toolchain rejects branch coverage), kept in a committed baseline file updated by the pull request that changes it, may only drop with a reason in the pull request, e.g. removed code or I/O glue covered by `accept.nu` |
 | acceptance | the deployed system | `accept.nu` against `contract.nuon` |
 
 - Tools: the standard test harness, `insta` for snapshots, `proptest` for properties, `cargo-mutants` for mutation, `cargo-llvm-cov` for coverage.
@@ -94,7 +94,7 @@ Principles from pitest ([Don't let your code dry](https://blog.pitest.org/dont-l
 Mise is the single entry point for people, the agent, and CI.
 
 - Every tool and version comes from `mise.toml`; nobody installs tools by hand.
-- Every routine action is a task: `ci`, `test`, `fmt`, `accept`, `dist`, `release`, `gh-settings`.
+- Every routine action is a task: `ci`, `test`, `test-worker`, `test-agent`, `fmt`, `worker`, `dist`, `deploy`, `accept`, `release`, `gh-settings`.
 - `mise run ci` locally and in CI is the same gate.
 - Orchestration is one-way: mise calls the tools, the tools never call mise tasks.
   The Windows xtask uses WSL `mise exec` only to initialize the Linux environment for the unchanged Worker suites.
@@ -103,14 +103,14 @@ Mise is the single entry point for people, the agent, and CI.
 
 | Tool | Language | Tasks |
 |---|---|---|
-| xtask crate `x/` | Rust, same lints and tests as the product | `ci`, `test`, `fmt`, `dist` |
+| xtask crate `x/` | Rust, same lints and tests as the product | `ci`, `test`, `test-worker`, `fmt`, `worker`, `dist` |
 | `accept.nu` | Nushell | `accept` |
-| `tools/release.nu`, `tools/gh-settings.nu` | Nushell | `release`, `gh-settings` |
+| `tools/release.nu`, `tools/gh-settings.nu`, `tools/deploy.nu`, `tools/agent-container-test.nu` | Nushell | `release`, `gh-settings`, `deploy`, `test-agent` |
 
 - Build logic is Rust so it is tested and linted like the product.
 - The judge and the repository administration stay Nushell: they share no code, helpers, or bugs with the product they check or configure.
 - mise invokes the xtask with `cargo run -p x -- <task>` and the Nushell scripts with `nu --no-config-file <script>`.
-- Today `ci` still runs `tools/ci.nu`; it moves into the xtask when the first Rust code lands, recorded in `DECISIONS.md`.
+- The xtask's `ci` calls `tools/ci.nu` only to parse-check the Nushell scripts and NUON data, which needs Nushell itself.
 
 ## Commits and pull requests
 
@@ -150,7 +150,7 @@ The code repository publishes an [mdBook](https://rust-lang.github.io/mdBook/) s
 - Every external action is pinned to a full commit SHA, with its tag in a comment.
 - Every job has a measured `timeout-minutes`.
 - Superseded pull request runs are cancelled; publication and deployment runs are not.
-- Results are reported where people look: check runs for status, annotations for actionable problems, the job summary for a short human report.
+- Results are reported where people look: check runs for status, the failing step's log for the cause, and the Pages site for reports worth reading.
 - Artifacts only when data must be downloaded, with a short retention.
 - Untrusted pull request code never sees secrets; `pull_request_target` is not used.
 - Deployment secrets live in the `production` environment, reachable only from `trunk` and release tags.

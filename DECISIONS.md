@@ -3,6 +3,19 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-24: Development goals re-evaluated, then realised
+
+Oliver asked to re-evaluate the goals in DEVELOPMENT.md and realise them, rather than describe today's state next to them.
+A goal-by-goal check against the repository found most goals met and four open, which Oliver decided:
+
+- **Coverage:** a line coverage ratchet per crate with `cargo-llvm-cov` and a committed baseline; branch coverage is dropped from the goal, because the pinned stable toolchain rejects its experimental option (2026-11-04 entry "Guarded Slice 2 implementation, live proof pending").
+- **GitHub Pages:** the mdBook site with user documentation, release notes and CI reports is built.
+- **Snapshots and properties:** `insta` for text a human reviews and `proptest` for parsers and seat names are both adopted; the existing hand-written exact-text tests move to snapshots where they cover that text.
+- **Real deliveries:** payload parsers are tested with webhook deliveries captured from the App and scrubbed, replacing hand-written fixtures where they cover the same events.
+
+The goals that were stale were corrected to fact: every crate denies `unwrap_used` and its siblings, the task list grew, the xtask runs `tools/ci.nu` only for Nushell parse checks, and there is no job summary; check runs and step logs report results.
+Golem examples in the documentation are now parsed by `parse_golem` in `router/tests/docs.rs`; an invalid example in the README fails it.
+
 ## 2026-11-23: Releases check out with upstream `actions/checkout`; v22 is burned
 
 The v22 release run (45288450849), the first `release.yml` run after the Blacksmith migration, failed at "Validate release tag".
