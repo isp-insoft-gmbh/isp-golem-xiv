@@ -71,6 +71,10 @@ run = "nu --no-config-file tools/deploy.nu"
 description = "Black-box acceptance test against the deployed system"
 run = "nu --no-config-file accept.nu"
 
+[tasks.verify-release]
+description = "Check a published runner release against its source and record it under evidence/"
+run = "node tools/verify-release.mjs"
+
 [tasks.release]
 description = "Push next annotated v<n> tag; CI validates and publishes"
 run = "nu --no-config-file tools/release.nu"
