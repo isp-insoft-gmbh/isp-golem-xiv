@@ -93,7 +93,7 @@ fn script_tests() -> Result<()> {
 }
 
 /// On Windows, Miniflare resets oversized uploads instead of returning the router's 413
-/// (DECISIONS 2026-11-03), so the unchanged suite requires WSL Linux like CI.
+/// (decision log, 2026-11-03), so the unchanged suite requires WSL Linux like CI.
 /// Set `GOLEM_WORKER_TESTS_NATIVE` to force a native diagnostic run.
 fn runtime_tests() -> Result<()> {
     if cfg!(windows) && env::var_os("GOLEM_WORKER_TESTS_NATIVE").is_none() {

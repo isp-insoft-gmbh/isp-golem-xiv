@@ -4,6 +4,15 @@ Goals for how `isp-golem-xiv` is built.
 They describe the target, not today's state; the agent moves the repository toward them and records gaps in `DECISIONS.md`.
 Where a goal and a deadline conflict, the goal wins only if the gap would be hard to close later.
 
+## Working rules
+
+- **Two repositories.** Code, tests and releases live in this public repository; the runner workflow, seats and every golem run live in the private ops repository `isp-golem-xiv-ops`. Nothing from a target repository ever reaches this repository.
+- **Pull requests only.** Changes reach `trunk` through pull requests with a green `ci` check on the exact head; the rules are in `.github/settings.nuon`, applied with `mise run gh-settings`. The ops repository has no branch protection, so the same gate is applied by hand there.
+- **CI deploys.** The router is deployed and releases are published only by CI; nobody deploys from a workstation.
+- **Released runners only.** Ops pins a released runner by URL and SHA-256, never an unreleased build; [OPERATIONS.md](OPERATIONS.md#release-and-verify) has the order of a runner change.
+- **Test repositories for end-to-end work.** `accept.nu` creates and deletes test repositories named as `contract.nuon` defines under `test_repos`; a run that spends a seat on a real repository, such as a canary, needs Oliver's approval and pass criteria written before it starts.
+- **Secrets stay secret.** They live in `~/.secrets/isp-golem-xiv/`, described in its `README.md`, and are copied into GitHub or Cloudflare secrets without being printed; deployment secrets sit in the `production` environment.
+
 ## Code
 
 The style is [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md), applied to Rust.
@@ -132,7 +141,8 @@ Mise is the single entry point for people, the agent, and CI.
 ## Documentation
 
 - `README.md` says what it is and how to start in under a minute.
-- `SPEC.md` says what it does, `PLAN.md` how it gets built, `DEVELOPMENT.md` how it is developed, `DECISIONS.md` why things are the way they are.
+- `SPEC.md` says what it does, `DEVELOPMENT.md` how it is developed, `OPERATIONS.md` how it is run, `DECISIONS.md` which decisions are in force, `EVIDENCE.md` what proves the evidence promises, and `STATUS.md` where things stand.
+- `history/` keeps the dated decision and evidence logs; new decisions get a dated entry under "Log" in `DECISIONS.md` and a topic entry when they change a rule.
 - User documentation is written for the people who meet golems on GitHub: how to enable, write, run, and pay for golems.
 - Examples in documentation are tested: Rust examples as doc tests, golem examples by the product's own golem parser.
 
@@ -156,6 +166,42 @@ The code repository publishes an [mdBook](https://rust-lang.github.io/mdBook/) s
 - Deployment secrets live in the `production` environment, reachable only from `trunk` and release tags.
 - Repository Actions settings, including required SHA pinning and read-only default tokens, are part of `.github/settings.nuon`.
 - Nothing from a target repository ever appears in the code repository's CI; end-to-end scenarios run through `accept.nu` outside it.
+
+## Acceptance contract
+
+`contract.nuon` holds every promise the deployed system keeps, with an id, its slice and a guide that says what to do when it fails; it is the single source of truth for names, markers, limits and required App settings.
+`accept.nu` checks those promises: static checks of GitHub, the App, both repositories and the router first, then live scenarios in fresh test repositories.
+Every failure prints the promise, what was observed and the next step.
+
+Promises come in three kinds:
+
+- **prerequisite**: provided by Oliver, such as App settings and tokens; a failing one is reported as blocked.
+- **check**: verified live by `accept.nu` against the deployed system.
+- **evidence**: behavior `accept.nu` cannot drive, such as a second person, a browser sign-in or a schedule; it is proven by a test or a recorded run listed in `EVIDENCE.md` as `- <id>: <link or test path> <one line>`.
+
+Rules for the judge:
+
+- **Fix, never weaken.** Bugs in `accept.nu`, such as a wrong API path, parsing or flakiness, are fixed; promises are never relaxed.
+- **The contract changes only with Oliver.** Promises are added, removed or reworded only with his approval; a promise believed wrong becomes a proposal in `DECISIONS.md`.
+- **One commit per change.** Each change to `accept.nu` or `contract.nuon` is its own commit `fix(accept): <what>` with the reason and the failing output, and a `DECISIONS.md` entry.
+- **Red before green.** A new check is seen failing against a system without the behavior before it is seen passing.
+
+Usage: `mise run accept -- --slice <n>`; `--preflight` runs only the static checks and the evidence lookup and creates nothing; `--keep` keeps the test repositories.
+A full `--slice 4` run spends about a dozen seat runs and deletes its test repositories afterwards; it sweeps leftovers older than a day at start.
+
+## Internals
+
+The router dispatches one `runner.yml` workflow run per golem run in the ops repository, with inputs `repo`, `golem` and `request` (JSON) and the run name `<repo> <golem>`.
+The router sends request version 2; the runner still accepts version 1, which carries no trigger, branch, verify or owner.
+Version 2 adds `trigger` (`mention`, `dashboard`, `event`, `schedule`), the owned `branch`, a nullable `verify`, a nullable `owner` and the coordinator's opaque `queue_generation`; comment and actor fields are null when no such context exists.
+The runner validates the request against the golem definition at `head_sha` and recomputes the seat choice before any container starts.
+
+One SQLite Durable Object `Coordinator` (`router/src/coordinator.js`) arbitrates seat and repository/golem resources together, so queued runs use no Actions runner.
+The authoritative queue is a bounded JSON journal `queue.json` on the ops branch `golem-state`, written with compare-and-swap on its blob SHA; immutable request bodies live in annotated `golem-request/<id>` tags of a blob, and SQLite is a rebuildable projection.
+The Durable Object answers `enqueue`, `bind`, `complete`, `stop` and `tick`; the native runner reaches `bind` and `complete` through `POST /internal/queue`, signed with `X-Golem-Signature-256` (HMAC-SHA256 over the exact body, keyed with the trimmed App PEM) and a timestamp within 60 seconds.
+The runner binds before any agent access and sends `complete` only after agent and verifier containers are destroyed and publication is done; reconciliation then writes the run's `golem-admin/<id>` audit and retires the row with a `golem-terminal/<id>` receipt.
+
+Worker bindings are `APP_PRIVATE_KEY`, `WEBHOOK_SECRET`, `VERSION` and the Durable Object `COORDINATOR`.
 
 ## Admin dashboard
 
