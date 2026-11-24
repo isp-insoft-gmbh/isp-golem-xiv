@@ -1,5 +1,5 @@
 # Acceptance contract of isp-golem-xiv: the single source of truth for promises the implementation keeps.
-# accept.nu checks every promise below; PLAN.md, section "Acceptance contract", has the rules for changing this file.
+# accept.nu checks every promise below; DEVELOPMENT.md, section "Acceptance contract", has the rules for changing this file.
 {
   version: 2
 
