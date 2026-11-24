@@ -85,7 +85,7 @@ Each `.golems/<name>.md` has frontmatter followed by the task in plain prose.
 | `branch` | branch the golem owns and continues across runs; default `golems/<name>` |
 | `timeout` | wall-clock budget per run, e.g. `30m`; default `30m`, at most `5h` |
 | `verify` | command that must pass before anything is published |
-| `runner` | label of a GitHub-hosted runner available on the organization's plan; default `ubuntu-latest` |
+| `runner` | accepted and length-checked but not yet honoured: every golem runs on the ops runner label `blacksmith-2vcpu-ubuntu-2404` |
 
 A golem with neither `triggers` nor `schedule` runs only when a person asks for it.
 A golem with invalid frontmatter is disabled and reported; the rest keep working.

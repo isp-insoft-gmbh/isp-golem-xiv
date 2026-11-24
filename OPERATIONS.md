@@ -47,7 +47,7 @@ The repository dashboard shows the last result per golem, not a historical ledge
 Same-seat and same-golem runs queue rather than overlap.
 Changes that pass the golem's verification command are published on its owned branch and pull request.
 
-A run first prepares the agent image: usually it loads a cached image within about a minute, but after a change to the image sources or the pinned Mise, at a UTC month boundary, or once GitHub evicted the cache after seven unused days, the first run builds it, which takes about three minutes.
+A run first prepares the agent image: usually it loads a cached image within about a minute, but after a change to the image sources or the pinned Mise, at a UTC month boundary, or once the cache was evicted (the eviction policy of the Blacksmith cache is not verified), the first run builds it, which takes about three minutes.
 The ops `agent-image` workflow fills that cache on a miss after any trunk change to `runner.yml` or `agent-image.yml`, daily at 00:05 UTC, and when started by hand before an important run.
 
 Comment `@isp-golem-xiv stop` in the run's thread to request cancellation.
@@ -125,8 +125,8 @@ A runner change reaches golems in this order:
 
 1. Merge it, then run `mise run release -- '<summary>'` on a clean `trunk` equal to `origin/trunk` whose head passed `ci`; CI builds and publishes the next `v<n>`.
 2. Check the release: the downloaded asset's SHA-256 must equal GitHub's asset digest, the `.sha256` sidecar and `SHA256SUMS`; record it under `evidence/`.
-3. In the ops repository, pin `RUNNER_RELEASE_URL` and `RUNNER_SHA256` in `.github/workflows/runner.yml`; merging it starts `agent-image`, which logs `golem image: built, cached` when the image key changed and otherwise finds the cached image and skips the build.
-4. Copy the live `runner.yml` and `agent-image.yml` byte for byte into `ops/` here, adjusting `tools/repair-unbound-test.mjs` so historical workflows still reconstruct.
+3. In the ops repository, pin `RUNNER_RELEASE_URL` and `RUNNER_SHA256` in `.github/workflows/runner.yml`, in the same commit as its Mise `version` when the release's image asserts a new Mise, since the image copies the host's Mise; merging it starts `agent-image`, which logs `golem image: built, cached` when the image key changed and otherwise finds the cached image and skips the build.
+4. Copy the live workflows `runner.yml`, `agent-image.yml` and `ci.yml`, plus `.github/actionlint.yaml` and `mise.toml`, byte for byte into `ops/` here, adjusting `tools/repair-unbound-test.mjs` so historical workflows still reconstruct.
 5. The next golem run must log `golem image: loaded from cache`.
 
 After changes to promised behaviour, run `mise run accept -- --slice 4`; it spends about a dozen seat runs on fresh test repositories and deletes them unless `--keep` is given.

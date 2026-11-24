@@ -21,7 +21,7 @@ permissions: {}
 
 jobs:
   runner:
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 325
     steps:
       - name: Reject workflow reruns before agent access
@@ -32,8 +32,8 @@ jobs:
       - name: Download pinned public runner
         timeout-minutes: 10
         env:
-          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v21
-          RUNNER_SHA256: 4a6110d9926d6a500e7c6534a927fc9c73bc034b1676fb9135b043e47b7ce58e
+          RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v23
+          RUNNER_SHA256: 7f9ac78f7bae2b9446b826f339264ba973f56c92bc8fab5e59039c4255cb6ce1
         shell: bash
         run: |
           set -euo pipefail
@@ -63,7 +63,7 @@ jobs:
         continue-on-error: true
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
         with:
-          version: 2026.11.10
+          version: 2026.11.12
           install: false
           cache: false
       - name: Name the agent image cache
