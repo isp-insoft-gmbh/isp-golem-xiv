@@ -8,7 +8,7 @@ Current state for whoever continues; decisions are in [DECISIONS.md](DECISIONS.m
 - **Live:** router deployed from `trunk` (check `/health`); runner v24 (SHA-256 `52cb0ed74bd39a1003621256278f999bd288b8a07dcb1ac1e9dcfc57dcc09116`, Mise 2026.11.14) pinned in ops `trunk` `0caa920e`; all CI and golem jobs run on Blacksmith runners.
 - **Toktrak** runs Markdown-only golems on its OpenAI Codex and Anthropic seats; its bug, performance and security golems opened pull requests #164, #165 and #175, all merged.
   On v24 a Claude Code canary on the Anthropic seat passed its full lifecycle; the documentation and refactor golems have not yet run on a current runner.
-- **Docs:** README and the introductory Confluence page [isp-golem-xiv: Golems für unsere GitHub-Repositories](https://isp-insoft.atlassian.net/wiki/spaces/RD/pages/2279178242) are current; the line coverage ratchet holds router 98.4%, runner 88.9%, xtask 46.7%.
+- **Docs:** README, developer onboarding in [CONTRIBUTING.md](CONTRIBUTING.md), the introductory Confluence page [isp-golem-xiv: Golems für unsere GitHub-Repositories](https://isp-insoft.atlassian.net/wiki/spaces/RD/pages/2279178242) and its child [isp-golem-xiv: Einstieg für Entwickler](https://isp-insoft.atlassian.net/wiki/spaces/RD/pages/2277376047) are current; the line coverage ratchet holds router 98.4%, runner 88.9%, xtask 46.7%.
 
 ## Before 1.0
 
