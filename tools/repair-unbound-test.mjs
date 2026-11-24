@@ -8,16 +8,19 @@ const input = {delivery, run: 41774622060, apply: false};
 const tagSHA = '7'.repeat(40), fileSHA = '8'.repeat(40), head = '9'.repeat(40);
 // Reconstruct historical bytes as the live pin advances; exact digests still gate both profiles.
 const currentWorkflow = await readFile(new URL('../ops/runner.yml', import.meta.url));
-// Later download, digest and Mise-pin changes are reverted exactly; each match must occur once.
+// Later download, digest, Mise-pin and runner-label changes are reverted exactly; each match must occur once.
 const removeOnce = (text, fragment, count = 1) => {
   assert.equal(text.split(fragment).length - 1, count, 'unexpected live workflow drift');
   return text.replaceAll(fragment, '');
 };
 let historicalText = currentWorkflow.toString('utf8');
-const currentMiseLine = '          version: 2026.11.10\n';
+const currentMiseLine = '          version: 2026.11.12\n';
 assert.equal(historicalText.split(currentMiseLine).length - 1, 1, 'unexpected live Mise pin drift');
 historicalText = historicalText.replace(currentMiseLine, '          version: 2026.10.21\n');
-historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 4a6110d9926d6a500e7c6534a927fc9c73bc034b1676fb9135b043e47b7ce58e\n');
+const currentRunnerLabel = '    runs-on: blacksmith-2vcpu-ubuntu-2404\n';
+assert.equal(historicalText.split(currentRunnerLabel).length - 1, 1, 'unexpected live runner label drift');
+historicalText = historicalText.replace(currentRunnerLabel, '    runs-on: ubuntu-24.04\n');
+historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 7f9ac78f7bae2b9446b826f339264ba973f56c92bc8fab5e59039c4255cb6ce1\n');
 historicalText = removeOnce(historicalText, [
   '      - name: Name the agent image cache\n',
   '        id: image\n',

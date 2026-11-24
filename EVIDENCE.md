@@ -1,10 +1,22 @@
 # Evidence
 
+## 2026-11-24: v23 with Mise 2026.11.12, pinned; Toktrak golems run again
+
+[Native integrity](evidence/native-v23-integrity-20261124.json): release run 45295066537 on `3bc4071`, tag object `84d31559`, ELF64 asset 785072319 (6,122,008 bytes), GitHub, sidecar and manifest SHA-256 `7f9ac78f7bae2b9446b826f339264ba973f56c92bc8fab5e59039c4255cb6ce1`.
+The released bytes contain the embedded image assertion `RUN mise --version | grep '^2026.11.12 '` once and `2026.11.10` nowhere; the same check on v21 finds the assertion zero times and `2026.11.10` once.
+Point-in-time self-check; GitHub reports the release as not immutable.
+The release ran on upstream `actions/checkout` after v22 was burned (DECISIONS.md, 2026-11-23).
+Ops PR #41 merged as `e4ae87d`, tree equal to the reviewed head, pinning URL, SHA-256 and Mise 2026.11.12 in one commit; live `runner.yml` (SHA-256 `585d0d7b5c4ffd33daeebb64a55a76a60e30b984f9854f3de49e807c8d8736a3`), `agent-image.yml`, `ci.yml`, `actionlint.yaml` and `mise.toml` are byte-equal to `ops/` here.
+Its `agent-image` run 45296611293 on `blacksmith-2vcpu-ubuntu-2404` found no cache for the new key `golem-agent-image-fadfe286…-2026-11`, logged `golem image: built, cached` and saved it.
+Oliver approved one Toktrak canary with criteria fixed beforehand; comment 7126412573 started ops run 45358172251 on `blacksmith-2vcpu-ubuntu-2404`, which restored that key, logged `golem image: loaded from cache`, skipped the save, logged `golem container: target preparation exit 0`, ran agent and verification to exit 0, and logged the five lifecycle markers through `reservation_released` in order.
+The bot's reply 7126455961 contains the canary's fresh nonce.
+That canary's row was the first admitted with blob-rooted records; the stuck row `9847eaee` retired with a blob receipt.
+
 ## 2026-11-23: v21 pin and a live seat refresh
 
 [Native integrity](evidence/native-v21-integrity-20261123.json): release run 45211449557 on `f76b0f0`, tag object `9ff07272`, ELF64 asset 783609658 (6,130,320 bytes), GitHub, sidecar and manifest SHA-256 `4a6110d9926d6a500e7c6534a927fc9c73bc034b1676fb9135b043e47b7ce58e`.
 Point-in-time self-check; hosting is mutable.
-Ops PR #38 merged as `67a9d60` with its tree equal to the reviewed head; live `runner.yml` (SHA-256 `74dc49ba6284334c67bb39699f3994c43e4cc0533c98b4104798047394572962`) is byte-equal to `ops/runner.yml` here, and its `agent-image` run 45214402736 found the unchanged image key and skipped build and save.
+Ops PR #38 merged as `67a9d60` with its tree equal to the reviewed head; the then-live `runner.yml` (SHA-256 `74dc49ba6284334c67bb39699f3994c43e4cc0533c98b4104798047394572962`) is byte-equal to `ops/runner.yml` here, and its `agent-image` run 45214402736 found the unchanged image key and skipped build and save.
 The scheduled Toktrak `bugs` run 45088585900 on v19 (Pi on the OpenAI Codex seat) logged `golem seat: refreshed` and the seat secret was rewritten at 00:40:21Z.
 This is one observed successful refresh write-back; the next run accepting the rewritten sign-in, and a failed write-back, remain unobserved.
 
