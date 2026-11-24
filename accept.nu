@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 # Black-box acceptance test for isp-golem-xiv.
 # It talks only to GitHub, Cloudflare's token check, and the router's public API, and checks every promise in contract.nuon.
-# Fix bugs here, never weaken a promise; PLAN.md, section "Acceptance contract", has the rules.
+# Fix bugs here, never weaken a promise; DEVELOPMENT.md, section "Acceptance contract", has the rules.
 # Every failure prints the promise, what was observed, and what to do next.
 
 # Check every promise up to --slice against the deployed system.
