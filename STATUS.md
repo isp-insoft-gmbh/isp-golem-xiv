@@ -18,7 +18,7 @@ Oliver re-evaluated the goals in [DEVELOPMENT.md](DEVELOPMENT.md) (DECISIONS.md,
 
 1. Done: README rewritten, golem examples in the documentation parsed by the product's parser, stale goals corrected.
 2. Done: the introductory Confluence page [isp-golem-xiv: Golems für unsere GitHub-Repositories](https://isp-insoft.atlassian.net/wiki/spaces/RD/pages/2279178242) in R&D › Agentic Coding, in German.
-3. In review: line coverage ratchet per crate with `cargo-llvm-cov` and `coverage.toml`; the baseline counts as CI's only once the Blacksmith `ci` log shows the same numbers on two runs.
+3. Done: line coverage ratchet per crate with `cargo-llvm-cov` and `coverage.toml`; two Blacksmith `ci` runs of the same commit measured exactly the baseline.
 4. `insta` snapshots for replies, check summaries and the dashboard; `proptest` for parsers and seat names.
 5. Payload parsers tested with real webhook deliveries captured from the App, scrubbed.
 6. The mdBook site on GitHub Pages: user documentation, release notes, CI reports.

@@ -14,6 +14,7 @@ The first baseline is two identical WSL Linux measurements: router 98.4%, runner
 A red check raised the router's value to 98.5% and the Linux run failed naming only the router, while crates exactly at their value passed.
 The baseline carries no margin, and because deploy, release and the weekly schedule run the same `mise run ci`, a coverage dip blocks them as well as pull requests: one gate everywhere, as DEVELOPMENT.md asks.
 That makes nondeterministic coverage a deploy risk, so the baseline is adopted only after two Blacksmith `ci` runs of the same commit report the same numbers as above; a later flaky line is fixed in its test, not absorbed by a margin.
+Run 45377744635 on commit `2ff1fa3`, attempts 1 and 2 on two different `blacksmith-4vcpu-ubuntu-2404` machines, both logged router 98.4%, runner 88.9% and xtask 46.7%, exactly the baseline.
 
 ## 2026-11-24: Development goals re-evaluated, then realised
 
