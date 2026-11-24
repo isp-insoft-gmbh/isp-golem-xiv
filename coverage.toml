@@ -1,0 +1,6 @@
+# Line coverage per crate in percent, rounded down, as `mise run coverage` measures it on Linux.
+# CI fails when a crate falls below its value. A pull request that lowers a value says why;
+# one that raises coverage may raise it.
+router = 98.4
+runner = 88.9
+x = 46.7

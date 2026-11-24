@@ -3,6 +3,18 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-24: Line coverage ratchet
+
+`mise run ci` runs the Rust tests once under `cargo-llvm-cov` 0.9.2 (aqua, checksum-verified) instead of plain `cargo test`, then reports line coverage per crate and fails when a crate falls below `coverage.toml`; `mise run coverage` runs only that part.
+The rustup component `llvm-tools` joins the pinned toolchain; it is a component of the same 1.99.1, not a toolchain change.
+Each crate's report ignores the other crates and test-only files (`tests/`, `tests.rs`, `*_tests.rs`) with a filter anchored at the repository root, because an unanchored `runner/` also matches a CI runner's home `/home/runner`.
+The xtask reads the summary's totals itself instead of adding `serde_json`; unit tests pin the baseline format, the totals parsing and the anchored filter.
+Only Linux enforces the ratchet: Windows skips `cfg(unix)` code and tests and measures runner 83.2% against Linux's 88.9%, so other hosts print the comparison without failing.
+The first baseline is two identical WSL Linux measurements: router 98.4%, runner 88.9%, xtask 46.7%; the router's Worker glue is wasm-only and the coordinator is JavaScript, so neither is in these numbers.
+A red check raised the router's value to 98.5% and the Linux run failed naming only the router, while crates exactly at their value passed.
+The baseline carries no margin, and because deploy, release and the weekly schedule run the same `mise run ci`, a coverage dip blocks them as well as pull requests: one gate everywhere, as DEVELOPMENT.md asks.
+That makes nondeterministic coverage a deploy risk, so the baseline is adopted only after two Blacksmith `ci` runs of the same commit report the same numbers as above; a later flaky line is fixed in its test, not absorbed by a margin.
+
 ## 2026-11-24: Development goals re-evaluated, then realised
 
 Oliver asked to re-evaluate the goals in DEVELOPMENT.md and realise them, rather than describe today's state next to them.

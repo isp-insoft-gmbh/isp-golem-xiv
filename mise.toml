@@ -16,6 +16,7 @@ dprint = "0.64.3"
 "npm:miniflare" = "5.20261103.0-beta"
 "github:WebAssembly/binaryen" = { version = "132", version_prefix = "version_", strip_components = 1, bin_path = "bin" }
 "cargo:cargo-mutants" = "27.1.0"
+"aqua:taiki-e/cargo-llvm-cov" = "0.9.2"
 
 # Force worker-build to use mise-managed tools instead of its internal downloader.
 [env]
@@ -48,6 +49,10 @@ run = "cargo run --locked -p x -- dist"
 [tasks.worker]
 description = "Build the deployable Worker modules"
 run = "cargo run --locked -p x -- worker"
+
+[tasks.coverage]
+description = "Rust tests with line coverage per crate against coverage.toml"
+run = "cargo run --locked -p x -- coverage"
 
 [tasks.test-worker]
 description = "Router runtime and delivered Worker tests under workerd"
