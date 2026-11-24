@@ -98,7 +98,8 @@ If your seat does not fit the golem's preferred harness or provider, the run fal
 
 - [OPERATIONS.md](OPERATIONS.md): seats, running and stopping golems, reading logs, the admin dashboard and troubleshooting.
 - [SPEC.md](SPEC.md): what golems do and why.
-- [DEVELOPMENT.md](DEVELOPMENT.md): how this repository is built, tested and released.
+- [CONTRIBUTING.md](CONTRIBUTING.md): setup and the path from a fresh clone to a merged change.
+- [DEVELOPMENT.md](DEVELOPMENT.md): the rules and goals for how this repository is built, tested and released.
 - [DECISIONS.md](DECISIONS.md) and [STATUS.md](STATUS.md): why things are the way they are, and where they stand.
 
 I build and run isp-golem-xiv; questions and ideas go to me, [@bugabinga](https://github.com/bugabinga).
