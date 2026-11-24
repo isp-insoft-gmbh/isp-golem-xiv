@@ -3,6 +3,17 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-23: Releases check out with upstream `actions/checkout`; v22 is burned
+
+The v22 release run (45288450849), the first `release.yml` run after the Blacksmith migration, failed at "Validate release tag".
+Its log shows `useblacksmith/checkout` at `75c49b6` fetching `+fdaad78…:refs/tags/v22`: its tag test compares the commit with `rev-parse` of the ref, which for an annotated tag is the tag object, so it always falls back and overwrites the annotated tag with a lightweight ref to the commit.
+The gate's `git cat-file -t` then reads `commit`; the remote `v22` is still an annotated tag.
+Loosening the gate is no fix: the publish step reads the notes from the tag object and would ship the commit message instead.
+A probe workflow on a scratch branch, triggered by an annotated `golem-probe-*` tag on the same Blacksmith runner label, reproduced it without spending a release tag (run 45289013436): `useblacksmith/checkout` gave `commit` and failed, `actions/checkout` at the previous pin gave `tag` and the tag's own subject; probe tag, branch and workflow were deleted afterwards.
+`release.yml` returns to upstream `actions/checkout`; CI and deploy keep `useblacksmith/checkout`, which only checks out branches.
+Release tags are immutable and the workflow runs from the tagged commit, so v22 can never pass; it stays unpublished and the next release is v23.
+Until a release publishes and ops pins it, golems still carry Mise 2026.11.10.
+
 ## 2026-11-23: Golems carry Mise 2026.11.12
 
 Toktrak raised its Mise `min_version` to 2026.11.12 (Toktrak #166, merged 19:45Z), and both canary runs on Blacksmith then failed target preparation: the guarded output tail showed "mise version 2026.11.12 is required, but you are using 2026.11.10" (ops runs 45272876593 and 45273147964).

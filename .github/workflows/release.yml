@@ -21,7 +21,9 @@ jobs:
     env:
       GOLEM_CHECK_ADVISORIES: "false"
     steps:
-      - uses: useblacksmith/checkout@75c49b6ed30ce59336e9252425796cfcfac155f8 # v1.8.3
+      # Upstream checkout on purpose: useblacksmith/checkout replaces the annotated release tag with
+      # a lightweight ref to its commit, so the tag check below fails and the notes would be lost.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
