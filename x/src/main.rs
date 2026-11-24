@@ -88,6 +88,7 @@ fn tests() -> Result<()> {
 
 fn script_tests() -> Result<()> {
     run("node", &["tools/repair-unbound-test.mjs"])?;
+    run("node", &["tools/verify-release-test.mjs"])?;
     run("nu", &["--no-config-file", "tools/deploy-test.nu"])?;
     run("node", &["tools/deploy-http-test.mjs"])
 }

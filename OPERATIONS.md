@@ -124,7 +124,7 @@ The private ops repository's plan offers no branch protection, so merge its pull
 A runner change reaches golems in this order:
 
 1. Merge it, then run `mise run release -- '<summary>'` on a clean `trunk` equal to `origin/trunk` whose head passed `ci`; CI builds and publishes the next `v<n>`.
-2. Check the release: the downloaded asset's SHA-256 must equal GitHub's asset digest, the `.sha256` sidecar and `SHA256SUMS`; record it under `evidence/`.
+2. Check the release with `mise run verify-release -- v<n> <full source sha>`: it ties the tag to that source and its release run, compares the asset's SHA-256 with GitHub's digest, the `.sha256` sidecar and `SHA256SUMS`, requires the embedded image to assert the Mise version of the source's `agent.Dockerfile`, and records the result under `evidence/`.
 3. In the ops repository, pin `RUNNER_RELEASE_URL` and `RUNNER_SHA256` in `.github/workflows/runner.yml`, in the same commit as its Mise `version` when the release's image asserts a new Mise, since the image copies the host's Mise; merging it starts `agent-image`, which logs `golem image: built, cached` when the image key changed and otherwise finds the cached image and skips the build.
 4. Copy the live workflows `runner.yml`, `agent-image.yml` and `ci.yml`, plus `.github/actionlint.yaml` and `mise.toml`, byte for byte into `ops/` here, adjusting `tools/repair-unbound-test.mjs` so historical workflows still reconstruct.
 5. The next golem run must log `golem image: loaded from cache`.

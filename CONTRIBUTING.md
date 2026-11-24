@@ -22,7 +22,7 @@ Router changes deploy from `trunk` automatically; runner changes reach golems on
 | `router/` | the Worker: `src/lib.rs` is pure, host-tested policy; `src/edge.rs` and `src/edge/` do the wasm I/O; `src/coordinator.js` is the queue; `admin.*`, `registration.rs` and `seats.js` are the web pages |
 | `runner/` | the native `golem-runner`: snapshot, containers, verification, publication; `agent.Dockerfile` defines the agent image |
 | `x/` | the xtask behind most `mise` tasks |
-| `tools/` | Nushell and Node scripts: deploy, release, container test, queue repair helper |
+| `tools/` | Nushell and Node scripts: deploy, release and its integrity check, container test, queue repair helper |
 | `ops/` | byte-for-byte mirror of the private ops repository's workflows |
 | `accept.nu`, `contract.nuon` | the acceptance judge and the promises it checks |
 | `evidence/`, `history/` | release integrity records, dated decision and evidence logs |
