@@ -684,6 +684,14 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 
 New dated entries go here, newest first.
 
+### 2026-11-24: Ops leftovers deleted; two proof runs lost with them
+
+As Oliver chose for the 1.0 cleanup, the five `probe/*` branches of the closed ops pull requests and the four orphaned, disabled diagnostic workflows were deleted; a workflow without its file disappears only with its runs, so its nine runs were deleted too.
+The deletion was bounded by workflow state, not by what cited the runs, and two of the runs were cited as proof in the evidence log: run 42013269480 ("Writable protocol pre-rollout validation") and run 42040986651 ("Context/delegation candidate Linux and provider controls").
+Their logs are irreversibly gone; the entries are annotated, and the commits they ran, `e8e7ee5` and `229f2ca`, remain reachable in the ops repository.
+The branch refs stay recoverable from the pull requests' `refs/pull/<n>/head`; the runs do not.
+Before deleting runs or other records, search the repository for their identifiers first.
+
 ### 2026-11-24: Memory kills detected from events, not only the sticky flag
 
 The container test's survived shape saw the hog exit 137 while Docker recorded `OOMKilled false` (CI runs 45270797820 and 45400895299, two of about ten), which settled the open question of PR #76: Docker's record can miss a memory kill of a child when the container survives.

@@ -19,7 +19,6 @@ Oliver decided that 1.0 is the next `v<n>` release after these land, each as its
 3. `insta` snapshots for replies, check summaries and the dashboard; `proptest` for parsers and seat names.
 4. Payload parsers tested with real webhook deliveries captured from the App, scrubbed.
 5. The mdBook site on GitHub Pages: user documentation, release notes, CI reports.
-6. Ops leftovers: five `probe/*` branches of closed pull requests and the runs of orphaned disabled workflows.
 
 Then: release, integrity record, ops pin, `ops/` template, and a canary per harness.
 
