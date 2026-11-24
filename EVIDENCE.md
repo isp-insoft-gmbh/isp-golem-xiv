@@ -1,5 +1,14 @@
 # Evidence
 
+## 2026-11-24: v24 with Mise 2026.11.14; Claude Code on an Anthropic seat
+
+Renovate raised Toktrak's Mise minimum to 2026.11.13 (Toktrak #177), and the first Claude canary on v23 (ops run 45389220572) failed target preparation on it.
+[Native integrity](evidence/native-v24-integrity-20261124.json): release run 45394648486 on `63da390`, tag object `83bc7161`, ELF64 asset 787146831 (6,122,008 bytes), GitHub, sidecar and manifest SHA-256 `52cb0ed74bd39a1003621256278f999bd288b8a07dcb1ac1e9dcfc57dcc09116`; the embedded image assertion `grep '^2026.11.14 '` occurs once and `2026.11.12` nowhere; GitHub reports the release as not immutable.
+Ops PR #42 merged as `0caa920e`, tree equal to the reviewed head `9178ffad`, changing exactly the release URL, SHA-256 and Mise version; live `runner.yml`, `agent-image.yml`, `ci.yml`, `actionlint.yaml` and `mise.toml` are byte-equal to `ops/` here (staged blob ids).
+On the merge commit, `ci` 45398537749 passed and `agent-image` 45398537662 found no cache for `golem-agent-image-b895af30…-2026-11`, built and saved it.
+Oliver approved a Claude canary with criteria fixed beforehand; comment 7132224181 started ops run 45399130383 on `blacksmith-2vcpu-ubuntu-2404`, which restored that key, logged `golem image: loaded from cache`, skipped the save, logged `golem container: target preparation exit 0`, ran agent and verification to exit 0 and logged the five lifecycle markers through `reservation_released`.
+Its check `golem/qa: replied` names seat `bugabinga/anthropic`, harness `claude` and model `claude-fable-5-1` without a fallback line, and the bot's reply 7132290072 contains the canary's fresh nonce.
+
 ## 2026-11-24: v23 with Mise 2026.11.12, pinned; Toktrak golems run again
 
 [Native integrity](evidence/native-v23-integrity-20261124.json): release run 45295066537 on `3bc4071`, tag object `84d31559`, ELF64 asset 785072319 (6,122,008 bytes), GitHub, sidecar and manifest SHA-256 `7f9ac78f7bae2b9446b826f339264ba973f56c92bc8fab5e59039c4255cb6ce1`.

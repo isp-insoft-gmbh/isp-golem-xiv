@@ -14,13 +14,13 @@ const removeOnce = (text, fragment, count = 1) => {
   return text.replaceAll(fragment, '');
 };
 let historicalText = currentWorkflow.toString('utf8');
-const currentMiseLine = '          version: 2026.11.12\n';
+const currentMiseLine = '          version: 2026.11.14\n';
 assert.equal(historicalText.split(currentMiseLine).length - 1, 1, 'unexpected live Mise pin drift');
 historicalText = historicalText.replace(currentMiseLine, '          version: 2026.10.21\n');
 const currentRunnerLabel = '    runs-on: blacksmith-2vcpu-ubuntu-2404\n';
 assert.equal(historicalText.split(currentRunnerLabel).length - 1, 1, 'unexpected live runner label drift');
 historicalText = historicalText.replace(currentRunnerLabel, '    runs-on: ubuntu-24.04\n');
-historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 7f9ac78f7bae2b9446b826f339264ba973f56c92bc8fab5e59039c4255cb6ce1\n');
+historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 52cb0ed74bd39a1003621256278f999bd288b8a07dcb1ac1e9dcfc57dcc09116\n');
 historicalText = removeOnce(historicalText, [
   '      - name: Name the agent image cache\n',
   '        id: image\n',
