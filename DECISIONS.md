@@ -3,6 +3,12 @@
 Why things are the way they are, newest first.
 Each entry: date, decision, reason, and evidence where it exists.
 
+## 2026-11-24: Golems follow the target's Mise; 2026.11.14 meanwhile
+
+Renovate raised Toktrak's Mise `min_version` again, to 2026.11.13 (Toktrak #177, 11:15Z), a day after 2026.11.12, and the Claude canary (ops run 45389220572) failed target preparation with "mise version 2026.11.13 is required, but you are using 2026.11.12".
+Every such bump in any target breaks its golems until a release and an ops pin catch up, so Oliver decided that golems follow the target: the runner reads the target's `min_version`, and when it is newer than the image's Mise it downloads that Mise release, checks its published SHA-256 and uses it in every container of the run.
+That runner change lands before 1.0; until then golems carry Mise 2026.11.14, the latest release, through the usual image assertion, CI Mise, supported-minimum fixture, release, ops pin and template.
+
 ## 2026-11-24: Line coverage ratchet
 
 `mise run ci` runs the Rust tests once under `cargo-llvm-cov` 0.9.2 (aqua, checksum-verified) instead of plain `cargo test`, then reports line coverage per crate and fails when a crate falls below `coverage.toml`; `mise run coverage` runs only that part.
