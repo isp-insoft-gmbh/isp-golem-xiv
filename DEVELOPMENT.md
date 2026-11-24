@@ -141,6 +141,7 @@ Mise is the single entry point for people, the agent, and CI.
 ## Documentation
 
 - `README.md` says what it is and how to start in under a minute.
+- `CONTRIBUTING.md` gets a new developer from a clone to a merged change.
 - `SPEC.md` says what it does, `DEVELOPMENT.md` how it is developed, `OPERATIONS.md` how it is run, `DECISIONS.md` which decisions are in force, `EVIDENCE.md` what proves the evidence promises, and `STATUS.md` where things stand.
 - `history/` keeps the dated decision and evidence logs; new decisions get a dated entry under "Log" in `DECISIONS.md` and a topic entry when they change a rule.
 - User documentation is written for the people who meet golems on GitHub: how to enable, write, run, and pay for golems.
