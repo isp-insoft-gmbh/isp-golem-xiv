@@ -62,7 +62,7 @@ Tests protect behavior, not construction history.
 | snapshot | stable text a human reviews: replies, check run summaries, dashboard Markdown | every changed snapshot is reviewed and traced to code |
 | property | parsers, the seat-name mapping, fallback selection, anything with an input space | invariants instead of hand-picked examples |
 | mutation | the code being written, while it is written | stronger tests; never a gate |
-| coverage | a diagnostic, not a target | a ratchet: line coverage per crate (the pinned stable toolchain rejects branch coverage), kept in a committed baseline file updated by the pull request that changes it, may only drop with a reason in the pull request, e.g. removed code or I/O glue covered by `accept.nu` |
+| coverage | a diagnostic, not a target | a ratchet: line coverage per crate (the pinned stable toolchain rejects branch coverage), kept in `coverage.toml` as Linux CI measures it and updated by the pull request that changes it, may only drop with a reason in the pull request, e.g. removed code or I/O glue covered by `accept.nu` |
 | acceptance | the deployed system | `accept.nu` against `contract.nuon` |
 
 - Tools: the standard test harness, `insta` for snapshots, `proptest` for properties, `cargo-mutants` for mutation, `cargo-llvm-cov` for coverage.
@@ -94,7 +94,7 @@ Principles from pitest ([Don't let your code dry](https://blog.pitest.org/dont-l
 Mise is the single entry point for people, the agent, and CI.
 
 - Every tool and version comes from `mise.toml`; nobody installs tools by hand.
-- Every routine action is a task: `ci`, `test`, `test-worker`, `test-agent`, `fmt`, `worker`, `dist`, `deploy`, `accept`, `release`, `gh-settings`.
+- Every routine action is a task: `ci`, `test`, `test-worker`, `test-agent`, `coverage`, `fmt`, `worker`, `dist`, `deploy`, `accept`, `release`, `gh-settings`.
 - `mise run ci` locally and in CI is the same gate.
 - Orchestration is one-way: mise calls the tools, the tools never call mise tasks.
   The Windows xtask uses WSL `mise exec` only to initialize the Linux environment for the unchanged Worker suites.
@@ -103,7 +103,7 @@ Mise is the single entry point for people, the agent, and CI.
 
 | Tool | Language | Tasks |
 |---|---|---|
-| xtask crate `x/` | Rust, same lints and tests as the product | `ci`, `test`, `test-worker`, `fmt`, `worker`, `dist` |
+| xtask crate `x/` | Rust, same lints and tests as the product | `ci`, `test`, `test-worker`, `coverage`, `fmt`, `worker`, `dist` |
 | `accept.nu` | Nushell | `accept` |
 | `tools/release.nu`, `tools/gh-settings.nu`, `tools/deploy.nu`, `tools/agent-container-test.nu` | Nushell | `release`, `gh-settings`, `deploy`, `test-agent` |
 
