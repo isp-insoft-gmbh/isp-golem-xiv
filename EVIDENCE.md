@@ -36,6 +36,16 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-25: Target Mise minimum, local runner proof
+
+`runner/src/target_mise/tests.rs` uses a deterministic newer release fixture to check version selection, fixed asset names, checksum-before-extraction, size and deadline limits, and failure without staging.
+The pinned official Mise 2026.11.14 Linux x64 archive matched its published checksum, and `mise config ls --json` ignored both the bare `.toml` fragment and an uppercase `.TOML` fragment in an isolated workspace.
+On Linux Docker Engine 29.10.0 with crun, `verified_target_mise_is_available_to_every_run_container` used the unchanged sandbox create flags and a seat-free image with the production entrypoint.
+Preparation and verification exited 0, and `mise --version` printed `fixture-mise` inside verification even with another `mise` in the target tool path.
+The test also checks the read-only executable mount in read-only agent, preparation and writable agent/verifier container commands.
+The existing agent-container task now runs this check against the full agent image in CI; the local proof used the pinned Node base and production entrypoint, not a full image build or a deployed run.
+With Rust 1.99.1 on Linux, Clippy passed with `-D warnings`, the runner suite passed 142 tests with three existing ignores, and LLVM reported 88.95% runner line coverage against the 88.9% floor.
+
 ### 2026-11-25: Detect child memory kills
 
 [Blacksmith probe 45610209551](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45610209551) observed 160 child kills at the memory limit.

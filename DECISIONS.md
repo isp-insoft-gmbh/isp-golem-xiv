@@ -546,7 +546,14 @@ Log: 2026-11-11 "Seat fallback runs on a `pi` harness"; 2026-11-12 "No Copilot p
 ### Golems follow the target's Mise minimum
 
 Renovate raises Toktrak's Mise `min_version` almost daily, and each bump broke its golems until a release and an ops pin caught up, so Oliver decided that the runner reads the target's `min_version` and, when it is newer than the image's Mise, downloads that Mise release, checks its published SHA-256 and uses it in every container of the run.
-Until that runner change ships, golems' Mise moves only in this order: the image's version assertion, CI's container-test Mise and the supported-minimum fixture, a verified release, the ops runner pin with its Mise version in the same commit, and the `ops/` template; it is 2026.11.14 since runner v24.
+The runner takes the highest hard minimum from default config layers rooted at the actual `/workspace` snapshot, including local layers and `conf.d`, not the dispatch head when a writable run continues another branch.
+Only exact numeric release versions are accepted as hard minima; soft recommendations do not trigger downloads.
+Dynamic discovery via `.miserc.toml`, environment layers, remote includes and monorepo subprojects stays with native Mise validation and cannot trigger a runner download.
+Only the exact official `jdx/mise` Linux x64 `tar.gz` and `SHASUMS256.txt` are fetched, over HTTPS with one allowlisted GitHub asset redirect per request and without credentials.
+Oliver approved 96 MiB for the archive, 256 MiB for the executable, 64 KiB for the manifest, and at most 120 seconds for both fetches together, charged to the existing agent budget.
+Only the regular executable member is staged after SHA-256 verification, outside the workspace and toolchain, and mounted read-only in every container of the run.
+The runner never executes it on the host and never caches it across runs.
+Until the new runner ships, the deployed Mise stays 2026.11.14.
 A target's minimum is never met by a config bypass or a downgraded target requirement; deploy and release lint pins that do not prepare target images stay unchanged.
 
 Log: 2026-11-24 "Golems follow the target's Mise; 2026.11.14 meanwhile"; 2026-11-23 "Golems carry Mise 2026.11.12"; 2026-11-18 "Preserve native skills and honor the target's Mise minimum"
@@ -683,6 +690,12 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 ## Log
 
 New dated entries go here, newest first.
+
+### 2026-11-25: Select the mounted workspace's hard Mise minimum
+
+Oliver approved static default workspace-root layers, leaving dynamic discovery and validation to Mise in the container.
+The runner uses `toml` with `parse` and `serde` to distinguish top-level hard minima from comments, strings, soft recommendations and nested keys without reimplementing TOML or running any target config on the host.
+The lockfile also updates the existing `url` dependency to 2.5.9 for RUSTSEC-2026-0592 rather than adding an advisory exception.
 
 ### 2026-11-25: The doctor runs as `mise x nushell -- nu tools/doctor.nu`
 

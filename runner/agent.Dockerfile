@@ -34,7 +34,8 @@ RUN mise --version | grep '^2026.11.14 ' \
     && rm -rf /tmp/codex-help /root/.codex \
     && mise exec -- uv --version | grep -F 'uv 0.13.7' \
     && python3 --version \
-    && mkdir -p /workspace /home/agent /golem-codex /golem-pi \
+    && mkdir -p /workspace /home/agent /golem-codex /golem-pi /opt/golem/mise-bin \
+    && ln -s /usr/local/bin/mise /opt/golem/mise-bin/mise \
     && chmod -R a+rX /opt/mise /opt/mise-config \
     && chown 1000:1000 /home/agent \
     && ln -s "$(mise which claude)" /usr/local/bin/claude \
