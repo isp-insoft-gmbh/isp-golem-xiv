@@ -45,8 +45,11 @@ def rust-checks [root: string] {
 }
 
 def mise-checks [root: string] {
+  # `--show` also lists parent directories; only this checkout's own entry counts.
   let trust = (outcome mise trust --show)
-  let trusted = ($trust.stdout | lines | any {|line| $line | str ends-with ': trusted' })
+  let own = ($root | path expand | str lowercase)
+  let trusted = ($trust.stdout | lines | parse --regex '^(?<path>.+): (?<status>\S+)$'
+    | any {|entry| ($entry.path | path expand | str lowercase) == $own and $entry.status == trusted })
   [(check 'mise trust' $trusted (if $trusted { 'checkout trusted' } else { 'checkout not trusted' }) 'Review mise.toml, then run `mise trust` in this checkout.')]
 }
 

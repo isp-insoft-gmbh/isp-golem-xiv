@@ -690,7 +690,8 @@ Oliver chose a Nushell doctor over a rule in prose: `tools/doctor.nu` checks rus
 It is not an xtask, because building the xtask on Windows already needs the MSVC linker it should report.
 Before setup it runs as `mise --no-config exec nushell@<pinned> -- nu --no-config-file tools/doctor.nu`, since `mise run` first installs every tool, including `cargo:` tools that need that linker; with an empty data directory that command installed only Nushell (11.7 s), and the doctor sets `MISE_AUTO_INSTALL=false` and queries rustup from the temp directory so that shims never install anything.
 A first WSL check that ran `node --version` passed in an untrusted directory, because WSL mise falls back to globally installed tools; the check now reads `mise trust --show` and `mise ls --missing` for this checkout's `mise.toml`.
-Exercised branches: all ok; untrusted checkout on Windows and in WSL; a tool missing in WSL; pinned toolchain not installed; rustup absent; not exercised: non-MSVC host, missing build tools, no WSL distribution, mise missing in WSL.
+`mise trust --show` also lists trusted parent directories, so both trust checks match this checkout's own entry; review on PR #90 found that the Windows check accepted any trusted line, and an untrusted child of a trusted parent passed before the fix and fails after it.
+Exercised branches: all ok; untrusted checkout on Windows and in WSL, also below a trusted parent; a tool missing in WSL; pinned toolchain not installed; rustup absent; not exercised: non-MSVC host, missing build tools, no WSL distribution, mise missing in WSL.
 `mise run ci` fails when the documented command's Nushell version drifts from `mise.toml`; it does not prove the command works on a fresh machine.
 
 ### 2026-11-24: Ops leftovers deleted; two proof runs lost with them
