@@ -1,0 +1,6 @@
+---
+source: router/tests/policy.rs
+expression: "refusal(\"unknown-golem\", &golems)"
+---
+<!-- isp-golem-xiv kind=refused reason=unknown-golem -->
+Unknown or disabled golem. Choose an enabled golem: hello.

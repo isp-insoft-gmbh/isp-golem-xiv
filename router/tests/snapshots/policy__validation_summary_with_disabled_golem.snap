@@ -1,0 +1,8 @@
+---
+source: router/tests/policy.rs
+expression: summary
+---
+Invalid golems are disabled after merge until fixed.
+
+- `hello`: valid
+- `broken`: owner required with triggers or schedule; invalid schedule

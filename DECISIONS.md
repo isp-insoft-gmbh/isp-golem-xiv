@@ -691,6 +691,13 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 
 New dated entries go here, newest first.
 
+### 2026-11-25: Snapshot consumer text and generate parser and seat cases
+
+Use `insta` without optional features as a dev dependency in router and runner, so reviewers can inspect whole replies, check summaries and repository dashboard Markdown in the diff.
+Use router-only `proptest` with its `std` feature, 96 cases per property and bounded generators, to exercise parser and seat invariants without adding runtime dependencies.
+Keep the public dashboard privacy checks, seat-name compatibility examples and parser edge cases as explicit assertions.
+Captured and scrubbed App deliveries remain a separate milestone.
+
 ### 2026-11-25: Select the mounted workspace's hard Mise minimum
 
 Oliver approved static default workspace-root layers, leaving dynamic discovery and validation to Mise in the container.

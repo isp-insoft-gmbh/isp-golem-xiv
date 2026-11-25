@@ -1,0 +1,6 @@
+---
+source: router/tests/policy.rs
+expression: "refusal(\"not-member\", &[])"
+---
+<!-- isp-golem-xiv kind=refused reason=not-member -->
+Only isp-insoft-gmbh members may start golems. Ask an organization admin for membership.

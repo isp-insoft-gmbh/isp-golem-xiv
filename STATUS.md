@@ -17,7 +17,7 @@ Oliver decided that 1.0 is the next `v<n>` release after these land, each as its
 1. Golems follow the target's Mise: implemented and verified with a seat-free Docker fixture on `feat/target-mise-minimum`, not released or pinned in ops.
    Until rollout, every Renovate bump of Toktrak's Mise past 2026.11.14 can still block its golems.
 2. Done in v25: detect child memory kills from the kernel counter, with Docker inspection as fallback.
-3. `insta` snapshots for replies, check summaries and the dashboard; `proptest` for parsers and seat names.
+3. `insta` snapshots for replies, check summaries and the repository dashboard, plus `proptest` for parsers and seat names: implemented locally on `test/semantic-snapshots-properties`, not merged.
 4. Payload parsers tested with real webhook deliveries captured from the App, scrubbed.
 5. The mdBook site on GitHub Pages: user documentation, release notes, CI reports.
 

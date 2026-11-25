@@ -1,0 +1,10 @@
+---
+source: runner/src/lib.rs
+expression: "request.summary(\"replied\", \"claude-sonnet-4-6\", \"99\")"
+---
+outcome: replied
+seat: test-member/anthropic
+harness: claude
+model: claude-sonnet-4-6
+budget: 1800s
+log: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/99

@@ -36,6 +36,17 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-25: Semantic snapshots and bounded properties
+
+Reviewed 12 `insta` baselines in `router/tests/snapshots/` and `runner/src/snapshots/` against the reply markers, remedies, check attribution and repository dashboard sections in `contract.nuon` and `SPEC.md`.
+The policy tests still check public dashboard privacy separately; the runner tests still check that a fallback matches the pinned golem definition.
+`router/tests/properties.rs` exercises five properties with 96 cases each: mention authority and exact context, UTF-8 byte limits, frontmatter duration and duplicate keys, seat discovery and alias rejection, and the GitHub login length boundary.
+With Rust 1.99.1 and `INSTA_UPDATE=no`, Windows workspace tests exited 0 with 186 passed and two existing ignores; a second run verified all 12 snapshot hashes unchanged.
+Linux coverage met the unchanged ratchet: router 98.4%, runner 88.9%, xtask 46.6%.
+Pinned Linux CI passed formatting, host and wasm Clippy, coverage, script tests, local packaging, workerd and dependency checks, then stopped at `actionlint` because the temporary source copy lacked Git metadata.
+`actionlint` and the remaining repository checks passed separately in the working checkout.
+This is local evidence, not a captured App delivery, GitHub rendering check or live run.
+
 ### 2026-11-25: Target Mise minimum, local runner proof
 
 `runner/src/target_mise/tests.rs` uses a deterministic newer release fixture to check version selection, fixed asset names, checksum-before-extraction, size and deadline limits, and failure without staging.
