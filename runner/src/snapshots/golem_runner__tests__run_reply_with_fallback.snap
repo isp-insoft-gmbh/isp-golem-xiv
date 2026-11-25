@@ -1,0 +1,9 @@
+---
+source: runner/src/lib.rs
+expression: "request.reply(\"answer\")"
+---
+<!-- isp-golem-xiv kind=reply golem=hello -->
+
+answer
+
+fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic

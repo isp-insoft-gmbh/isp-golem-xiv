@@ -1,0 +1,14 @@
+---
+source: router/tests/policy.rs
+expression: help
+---
+<!-- isp-golem-xiv kind=help -->
+Golems here and what each would use for @member:
+
+- `hello`: seat `member/anthropic`, harness `claude`, model `default`
+- `foreign`: seat `member/anthropic`, harness `pi`, model `default` (fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic)
+
+Disabled: `broken`.
+
+Run one with `@isp-golem-xiv <golem> [instructions]`, stop it with `@isp-golem-xiv stop`, check your seats with `@isp-golem-xiv seat`.
+Your seats: `anthropic`. Register or replace a seat: https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats

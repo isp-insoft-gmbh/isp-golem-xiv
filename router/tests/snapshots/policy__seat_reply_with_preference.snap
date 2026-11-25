@@ -1,0 +1,8 @@
+---
+source: router/tests/policy.rs
+expression: seat
+---
+<!-- isp-golem-xiv kind=seat -->
+@member, your seats: `anthropic`, `openai-codex`.
+Preferred seat when a golem's provider is missing: `openai-codex`.
+Register, replace, or choose your preferred seat: https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats

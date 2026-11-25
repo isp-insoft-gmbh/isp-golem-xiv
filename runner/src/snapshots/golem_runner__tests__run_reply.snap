@@ -1,0 +1,7 @@
+---
+source: runner/src/lib.rs
+expression: "request.reply(\"actual agent answer\")"
+---
+<!-- isp-golem-xiv kind=reply golem=hello -->
+
+actual agent answer

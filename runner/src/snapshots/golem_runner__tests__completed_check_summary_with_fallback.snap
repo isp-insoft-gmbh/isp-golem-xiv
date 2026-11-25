@@ -1,0 +1,11 @@
+---
+source: runner/src/lib.rs
+expression: "request.summary(\"replied\", \"claude-opus-5-5\", \"99\")"
+---
+outcome: replied
+seat: test-member/anthropic
+harness: pi
+model: claude-opus-5-5
+budget: 1800s
+log: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/99
+fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic

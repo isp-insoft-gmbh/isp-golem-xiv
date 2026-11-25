@@ -1,0 +1,6 @@
+---
+source: router/tests/policy.rs
+expression: "refusal(\"no-seat\", &[])"
+---
+<!-- isp-golem-xiv kind=refused reason=no-seat -->
+No supported seat registered for you. Register your Anthropic seat: https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats

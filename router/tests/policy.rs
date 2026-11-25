@@ -210,23 +210,7 @@ fn dashboard_lists_sections_golems_disabled_and_seats_privately_only() {
         &["member"],
     );
     let private = router::dashboard_body(&golems, Some(&holders), &[]);
-    assert!(private.starts_with(router::DASHBOARD_MARKER));
-    for heading in ["## Golems", "## Disabled", "## Talk to golems", "## Seats"] {
-        assert!(private.lines().any(|line| line == heading), "{heading}");
-    }
-    assert!(private.contains("- `hello`: Report what you see. Wakes: mention. Pays: whoever starts it. Start: comment `@isp-golem-xiv hello` or tick its run box.\n  <!-- golem-last golem=hello -->\n  Last: never run\n  - [ ] Run `hello` now <!-- golem-run golem=hello -->\n"));
-    assert!(private.contains("- `nightly`: Tidy. Wakes: mention; events `issues.opened`; daily. Pays: whoever starts it; unattended runs @lead."));
-    assert!(
-        !private.contains("golem=broken"),
-        "disabled golems get no run box"
-    );
-    assert!(
-        private.contains("## Disabled\n\n- `broken`: ") && !private.contains("- `broken`: Task")
-    );
-    assert!(
-        private.contains("- @member: `anthropic`")
-            && private.contains("Seats of people who left the organization:\n- GONE: `anthropic`")
-    );
+    insta::assert_snapshot!("private_repository_dashboard", private);
     let public = router::dashboard_body(&golems, None, &[]);
     assert!(
         !public.contains("@member")
@@ -531,8 +515,7 @@ fn validation_summary_fails_on_any_invalid_golem_and_names_reasons() {
     assert!(ok && summary.contains("- `hello`: valid"));
     let (ok, summary) = router::validation_summary(&[valid, broken]);
     assert!(!ok);
-    assert!(summary.starts_with("Invalid golems are disabled after merge until fixed."));
-    assert!(summary.contains("- `broken`: ") && summary.contains("schedule"));
+    insta::assert_snapshot!("validation_summary_with_disabled_golem", summary);
 }
 
 #[test]
@@ -877,32 +860,17 @@ fn help_and_seat_replies_carry_markers_choices_and_only_the_askers_seats() {
         parse_golem("broken", "---\nschedule: someday\n---\nTask"),
     ];
     let help = router::help_reply("member", &golems, &["anthropic"], None);
-    assert!(help.starts_with("<!-- isp-golem-xiv kind=help -->\n"));
-    assert!(
-        help.contains("- `hello`: seat `member/anthropic`, harness `claude`, model `default`\n")
-    );
-    assert!(help.contains("- `foreign`: seat `member/anthropic`, harness `pi`, model `default` (fallback: asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic)\n"));
-    assert!(help.contains("Disabled: `broken`.") && !help.contains("- `broken`"));
-    assert!(help.contains("Your seats: `anthropic`.") && help.contains(router::SEAT_URL));
-    let none = router::help_reply("newbie", &golems, &[], None);
-    assert!(
-        none.contains(&format!(
-            "- `hello`: no seat; register one at {}",
-            router::SEAT_URL
-        )) && none.contains("Your seats: none.")
+    insta::assert_snapshot!("help_reply_with_fallback", help);
+    insta::assert_snapshot!(
+        "help_reply_without_seat",
+        router::help_reply("newbie", &golems, &[], None)
     );
     let seat = router::seat_reply(
         "member",
         &["anthropic", "openai-codex"],
         Some("openai-codex"),
     );
-    assert!(seat.starts_with(
-        "<!-- isp-golem-xiv kind=seat -->\n@member, your seats: `anthropic`, `openai-codex`.\n"
-    ));
-    assert!(
-        seat.contains("Preferred seat when a golem's provider is missing: `openai-codex`.")
-            && seat.contains(router::SEAT_URL)
-    );
+    insta::assert_snapshot!("seat_reply_with_preference", seat);
     assert!(
         !router::seat_reply("member", &["anthropic"], Some("openai-codex")).contains("Preferred")
     );
@@ -1339,7 +1307,7 @@ fn index_serialization_contains_names_and_validation_errors_without_task_content
 }
 
 #[test]
-fn seat_names_are_safe_and_refusals_supply_required_markers_and_remediation() {
+fn seat_names_match_existing_ops_names_and_reject_invalid_examples() {
     assert_eq!(
         seat_secret("a-member", "anthropic").as_deref(),
         Some("SEAT_A_MEMBER__ANTHROPIC")
@@ -1360,16 +1328,17 @@ fn seat_names_are_safe_and_refusals_supply_required_markers_and_remediation() {
         assert!(seat_secret(login, "anthropic").is_none());
     }
     assert!(seat_secret("member", "unknown").is_none());
+}
+
+#[test]
+fn mention_refusals_explain_the_remedy_and_list_only_enabled_golems() {
     let golems = [
         parse_golem("hello", &document("")),
         parse_golem("disabled", &document("bad: value\n")),
     ];
-    let unknown = refusal("unknown-golem", &golems);
-    assert!(unknown.starts_with("<!-- isp-golem-xiv kind=refused reason=unknown-golem -->\n"));
-    assert!(unknown.contains("hello"));
-    assert!(!unknown.contains("disabled,"));
-    assert!(refusal("no-seat", &[]).contains(router::SEAT_URL));
-    assert!(refusal("not-member", &[]).contains("organization admin"));
+    insta::assert_snapshot!("unknown_golem_refusal", refusal("unknown-golem", &golems));
+    insta::assert_snapshot!("no_seat_refusal", refusal("no-seat", &[]));
+    insta::assert_snapshot!("not_member_refusal", refusal("not-member", &[]));
 }
 
 #[test]

@@ -1,0 +1,38 @@
+---
+source: router/tests/policy.rs
+expression: private
+---
+<!-- isp-golem-xiv kind=dashboard -->
+Golems in this repository, kept current by isp-golem-xiv.
+
+## Golems
+
+- `hello`: Report what you see. Wakes: mention. Pays: whoever starts it. Start: comment `@isp-golem-xiv hello` or tick its run box.
+  <!-- golem-last golem=hello -->
+  Last: never run
+  - [ ] Run `hello` now <!-- golem-run golem=hello -->
+- `nightly`: Tidy. Wakes: mention; events `issues.opened`; daily. Pays: whoever starts it; unattended runs @lead. Start: comment `@isp-golem-xiv nightly` or tick its run box.
+  <!-- golem-last golem=nightly -->
+  Last: never run
+  - [ ] Run `nightly` now <!-- golem-run golem=nightly -->
+
+## Disabled
+
+- `broken`: owner required with triggers or schedule; invalid schedule
+
+## Talk to golems
+
+- `@isp-golem-xiv`: list the golems here and the seat and model each would use for you
+- `@isp-golem-xiv <golem> [instructions]`: run a golem here
+- `@isp-golem-xiv stop`: stop the golem run started here
+- `@isp-golem-xiv seat`: show your seats and link to registration
+
+## Seats
+
+Registered seats:
+- @member: `anthropic`
+
+Seats of people who left the organization:
+- GONE: `anthropic`
+
+Register or replace your seat: https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/seats

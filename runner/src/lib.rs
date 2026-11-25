@@ -1028,13 +1028,10 @@ mod tests {
     #[test]
     fn reply_and_audit_keep_contract_markers_and_attribution() {
         let request = parse(&request_json()).unwrap();
-        assert_eq!(
-            request.reply("actual agent answer"),
-            "<!-- isp-golem-xiv kind=reply golem=hello -->\n\nactual agent answer"
-        );
-        assert_eq!(
-            request.summary("replied", "claude-sonnet-4-6", "99"),
-            "outcome: replied\nseat: test-member/anthropic\nharness: claude\nmodel: claude-sonnet-4-6\nbudget: 1800s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/99"
+        insta::assert_snapshot!("run_reply", request.reply("actual agent answer"));
+        insta::assert_snapshot!(
+            "completed_check_summary",
+            request.summary("replied", "claude-sonnet-4-6", "99")
         );
     }
 
@@ -1214,22 +1211,11 @@ mod tests {
             request.validate_definition("---\n---\nTask").is_err(),
             "a golem preferring anthropic never falls back"
         );
-        let summary = request.summary("replied", "claude-opus-5-5", "99");
-        let fallback = summary
-            .lines()
-            .find_map(|line| line.strip_prefix("fallback: "))
-            .unwrap();
-        assert_eq!(
-            fallback,
-            "asked for anthropic/codex, used anthropic/pi with its default model, because codex does not work with anthropic"
+        insta::assert_snapshot!(
+            "completed_check_summary_with_fallback",
+            request.summary("replied", "claude-opus-5-5", "99")
         );
-        assert!(
-            summary
-                .contains("\nseat: test-member/anthropic\nharness: pi\nmodel: claude-opus-5-5\n")
-        );
-        assert!(request.reply("answer").starts_with(
-            "<!-- isp-golem-xiv kind=reply golem=hello -->\n\nanswer\n\nfallback: asked for"
-        ));
+        insta::assert_snapshot!("run_reply_with_fallback", request.reply("answer"));
         // The claimed choice must be exactly what the router derives for an anthropic seat.
         for (field, bad) in [
             ("fallback", serde_json::json!("asked for nothing")),
@@ -1257,9 +1243,6 @@ mod tests {
             parse(&legacy.to_string()).is_err(),
             "version 1 has no fallback"
         );
-        let plain = parse(&request_json()).unwrap();
-        assert!(!plain.summary("replied", "m", "1").contains("fallback"));
-        assert!(!plain.reply("answer").contains("fallback"));
     }
 
     #[test]
