@@ -4,6 +4,15 @@
 // hooks, extensions and MCP servers run as children of the harness and inherit its seat.
 const fs = require('node:fs');
 const cp = require('node:child_process');
+// The kernel counts every memory kill in this container's cgroup; Docker's OOMKilled record and
+// its oom events miss about one in five. Report the count on stderr whenever this process exits;
+// a background process still writing to stderr afterwards hides it, and Docker's record applies.
+process.on('exit', () => {
+  try {
+    const kills = Number(/^oom_kill (\d+)$/m.exec(fs.readFileSync('/sys/fs/cgroup/memory.events', 'utf8'))?.[1] ?? 0);
+    if (kills > 0) fs.writeSync(2, `\ngolem-oom-kills=${kills}\n`);
+  } catch { /* No cgroup v2 counter: Docker's record still applies. */ }
+});
 const fixedPath = '/usr/local/bin:/usr/bin:/bin';
 const toolRoot = '/target-tools';
 const targetEnv = {

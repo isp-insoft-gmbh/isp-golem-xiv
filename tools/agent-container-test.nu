@@ -63,14 +63,12 @@ def exercise-target [root: path, scratch: path] {
   }
 }
 
-# The runner reports memory kills from Docker's OOMKilled record: the entrypoint reports a killed
-# child, like a build tool under `mise run verify`, as an ordinary exit code. The record is
-# container-wide and sticky, so it also stays set when the command survives a kill and fails
-# for another reason; the runner therefore words it as an observation, not a cause.
-# Only an actual kill (hog exit 137) must leave the record, so each shape prints the hog's exit,
-# fails at once if a killed hog left no record, retries an attempt that ended without a kill,
-# and fails if none was killed. One Blacksmith run saw the survived shape exit 3 with no record
-# and no hog exit printed (trunk run 45270797820); which of the two it was is unknown.
+# The image reports memory kills from the kernel's count, read by container.cjs on exit as the last
+# stderr line `golem-oom-kills=<n>`. Docker's OOMKilled record and its oom events missed 30 of 160
+# child kills on Blacksmith (run 45610209551), while the kernel count caught all 160, so the runner
+# uses the count first and this test asserts it; Docker's record is printed for comparison only.
+# Each shape needs five killed hogs (hog exit 137), each with a count, so one run covers ten kills;
+# an attempt without a kill is retried, at most ten attempts per shape.
 def require-memory-kill-record [arguments: list<string>, tool_mount: string] {
   let run = ($arguments | where {|argument| $argument != '--rm' })
   let hog = r#'node -e 'const a = []; for (;;) a.push(Buffer.alloc(1 << 20, 1))'; s=$?; echo "golem-hog-exit=$s" >&2'#
@@ -79,27 +77,29 @@ def require-memory-kill-record [arguments: list<string>, tool_mount: string] {
     {name: survived, command: $"($hog); exit 3", exit: 3}
   ] {
     let name = $"golem-memory-kill-($shape.name)"
-    mut killed = false
-    for attempt in 1..3 {
+    mut killed = 0
+    for attempt in 1..10 {
       command-result docker -- rm --force $name | ignore
-      let result = ($shape.command | ^docker ...$run --name $name --memory=128m --memory-swap=128m --mount $"($tool_mount),readonly" $image --verify-target | complete)
+      let result = ($shape.command | ^docker ...$run --name $name --cap-drop=ALL --security-opt=no-new-privileges --memory=128m --memory-swap=128m --mount $"($tool_mount),readonly" $image --verify-target | complete)
       let record = (command-result docker -- inspect --format '{{.State.OOMKilled}}' $name | get stdout | str trim)
       command-result docker -- rm --force $name | ignore
       let hog_exit = ($result.stderr | parse --regex 'golem-hog-exit=(?<code>\d+)' | get -o 0.code | default 'unknown')
-      print $"memory kill ($shape.name) attempt ($attempt): exit ($result.exit_code), hog exit ($hog_exit), OOMKilled ($record)"
+      let last = ($result.stderr | str trim --right | lines | last)
+      let count = ($last | parse --regex '^golem-oom-kills=(?<n>\d+)$' | get -o 0.n | default '0' | into int)
+      print $"memory kill ($shape.name) attempt ($attempt): exit ($result.exit_code), hog exit ($hog_exit), kernel count ($count), Docker OOMKilled ($record)"
       if $result.exit_code != $shape.exit {
         error make {msg: $"memory kill ($shape.name): expected exit ($shape.exit), got ($result.exit_code)"}
       }
       if $hog_exit == '137' {
-        if $record != "true" {
-          error make {msg: $"memory kill ($shape.name): the hog was killed but Docker recorded OOMKilled ($record)"}
+        if $count < 1 {
+          error make {msg: $"memory kill ($shape.name): the hog was killed but the image reported no kernel count"}
         }
-        $killed = true
-        break
+        $killed += 1
+        if $killed == 5 { break }
       }
     }
-    if not $killed {
-      error make {msg: $"memory kill ($shape.name): no attempt was killed at the memory limit"}
+    if $killed < 5 {
+      error make {msg: $"memory kill ($shape.name): only ($killed) of ten attempts were killed at the memory limit"}
     }
   }
 }

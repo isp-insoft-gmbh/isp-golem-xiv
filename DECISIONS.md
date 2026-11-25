@@ -726,3 +726,8 @@ Oliver asked to remove the cruft before 1.0 and chose what goes; git history kee
 - `HANDOFF.md`, the implementation-time protocol notes, is replaced by the current internals in DEVELOPMENT.md; the dropped parts described the version 1 rollout and module ownership during Slice 2.
 - The one-time Slice 2 proof tools `tools/prove-refusals.mjs`, `tools/prove-slice2-outcomes.mjs` and `tools/prove-slice2-pilot.mjs` are removed; the evidence lines that cite them keep their run links.
 - The dated logs moved verbatim to `history/`; this file lists the decisions in force by topic, and EVIDENCE.md keeps the evidence promises and current proofs.
+
+### 2026-11-25: Detect child memory kills
+
+Read cgroup v2 `oom_kill` before the entrypoint exits; use Docker inspection as fallback.
+Report a kill observed during a failed run, not necessarily its cause.
