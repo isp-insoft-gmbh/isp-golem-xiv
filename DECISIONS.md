@@ -684,6 +684,15 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 
 New dated entries go here, newest first.
 
+### 2026-11-25: The doctor runs as `mise x nushell -- nu tools/doctor.nu`
+
+Oliver found the first doctor command too complex.
+It bypassed the project config only because the `[env]` template for `MINIFLARE_ROOT` failed while miniflare was not installed; the template now renders empty until it is (`{% if tools['npm:miniflare'] is defined %}`), and `tools/router-runtime-tests.mjs` still refuses to run without it.
+With an empty mise data directory, `mise x nushell -- nu tools/doctor.nu` installed only Nushell, at the version `mise.toml` pins, and the doctor exited 0; once miniflare is installed, Linux mise in WSL resolves `MINIFLARE_ROOT` to the same path as with the old template, and the Worker suites passed on it.
+Run as a script, `nu` did not apply this machine's `config.nu`: only Nushell's default prompt variables differed from a run with `--no-config-file`, so the documented command drops that flag; the `mise` tasks keep it.
+The command needs the checkout trusted first, which CONTRIBUTING's setup does in the step before.
+This supersedes the 2026-11-24 command and its CI check, which only kept the spelled-out Nushell version in sync with `mise.toml`.
+
 ### 2026-11-24: A doctor checks what mise cannot install
 
 Oliver chose a Nushell doctor over a rule in prose: `tools/doctor.nu` checks rustup and the pinned toolchain, on Windows the MSVC host and C++ build tools (via `vswhere`), trust of the checkout, and in WSL its trust and this checkout's missing tools; Docker is only a warning.

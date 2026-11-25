@@ -1,7 +1,7 @@
 #!/usr/bin/env nu
 # Checks the development prerequisites mise cannot install, and says how to fix each one.
 # Runs before `mise install`, so it uses no project tool except Nushell:
-#   mise --no-config exec nushell@0.116.1 -- nu --no-config-file tools/doctor.nu
+#   mise x nushell -- nu tools/doctor.nu
 
 def present [command: string] { which $command | is-not-empty }
 
