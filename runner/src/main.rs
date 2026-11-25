@@ -3,6 +3,7 @@
 mod github;
 mod sandbox;
 mod snapshot;
+mod target_mise;
 #[cfg(test)]
 mod tests;
 
@@ -230,6 +231,11 @@ async fn execute_agent(
         Ok(prepared) => prepared,
         Err(error) => return Ok(Err(error)),
     };
+    println!("golem phase: Mise selection");
+    let seconds = match target_mise::prepare(&workspace, request.timeout_seconds).await {
+        Ok(seconds) => seconds,
+        Err(error) => return Ok(Err(error)),
+    };
     println!("golem phase: agent");
     let execution = sandbox::run(
         &workspace,
@@ -237,9 +243,16 @@ async fn execute_agent(
         seat,
         request.model.as_deref(),
         &prompt,
-        request.timeout_seconds,
+        seconds,
     )
-    .await?;
+    .await;
+    let execution = match execution {
+        Ok(execution) => execution,
+        Err(error) => {
+            let _retained = temporary.keep();
+            return Err(error);
+        }
+    };
     temporary
         .close()
         .map_err(|_| "cannot remove private runner workspace; publication blocked")?;
@@ -548,6 +561,12 @@ impl RunContext<'_> {
             (Seat::Codex(_), None) => return Ok((Err("missing private seat home"), None)),
         };
         let operation = async {
+            println!("golem phase: Mise selection");
+            let seconds = match target_mise::prepare(&workspace, self.request.timeout_seconds).await
+            {
+                Ok(seconds) => seconds,
+                Err(error) => return Ok(Err(error)),
+            };
             println!("golem phase: target preparation");
             if let Err(error) =
                 sandbox::prepare_target(&workspace, &format!("{name}-prepare"), guard).await?
@@ -562,7 +581,7 @@ impl RunContext<'_> {
                 &self.request.harness,
                 self.request.model.as_deref(),
                 &prompt,
-                self.request.timeout_seconds,
+                seconds,
             )
             .await?
             {

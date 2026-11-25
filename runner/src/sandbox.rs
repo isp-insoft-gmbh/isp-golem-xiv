@@ -391,6 +391,15 @@ fn create_container(
             "/home/agent:rw,nosuid,nodev,noexec,size=512m,uid={uid},gid={gid},mode=700"
         ));
     mount(&mut create, workspace, "/workspace", !writable)?;
+    let mise = crate::target_mise::mount_source(workspace);
+    match std::fs::symlink_metadata(&mise) {
+        Ok(metadata) if metadata.is_file() => {
+            mount(&mut create, &mise, "/usr/local/bin/mise", true)?;
+            create.args(["--env", "GOLEM_TARGET_MISE=1"]);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return Err("invalid private Mise executable"),
+    }
     if target {
         let tools = toolchain_path(workspace)?;
         if !std::fs::symlink_metadata(&tools).is_ok_and(|metadata| metadata.is_dir()) {
@@ -961,6 +970,83 @@ pub async fn verify(
 #[allow(clippy::unwrap_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn verified_target_mise_is_available_to_every_run_container() {
+        let parent = std::env::var_os("GOLEM_TEST_MISE_CONTAINER_DIR");
+        let temporary = match &parent {
+            Some(parent) => tempfile::tempdir_in(parent).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        };
+        let workspace = temporary.path().join("workspace");
+        std::fs::create_dir(&workspace).unwrap();
+        let lookalike = workspace.join("workspace.golem-mise");
+        std::fs::write(&lookalike, b"not a verified executable").unwrap();
+        let baseline =
+            create_container(&workspace, "golem-test-mise", false, false, false, 30).unwrap();
+        assert!(
+            !baseline
+                .as_std()
+                .get_args()
+                .any(|arg| arg == "GOLEM_TARGET_MISE=1")
+        );
+        let sibling = crate::target_mise::mount_source(&workspace);
+        std::os::unix::fs::symlink(&lookalike, &sibling).unwrap();
+        assert!(create_container(&workspace, "golem-test-mise", false, false, false, 30).is_err());
+        std::fs::remove_file(sibling).unwrap();
+
+        let seconds = crate::target_mise::tests::prepare_fixture(&workspace).await;
+        let tools = toolchain_path(&workspace).unwrap();
+        std::fs::create_dir(&tools).unwrap();
+        for (writable, target, preparing) in [
+            (false, false, false),
+            (true, true, true),
+            (true, true, false),
+        ] {
+            let command = create_container(
+                &workspace,
+                "golem-test-mise",
+                writable,
+                target,
+                preparing,
+                seconds,
+            )
+            .unwrap();
+            let source = crate::target_mise::mount_source(&workspace);
+            let mount = format!(
+                "type=bind,source={},target=/usr/local/bin/mise,readonly,bind-propagation=rprivate",
+                source.display()
+            );
+            let args: Vec<_> = command.as_std().get_args().collect();
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair[0] == "--mount" && pair[1] == mount.as_str())
+            );
+            assert!(
+                args.windows(2)
+                    .any(|pair| pair[0] == "--env" && pair[1] == "GOLEM_TARGET_MISE=1")
+            );
+        }
+
+        // The existing agent-container task supplies an image and opts into real execution.
+        if parent.is_some() {
+            std::fs::remove_dir(tools).unwrap();
+            let guard = OutputGuard::default();
+            let id = std::process::id();
+            prepare_target(&workspace, &format!("golem-mise-prepare-{id}"), &guard)
+                .await
+                .unwrap()
+                .unwrap();
+            verify(
+                &workspace,
+                &format!("golem-mise-verify-{id}"),
+                Some(r#"test -x /target-tools/shadow/mise && version=$(mise --version) && printf '%s\n' "$version" && test "$version" = fixture-mise"#),
+                &guard,
+            )
+            .await.unwrap().unwrap();
+        }
+    }
 
     #[test]
     fn settings_deny_every_read_tool_outside_workspace() {

@@ -164,6 +164,9 @@ def exercise [root: path, scratch: path] {
   require-status "agent version" 0 docker -- run --rm -e GOLEM_TIMEOUT_SECONDS=10 $image --version
   require-status "zero timeout rejection" 64 docker -- run --rm -e GOLEM_TIMEOUT_SECONDS=0 $image --version
   exercise-target $root $scratch
+  with-env {GOLEM_TEST_MISE_CONTAINER_DIR: $scratch} {
+    require-status "verified Mise mount" 0 cargo -- test --locked -p golem-runner verified_target_mise_is_available_to_every_run_container
+  }
 
   let claude = $scratch | path join claude
   "#!/bin/sh\nsleep 30\n" | save --force $claude

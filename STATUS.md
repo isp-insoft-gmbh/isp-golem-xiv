@@ -14,7 +14,8 @@ Current state for whoever continues; decisions are in [DECISIONS.md](DECISIONS.m
 
 Oliver decided that 1.0 is the next `v<n>` release after these land, each as its own pull request:
 
-1. Golems follow the target's Mise: the runner downloads and checks the Mise release a target's `min_version` requires. Until then every Renovate bump of Toktrak's Mise past 2026.11.14 breaks its golems.
+1. Golems follow the target's Mise: implemented and verified with a seat-free Docker fixture on `feat/target-mise-minimum`, not released or pinned in ops.
+   Until rollout, every Renovate bump of Toktrak's Mise past 2026.11.14 can still block its golems.
 2. Done in v25: detect child memory kills from the kernel counter, with Docker inspection as fallback.
 3. `insta` snapshots for replies, check summaries and the dashboard; `proptest` for parsers and seat names.
 4. Payload parsers tested with real webhook deliveries captured from the App, scrubbed.

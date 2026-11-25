@@ -84,6 +84,7 @@ Invalid definition → fix the golem configuration in a reviewed pull request.
 For `blocked`, inspect the private ops log as described below.
 Common reasons:
 
+- `Mise release asset unavailable`, `Mise archive SHA-256 mismatch` or another Mise selection failure: check that the workspace's hard minimum names an exact official Linux x64 release with its published checksum; the runner does not fall back to an older executable.
 - `verification container execution failed` or `target preparation container execution failed`: the repository's own command failed; its output tail in the log shows why.
 - `container failed after a process in it was killed at its memory limit`: Docker recorded a memory kill (2 GiB per container); it may or may not have caused the failure.
 - `container killed before its time budget`: the container ended with SIGKILL before its time ran out.
@@ -104,11 +105,12 @@ For a broken provider sign-in, register a fresh replacement through Seats rather
 
 The check's log link opens the private ops run; read it there or with `gh run view <id> --repo isp-insoft-gmbh/isp-golem-xiv-ops --log`, which prefixes each line with job, step and timestamp.
 Lines starting with the word `golem` come from the runner; output tails follow unprefixed between `::stop-commands::` markers, and the image build prints Docker's own output.
-Read-only runs print only the snapshot and agent phases and end with `golem completed: replied`.
+Read-only runs print the snapshot, Mise selection and agent phases and end with `golem completed: replied`.
 
 - `golem image:` in the preparation step: loaded from cache, or no usable cache, building, then built, cached; a build also runs the image's own self-tests.
 - `golem lifecycle:` admitted, containers_destroyed, publication_credentials_minted, publication_complete, reservation_released, in that order; a missing step shows where the run stopped.
-- `golem phase:` precedes each step reached: snapshot, target preparation, agent, agent result, agent workspace scan, verification, verified workspace scan (only after a passing verification), publication (only when there are changes); an error after a phase line belongs to that phase.
+- `golem mise: using verified <version>` appears only when using a checked per-run upgrade.
+- `golem phase:` precedes each step reached: snapshot, Mise selection, target preparation, agent, agent result, agent workspace scan, verification, verified workspace scan (only after a passing verification), publication (only when there are changes); an error after a phase line belongs to that phase.
 - `golem dashboard:` whether the repository dashboard was updated, before publication_complete.
 - `golem container:` each container's stage, exit code, duration and output sizes, and whether a memory kill was recorded.
 - `golem target preparation` and `golem verification` print the last lines (at most 200 or 16 KiB) of each output stream on every run, or that the stream was empty; a tail containing a registered credential is withheld entirely, and agent output is never printed.

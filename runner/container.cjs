@@ -14,9 +14,11 @@ process.on('exit', () => {
   } catch { /* No cgroup v2 counter: Docker's record still applies. */ }
 });
 const fixedPath = '/usr/local/bin:/usr/bin:/bin';
+// The isolated prefix contains only Mise, so installed target tools keep their normal precedence.
+const misePrefix = process.env.GOLEM_TARGET_MISE === '1' ? ['/opt/golem/mise-bin'] : [];
 const toolRoot = '/target-tools';
 const targetEnv = {
-  PATH: fixedPath, HOME: '/home/agent', CI: '1', MISE_YES: '1',
+  PATH: [...misePrefix, fixedPath].join(':'), HOME: '/home/agent', CI: '1', MISE_YES: '1',
   MISE_DATA_DIR: toolRoot + '/data', MISE_CACHE_DIR: toolRoot + '/cache',
   MISE_CONFIG_DIR: toolRoot + '/config', MISE_STATE_DIR: toolRoot + '/state',
   MISE_TRUSTED_CONFIG_PATHS: '/workspace',
@@ -44,7 +46,7 @@ function toolEnvironment() {
     if (entries.some(p => !p.startsWith(toolRoot + '/') || /[:\x00-\x20\x7f]/.test(p))) {
       throw Error('tool path outside isolated toolchain');
     }
-    const env = { ...targetEnv, PATH: [...entries, fixedPath].join(':'), CARGO_HOME: '/home/agent/.cargo' };
+    const env = { ...targetEnv, PATH: [...misePrefix, ...entries, fixedPath].join(':'), CARGO_HOME: '/home/agent/.cargo' };
     if (manifest.rustToolchain !== undefined) {
       if (typeof manifest.rustToolchain !== 'string' || !/^[a-zA-Z0-9_.-]{1,128}$/.test(manifest.rustToolchain)) throw Error('invalid Rust toolchain');
       env.RUSTUP_TOOLCHAIN = manifest.rustToolchain;
