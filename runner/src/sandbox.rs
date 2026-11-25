@@ -1419,7 +1419,6 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn lifecycle_requires_removal_acknowledgment_after_every_attempt() {
-        use std::os::unix::fs::PermissionsExt;
         for (scenario, create, start, remove) in [
             (
                 "success",
@@ -1483,47 +1482,53 @@ mod tests {
             ),
             ("create-timeout", "exec sleep 3", "exit 99", "echo \"$3\""),
         ] {
-            let directory = tempfile::tempdir().unwrap();
-            let log = directory.path().join("calls");
-            let executable = directory.path().join("docker");
-            // Only these scenarios have Docker record an out-of-memory kill.
-            let inspect = if scenario.contains("memory-limit") {
-                "echo true"
-            } else {
-                "echo false"
-            };
-            std::fs::write(&executable, format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\ncase \"$1\" in\ncreate) {create};;\nstart) {start};;\ninspect) {inspect};;\nrm) {remove};;\n*) exit 98;;\nesac\n", log.display())).unwrap();
-            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-            for phase in ["lifecycle", "prepare", "v1", "writable", "verify"] {
-                // Only the direct lifecycle probe uses a one-second host deadline.
-                if phase != "lifecycle" && matches!(scenario, "timeout" | "create-timeout") {
-                    continue;
-                }
-                std::fs::write(&log, "").unwrap();
-                let output = std::process::Command::new(std::env::current_exe().unwrap())
-                    .args([
-                        "--exact",
-                        "sandbox::tests::lifecycle_probe",
-                        "--ignored",
-                        "--nocapture",
-                    ])
-                    .env(
-                        "PATH",
-                        format!("{}:/usr/bin:/bin", directory.path().display()),
-                    )
-                    .env("GOLEM_TEST_SCENARIO", scenario)
-                    .env("GOLEM_TEST_PHASE", phase)
-                    .output()
-                    .unwrap();
-                assert!(
-                    output.status.success(),
-                    "{phase}/{scenario}: {}\n{}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-                let calls = std::fs::read_to_string(&log).unwrap();
-                assert_eq!(calls, expected_calls(scenario), "{phase}/{scenario}");
+            check_lifecycle_scenario(scenario, create, start, remove);
+        }
+    }
+
+    #[cfg(unix)]
+    fn check_lifecycle_scenario(scenario: &str, create: &str, start: &str, remove: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().unwrap();
+        let log = directory.path().join("calls");
+        let executable = directory.path().join("docker");
+        // Only these scenarios have Docker record an out-of-memory kill.
+        let inspect = if matches!(scenario, "memory-limit" | "timeout-after-memory-limit") {
+            "echo true"
+        } else {
+            "echo false"
+        };
+        std::fs::write(&executable, format!("#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{}'\ncase \"$1\" in\ncreate) {create};;\nstart) {start};;\ninspect) {inspect};;\nrm) {remove};;\n*) exit 98;;\nesac\n", log.display())).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        for phase in ["lifecycle", "prepare", "v1", "writable", "verify"] {
+            // Only the direct lifecycle probe uses a one-second host deadline.
+            if phase != "lifecycle" && matches!(scenario, "timeout" | "create-timeout") {
+                continue;
             }
+            std::fs::write(&log, "").unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "sandbox::tests::lifecycle_probe",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env(
+                    "PATH",
+                    format!("{}:/usr/bin:/bin", directory.path().display()),
+                )
+                .env("GOLEM_TEST_SCENARIO", scenario)
+                .env("GOLEM_TEST_PHASE", phase)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{phase}/{scenario}: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let calls = std::fs::read_to_string(&log).unwrap();
+            assert_eq!(calls, expected_calls(scenario), "{phase}/{scenario}");
         }
     }
 
