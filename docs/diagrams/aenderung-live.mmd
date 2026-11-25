@@ -1,0 +1,10 @@
+flowchart TB
+  subgraph pr[" "]
+    direction LR
+    PR["Pull Request<br/>ci grün"] --> M["Merge auf trunk"] --> D["CI deployt<br/>den Router"]
+  end
+  subgraph runner[" "]
+    direction LR
+    Rel["Release<br/>mise run release"] --> V["Prüfung<br/>mise run verify-release"] --> P["Pin im<br/>ops-Repository"] --> G["Golems nutzen<br/>das Release"]
+  end
+  pr -->|"nur wenn sich der Runner ändert"| runner
