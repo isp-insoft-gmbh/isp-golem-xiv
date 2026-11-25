@@ -16,7 +16,7 @@ const TARGET_TIMEOUT_SECONDS: u64 = 600;
 /// The in-image watchdog starts after the host deadline and kills with exit 137, so the host
 /// always times out first: an exit 137 before then is another kill, never the time budget.
 const KILLED: &str = "container killed before its time budget";
-/// Docker's record that some process was killed at the memory limit. It is sticky and
+/// A process was killed at the memory limit, by the kernel's count or Docker's record. Both are
 /// container-wide, so it is an observation beside the failure, not necessarily its cause.
 const MEMORY_LIMIT: &str = "container failed after a process in it was killed at its memory limit";
 /// Per stream, what target preparation and verification leave in the private run log.
@@ -458,9 +458,24 @@ fn output_report(
     )
 }
 
-/// Whether Docker recorded an out-of-memory kill anywhere in the container. Observed to include
-/// child processes on hosted Ubuntu CI (cgroup v2, Docker 29.4.2, run 44840098741), which
-/// `tools/agent-container-test.nu` keeps checking. Unknown means no.
+/// The image's `container.cjs` reports its cgroup's kernel `oom_kill` count as the last stderr
+/// line, `golem-oom-kills=<n>`, when it is above zero. Code in the container could print it too,
+/// but that only names a memory kill as the observation beside its own failure.
+fn memory_kills_reported(stderr: &[u8]) -> bool {
+    let text = stderr.strip_suffix(b"\n").unwrap_or(stderr);
+    let last = text
+        .rsplit(|byte| *byte == b'\n')
+        .next()
+        .unwrap_or_default();
+    last.strip_prefix(b"golem-oom-kills=")
+        .and_then(|count| std::str::from_utf8(count).ok())
+        .and_then(|count| count.parse::<u64>().ok())
+        .is_some_and(|count| count > 0)
+}
+
+/// Whether Docker recorded an out-of-memory kill anywhere in the container. It misses about one
+/// in five child kills on Blacksmith (cgroup v2, Docker 28.0.4, run 45610209551), so it only
+/// backs up the kernel count. Unknown means no.
 async fn memory_limited(name: &str) -> bool {
     let mut inspect = docker();
     inspect.args(["inspect", "--format", "{{.State.OOMKilled}}", name]);
@@ -506,8 +521,8 @@ async fn lifecycle(
         start.args(["start", "--attach", "--interactive", name]);
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         let (mut execution, status) = capture(start, input, remaining).await?;
-        let memory_limit =
-            status.is_some_and(|status| !status.success()) && memory_limited(name).await;
+        let memory_limit = status.is_some_and(|status| !status.success())
+            && (memory_kills_reported(&execution.stderr) || memory_limited(name).await);
         println!(
             "golem container: {} exit {}{} after {}s, stdout {} bytes, stderr {} bytes",
             report.stage,
@@ -1433,6 +1448,20 @@ mod tests {
                 "echo \"$3\"",
             ),
             ("memory-limit", "echo id", "exit 1", "echo \"$3\""),
+            // Docker missed the kill; the image's last stderr line carries the kernel count.
+            (
+                "kernel-memory-limit",
+                "echo id",
+                "printf 'diagnostic\\ngolem-oom-kills=1\\n' >&2; exit 1",
+                "echo \"$3\"",
+            ),
+            // Only the last line counts: a count followed by other output is not the report.
+            (
+                "stale-kernel-count",
+                "echo id",
+                "printf 'golem-oom-kills=1\\nlater\\n' >&2; exit 1",
+                "echo \"$3\"",
+            ),
             (
                 "timeout-after-memory-limit",
                 "echo id",
@@ -1502,6 +1531,7 @@ mod tests {
     #[cfg(unix)]
     fn expected_calls(scenario: &str) -> &'static str {
         // Only a container that exited unsuccessfully is asked about memory kills.
+        // A kernel count on stderr answers that without asking Docker.
         let failed = matches!(
             scenario,
             "start-failure"
@@ -1510,6 +1540,7 @@ mod tests {
                 | "killed"
                 | "memory-limit"
                 | "timeout-after-memory-limit"
+                | "stale-kernel-count"
         );
         if scenario.starts_with("create-") {
             "create\nrm\n"
@@ -1561,7 +1592,13 @@ mod tests {
                 ));
             }
             "killed" => assert!(matches!(result, Ok(Err(KILLED)))),
-            "memory-limit" => assert!(matches!(result, Ok(Err(MEMORY_LIMIT)))),
+            "memory-limit" | "kernel-memory-limit" => {
+                assert!(matches!(result, Ok(Err(MEMORY_LIMIT))));
+            }
+            "stale-kernel-count" => assert!(matches!(
+                result,
+                Ok(Err("harness container execution failed"))
+            )),
             "create-timeout" => assert!(matches!(
                 result,
                 Ok(Err("container wall-clock budget exhausted"))
@@ -1631,7 +1668,13 @@ mod tests {
             })),
             // Never partial agent work or a budget timeout.
             "killed" => Ok(Err(KILLED)),
-            "memory-limit" => Ok(Err(MEMORY_LIMIT)),
+            "memory-limit" | "kernel-memory-limit" => Ok(Err(MEMORY_LIMIT)),
+            "stale-kernel-count" => Ok(Err(match phase {
+                "prepare" => "target preparation container execution failed",
+                "v1" | "writable" => "harness container execution failed",
+                "verify" => "verification container execution failed",
+                _ => unreachable!(),
+            })),
             "timeout-after-memory-limit" => match phase {
                 "prepare" => Ok(Err("target preparation timed out")),
                 "v1" => Ok(Err("agent wall-clock budget exhausted")),
@@ -1643,6 +1686,28 @@ mod tests {
             _ => unreachable!(),
         };
         assert_eq!(result, expected, "{phase}/{scenario}");
+    }
+
+    #[test]
+    fn memory_kills_are_reported_only_by_a_positive_count_on_the_last_stderr_line() {
+        for reported in [
+            &b"golem-oom-kills=1"[..],
+            b"golem-oom-kills=2\n",
+            b"build output\n\ngolem-oom-kills=1\n",
+        ] {
+            assert!(memory_kills_reported(reported), "{reported:?}");
+        }
+        for absent in [
+            &b""[..],
+            b"golem-oom-kills=0\n",
+            b"golem-oom-kills=1\nlater\n",
+            b"golem-oom-kills=one\n",
+            b"golem-oom-kills=-1\n",
+            b"x golem-oom-kills=1\n",
+            b"golem-oom-kills=99999999999999999999999\n",
+        ] {
+            assert!(!memory_kills_reported(absent), "{absent:?}");
+        }
     }
 
     #[tokio::test]

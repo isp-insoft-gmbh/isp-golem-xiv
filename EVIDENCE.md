@@ -35,3 +35,8 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 ## Log
 
 New dated proofs go here, newest first.
+
+### 2026-11-25: Detect child memory kills
+
+[Blacksmith probe 45610209551](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45610209551) observed 160 child kills at the memory limit.
+The kernel counter recorded all 160; Docker inspection and events missed 30.

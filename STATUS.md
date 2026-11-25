@@ -15,7 +15,7 @@ Current state for whoever continues; decisions are in [DECISIONS.md](DECISIONS.m
 Oliver decided that 1.0 is the next `v<n>` release after these land, each as its own pull request:
 
 1. Golems follow the target's Mise: the runner downloads and checks the Mise release a target's `min_version` requires. Until then every Renovate bump of Toktrak's Mise past 2026.11.14 breaks its golems.
-2. Memory kills detected from Docker's out-of-memory events; until then trunk `ci` can fail on the container test's survived shape.
+2. Detect child memory kills from the kernel counter, with Docker inspection as fallback; v24 can miss the kill when the parent survives.
 3. `insta` snapshots for replies, check summaries and the dashboard; `proptest` for parsers and seat names.
 4. Payload parsers tested with real webhook deliveries captured from the App, scrubbed.
 5. The mdBook site on GitHub Pages: user documentation, release notes, CI reports.
