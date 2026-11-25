@@ -1,0 +1,20 @@
+{
+  "release": "v25",
+  "releaseId": 458124294,
+  "releaseRun": 45618812041,
+  "source": "b81736607e56a50415d08567a66f2a418127eb29",
+  "tagObject": "dec021ba2de98f3dde9cb671fc71a48e25fed397",
+  "assetId": 791589496,
+  "size": 6122520,
+  "sha256": "6689393c5b5e4a4546d0c593f446aac7e81ab5da869e58b0c276364c45e48ddc",
+  "elf": "ELF64 little-endian x86_64",
+  "githubDigestMatches": true,
+  "sidecarMatches": true,
+  "manifestMatches": true,
+  "knownStringsPresent": true,
+  "embeddedMiseAssertion": "RUN mise --version | grep '^2026.11.14 '",
+  "embeddedMiseAssertionCount": 1,
+  "hostingImmutable": false,
+  "integrityScope": "point-in-time asset/source association; not build attestation",
+  "verifiedAt": "2026-11-25T13:05:26.623Z"
+}

@@ -40,3 +40,5 @@ New dated proofs go here, newest first.
 
 [Blacksmith probe 45610209551](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45610209551) observed 160 child kills at the memory limit.
 The kernel counter recorded all 160; Docker inspection and events missed 30.
+[Real-Docker CI](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45616492400) reported ten of ten child kills with the patched image, including one Docker missed.
+[Release integrity](evidence/native-v25-integrity-20261125.json) ties v25 to `b817366`; [ops PR #43](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/pull/43) pinned its verified digest.
