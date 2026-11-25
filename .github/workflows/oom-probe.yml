@@ -1,0 +1,52 @@
+name: oom-probe
+
+# Temporary: which signal reliably reports a memory kill of a child process? Deleted after use.
+on:
+  push:
+    branches: [probe/oom-signal]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [blacksmith-2vcpu-ubuntu-2404, blacksmith-4vcpu-ubuntu-2404]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Environment
+        run: |
+          docker version --format 'docker {{.Server.Version}}'
+          stat -fc 'cgroup fs %T' /sys/fs/cgroup
+          docker info --format 'cgroup {{.CgroupVersion}} driver {{.CgroupDriver}}'
+          docker pull -q node:22-bookworm-slim
+      - name: Probe
+        shell: bash
+        run: |
+          hog='node -e "const a = []; for (;;) a.push(Buffer.alloc(1 << 20, 1))"; s=$?; echo "hog=$s" >&2; echo "events=$(tr "\n" " " < /sys/fs/cgroup/memory.events)" >&2'
+          for shape in survived cause; do
+            if [ "$shape" = survived ]; then cmd="$hog; exit 3"; else cmd="$hog; [ \"\$s\" -eq 0 ] || exit 1"; fi
+            for i in $(seq 1 40); do
+              name="oom-$shape-$i"
+              docker rm -f "$name" >/dev/null 2>&1 || true
+              docker create --name "$name" --read-only --user 1000:1000 --memory=128m --memory-swap=128m \
+                --tmpfs /tmp:rw,size=64m node:22-bookworm-slim sh -c "$cmd" >/dev/null
+              timeout 60 docker events --filter "container=$name" --filter event=oom --format '{{.Action}}' > "ev-$name" 2>/dev/null &
+              evpid=$!
+              sleep 0.3
+              docker start --attach "$name" > "out-$name" 2>&1
+              code=$?
+              now=$(docker inspect --format '{{.State.OOMKilled}}' "$name")
+              sleep 3
+              later=$(docker inspect --format '{{.State.OOMKilled}}' "$name")
+              kill "$evpid" 2>/dev/null; wait "$evpid" 2>/dev/null
+              hogexit=$(sed -n 's/^hog=//p' "out-$name")
+              oomkill=$(sed -n 's/.*oom_kill \([0-9]*\).*/\1/p' "out-$name")
+              ev=$(grep -c oom "ev-$name" || true)
+              echo "PROBE shape=$shape i=$i exit=$code hog=$hogexit oom_kill=$oomkill flag_now=$now flag_3s=$later events=$ev"
+              docker rm -f "$name" >/dev/null
+            done
+          done
