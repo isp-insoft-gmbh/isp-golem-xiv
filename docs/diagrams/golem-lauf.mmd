@@ -1,0 +1,10 @@
+flowchart TB
+  subgraph gh["GitHub und Cloudflare"]
+    direction LR
+    K["Kommentar<br/>@isp-golem-xiv bugs"] --> App["GitHub-App"] --> R["Router<br/>Cloudflare Worker"] --> Q["Queue<br/>pro Seat und Golem nacheinander"]
+  end
+  subgraph ops["isp-golem-xiv-ops (privat)"]
+    direction LR
+    Run["Runner<br/>GitHub Actions"] --> C["Container<br/>Vorbereitung · Agent · verify"] --> E["Antwort / Pull Request<br/>im Ziel-Repository"]
+  end
+  gh -->|"Workflow-Dispatch"| ops

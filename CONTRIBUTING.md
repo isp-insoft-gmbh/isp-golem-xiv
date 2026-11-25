@@ -55,6 +55,19 @@ You need no secrets for normal development.
 
 ## Making a change
 
+```mermaid
+flowchart TB
+  subgraph pr[" "]
+    direction LR
+    PR["pull request, ci green"] --> M["merge to trunk"] --> D["CI deploys the router"]
+  end
+  subgraph runner[" "]
+    direction LR
+    Rel["release<br/>mise run release"] --> V["check<br/>mise run verify-release"] --> P["pin in the<br/>ops repository"] --> G["golems use<br/>the release"]
+  end
+  pr -->|"only when the runner changes"| runner
+```
+
 1. Branch from `trunk`; one coherent change per pull request, with a short imperative commit subject such as `fix(router): ignore events sent by the App`.
 2. Get `mise run ci` green locally, then open the pull request and explain context, problem and outcome in prose.
 3. Merge once `ci` is green on the exact head and every review thread is resolved; `trunk` stays linear.
