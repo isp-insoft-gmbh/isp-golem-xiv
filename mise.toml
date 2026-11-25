@@ -75,6 +75,10 @@ run = "nu --no-config-file accept.nu"
 description = "Check a published runner release against its source and record it under evidence/"
 run = "node tools/verify-release.mjs"
 
+[tasks.doctor]
+description = "Check the development prerequisites mise cannot install; before setup, see CONTRIBUTING.md"
+run = "nu --no-config-file tools/doctor.nu"
+
 [tasks.release]
 description = "Push next annotated v<n> tag; CI validates and publishes"
 run = "nu --no-config-file tools/release.nu"

@@ -118,6 +118,7 @@ fn runtime_tests() -> Result<()> {
 }
 
 fn ci() -> Result<()> {
+    documented_doctor()?;
     run("cargo", &["fmt", "--all", "--", "--check"])?;
     run("dprint", &["check"])?;
     run(
@@ -240,6 +241,34 @@ fn coverage() -> Result<()> {
         return Err(message.into());
     }
     eprintln!("x: not enforced on this host, Linux CI is: {message}");
+    Ok(())
+}
+
+/// The doctor runs before `mise install`, so its documented command names the Nushell version
+/// itself; it must stay the one `mise.toml` pins.
+fn documented_doctor() -> Result<()> {
+    let documents = ["CONTRIBUTING.md", "tools/doctor.nu"]
+        .map(|path| fs::read_to_string(path).map(|text| (path, text)));
+    let documents: Vec<(&str, String)> = documents.into_iter().collect::<std::io::Result<_>>()?;
+    let borrowed: Vec<(&str, &str)> = documents
+        .iter()
+        .map(|(path, text)| (*path, text.as_str()))
+        .collect();
+    doctor_documented(&fs::read_to_string("mise.toml")?, &borrowed)
+}
+
+fn doctor_documented(mise_toml: &str, documents: &[(&str, &str)]) -> Result<()> {
+    let version = mise_toml
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("nushell = \"")?.strip_suffix('"'))
+        .ok_or("mise.toml pins no nushell version")?;
+    let command =
+        format!("mise --no-config exec nushell@{version} -- nu --no-config-file tools/doctor.nu");
+    for (path, text) in documents {
+        if !text.contains(&command) {
+            return Err(format!("{path} must show `{command}`").into());
+        }
+    }
     Ok(())
 }
 
@@ -515,10 +544,23 @@ fn verify_archive(archive: &Path, expected: &[&str]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        coverage_baseline, coverage_ignore, host_from_version, line_coverage_tenths, percent,
-        run_at, validate_worker, verify_archive,
+        coverage_baseline, coverage_ignore, doctor_documented, host_from_version,
+        line_coverage_tenths, percent, run_at, validate_worker, verify_archive,
     };
     use std::fs;
+
+    #[test]
+    fn doctor_command_in_documents_follows_the_pinned_nushell() {
+        let mise = "[tools]\nnushell = \"0.116.1\"\nnode = \"26\"\n";
+        let command = "run `mise --no-config exec nushell@0.116.1 -- nu --no-config-file tools/doctor.nu` first";
+        assert!(doctor_documented(mise, &[("a", command), ("b", command)]).is_ok());
+        let stale = command.replace("0.116.1", "0.115.0");
+        assert!(
+            doctor_documented(mise, &[("a", command), ("b", &stale)])
+                .is_err_and(|error| error.to_string().starts_with("b must show"))
+        );
+        assert!(doctor_documented("[tools]\nnode = \"26\"\n", &[("a", command)]).is_err());
+    }
 
     #[test]
     fn coverage_baseline_requires_every_crate_in_order_with_one_decimal() {

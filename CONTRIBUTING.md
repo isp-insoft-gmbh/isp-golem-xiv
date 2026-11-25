@@ -30,12 +30,16 @@ Router changes deploy from `trunk` automatically; runner changes reach golems on
 ## Setup
 
 1. Install Git, [mise](https://mise.jdx.dev) and [rustup](https://rustup.rs); rustup takes Rust from `rust-toolchain.toml`, mise installs every other tool from `mise.toml`.
-2. Clone, then run `mise trust` and `mise install` in the checkout.
-3. Run `mise run ci`, the same gate CI runs; the first run builds for a while.
+2. Clone, review `mise.toml` and run `mise trust` in the checkout, then check what mise cannot install for you, such as the MSVC build tools on Windows, WSL for the Worker suites and Docker:
 
-On Windows, Rust needs the MSVC build tools, and the Worker suites run in the default WSL distribution, which needs `mise` on its path, this checkout trusted and its tools installed.
+   ```sh
+   mise --no-config exec nushell@0.116.1 -- nu --no-config-file tools/doctor.nu
+   ```
+
+   It installs only Nushell, prints each missing prerequisite with its fix, and later runs as `mise run doctor`.
+3. Run `mise install`, then `mise run ci`, the same gate CI runs; the first run builds for a while.
+
 Code and tests behind `cfg(unix)` run only on Linux, so the coverage ratchet is enforced there and only reported on Windows.
-Docker is needed only for `mise run test-agent`; CI runs it on every pull request.
 You need no secrets for normal development.
 
 ## Everyday tasks
@@ -46,6 +50,7 @@ You need no secrets for normal development.
 | `mise run test` | only the tests |
 | `mise run coverage` | line coverage per crate against `coverage.toml` |
 | `mise run fmt` | formats Rust and TOML |
+| `mise run doctor` | checks the prerequisites mise cannot install |
 | `mise run test-agent` | builds the agent image and probes it with Docker |
 
 ## Making a change

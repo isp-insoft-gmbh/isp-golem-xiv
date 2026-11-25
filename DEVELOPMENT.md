@@ -103,7 +103,7 @@ Principles from pitest ([Don't let your code dry](https://blog.pitest.org/dont-l
 Mise is the single entry point for people, the agent, and CI.
 
 - Every tool and version comes from `mise.toml`; nobody installs tools by hand.
-- Every routine action is a task: `ci`, `test`, `test-worker`, `test-agent`, `coverage`, `fmt`, `worker`, `dist`, `deploy`, `accept`, `release`, `verify-release`, `gh-settings`.
+- Every routine action is a task: `ci`, `test`, `test-worker`, `test-agent`, `coverage`, `fmt`, `worker`, `dist`, `deploy`, `accept`, `release`, `verify-release`, `gh-settings`, `doctor`.
 - `mise run ci` locally and in CI is the same gate.
 - Orchestration is one-way: mise calls the tools, the tools never call mise tasks.
   The Windows xtask uses WSL `mise exec` only to initialize the Linux environment for the unchanged Worker suites.
@@ -114,7 +114,7 @@ Mise is the single entry point for people, the agent, and CI.
 |---|---|---|
 | xtask crate `x/` | Rust, same lints and tests as the product | `ci`, `test`, `test-worker`, `coverage`, `fmt`, `worker`, `dist` |
 | `accept.nu` | Nushell | `accept` |
-| `tools/release.nu`, `tools/gh-settings.nu`, `tools/deploy.nu`, `tools/agent-container-test.nu` | Nushell | `release`, `gh-settings`, `deploy`, `test-agent` |
+| `tools/release.nu`, `tools/gh-settings.nu`, `tools/deploy.nu`, `tools/agent-container-test.nu`, `tools/doctor.nu` | Nushell | `release`, `gh-settings`, `deploy`, `test-agent`, `doctor` |
 
 - Build logic is Rust so it is tested and linted like the product.
 - The judge and the repository administration stay Nushell: they share no code, helpers, or bugs with the product they check or configure.
