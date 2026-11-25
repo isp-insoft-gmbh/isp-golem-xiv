@@ -33,7 +33,7 @@ Router changes deploy from `trunk` automatically; runner changes reach golems on
 2. Clone, review `mise.toml` and run `mise trust` in the checkout, then check what mise cannot install for you, such as the MSVC build tools on Windows, WSL for the Worker suites and Docker:
 
    ```sh
-   mise --no-config exec nushell@0.116.1 -- nu --no-config-file tools/doctor.nu
+   mise x nushell -- nu tools/doctor.nu
    ```
 
    It installs only Nushell, prints each missing prerequisite with its fix, and later runs as `mise run doctor`.

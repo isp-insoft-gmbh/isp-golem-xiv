@@ -27,7 +27,7 @@ WASM_BINDGEN_BIN = "wasm-bindgen"
 WASM_BINDGEN_TEST_RUNNER_BIN = "wasm-bindgen-test-runner"
 ESBUILD_BIN = "esbuild"
 WASM_OPT_BIN = "wasm-opt"
-MINIFLARE_ROOT = { value = "{{ tools['npm:miniflare'].path }}", tools = true }
+MINIFLARE_ROOT = { value = "{% if tools['npm:miniflare'] is defined %}{{ tools['npm:miniflare'].path }}{% endif %}", tools = true }
 
 [tasks.ci]
 description = "Host tests, wasm build, Rust and repository checks"
