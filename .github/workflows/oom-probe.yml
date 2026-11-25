@@ -26,6 +26,7 @@ jobs:
       - name: Probe
         shell: bash
         run: |
+          set +e
           hog='node -e "const a = []; for (;;) a.push(Buffer.alloc(1 << 20, 1))"; s=$?; echo "hog=$s" >&2; echo "events=$(tr "\n" " " < /sys/fs/cgroup/memory.events)" >&2'
           for shape in survived cause; do
             if [ "$shape" = survived ]; then cmd="$hog; exit 3"; else cmd="$hog; [ \"\$s\" -eq 0 ] || exit 1"; fi
