@@ -1,0 +1,56 @@
+name: pages
+
+on:
+  schedule:
+    - cron: "41 7 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Opt in only after Pages is configured for GitHub Actions.
+    if: >-
+      vars.PAGES_ENABLED == 'true' &&
+      github.repository == 'isp-insoft-gmbh/isp-golem-xiv' &&
+      github.ref == 'refs/heads/trunk'
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
+        with:
+          version: "2026.11.14"
+          cache: false
+          install_args: node github-cli aqua:rust-lang/mdBook
+      - name: Build public book
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MISE_AUTO_INSTALL: "false"
+        run: mise run book -- "$RUNNER_TEMP/golem-book"
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/golem-book
+
+  deploy:
+    needs: build
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.publish.outputs.page_url }}
+    steps:
+      - id: publish
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

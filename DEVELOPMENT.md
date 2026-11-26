@@ -155,6 +155,22 @@ The code repository publishes an [mdBook](https://rust-lang.github.io/mdBook/) s
 - the latest release and its notes,
 - reports from CI that are worth reading without downloading anything, such as coverage and mutation results.
 
+### Preview locally
+
+Run `mise run book -- <new-output-directory>` from the repository root with GitHub CLI authentication for reading public Actions logs.
+Mise supplies the pinned mdBook, Node and GitHub CLI.
+Choose a new directory in system temp and open its `index.html`; if serving it, use the `/isp-golem-xiv/` prefix to match Pages, including its 404 page.
+The build reads the latest published release and the latest successful `trunk` push CI attempt from the public code repository.
+It fails if it cannot obtain the release notes or all three coverage measurements; it does not substitute local numbers or coverage thresholds for measured results.
+Mutation testing does not currently produce a CI report.
+
+### Publish after review
+
+After the preview is approved and the changes land on `trunk`, select **GitHub Actions** as the Pages source and set the repository variable `PAGES_ENABLED` to `true`.
+The `pages` workflow refreshes the site daily and can be dispatched on `trunk` for an immediate refresh.
+Only its deploy job has Pages and OIDC write permissions.
+It publishes only the rendered book, not raw logs, workspaces, or private ops data.
+
 ## CI and reports
 
 - Each workflow gets only the permissions it needs.
