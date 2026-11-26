@@ -1,0 +1,30 @@
+{
+  "action": "edited",
+  "sender": {
+    "id": 101,
+    "login": "fixture-actor-1[bot]",
+    "type": "Bot"
+  },
+  "repository": {
+    "id": 201,
+    "full_name": "fixture-org/fixture-repo"
+  },
+  "installation": {
+    "id": 301
+  },
+  "issue": {
+    "number": 401,
+    "title": "Fixture dashboard title",
+    "user": {
+      "id": 101,
+      "login": "fixture-actor-1[bot]",
+      "type": "Bot"
+    },
+    "body": "Fixture current issue text."
+  },
+  "changes": {
+    "body": {
+      "from": "Fixture previous issue text."
+    }
+  }
+}

@@ -691,6 +691,13 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 
 New dated entries go here, newest first.
 
+### 2026-11-26: Use scrubbed projections of App deliveries for parser tests
+
+Keep only the GitHub field paths, types and routing distinctions the tests exercise.
+Replace every identity, identifier and free-text value with synthetic data; omit the delivery envelope, headers and response.
+Feed the fixtures to the same Rust parsers the router calls, but keep authentication, installation and dispatch checks in the existing suites.
+No production code, contract or dependencies change.
+
 ### 2026-11-25: Snapshot consumer text and generate parser and seat cases
 
 Use `insta` without optional features as a dev dependency in router and runner, so reviewers can inspect whole replies, check summaries and repository dashboard Markdown in the diff.

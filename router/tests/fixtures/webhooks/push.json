@@ -1,0 +1,14 @@
+{
+  "sender": {
+    "id": 101,
+    "login": "fixture-actor-1[bot]",
+    "type": "Bot"
+  },
+  "repository": {
+    "id": 201,
+    "full_name": "fixture-org/fixture-repo"
+  },
+  "installation": {
+    "id": 301
+  }
+}
