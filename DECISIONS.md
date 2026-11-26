@@ -691,6 +691,13 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 
 New dated entries go here, newest first.
 
+### 2026-11-26: Build the public book without private inputs
+
+Pin mdBook in Mise and generate release notes and the coverage report at build time from the public code repository.
+Use GitHub-rendered release notes and publish only the three numeric coverage rows, with the source run and commit, rather than publishing CI logs.
+Keep Pages opt-in and restricted to `trunk`; refresh daily or on dispatch so a new release does not have to wait for a source change.
+The local preview does not enable or exercise publication.
+
 ### 2026-11-26: Use scrubbed projections of App deliveries for parser tests
 
 Keep only the GitHub field paths, types and routing distinctions the tests exercise.

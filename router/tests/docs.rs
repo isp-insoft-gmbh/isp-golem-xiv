@@ -3,10 +3,11 @@
 
 use router::parse_golem;
 
-const DOCUMENTS: [(&str, &str); 3] = [
+const DOCUMENTS: [(&str, &str); 4] = [
     ("README.md", include_str!("../../README.md")),
     ("SPEC.md", include_str!("../../SPEC.md")),
     ("OPERATIONS.md", include_str!("../../OPERATIONS.md")),
+    ("book/src/write.md", include_str!("../../book/src/write.md")),
 ];
 
 /// Every `markdown` code block that opens with frontmatter, named after the closest
@@ -54,19 +55,20 @@ fn golem_examples(document: &str) -> Vec<(String, String)> {
 
 #[test]
 fn golem_examples_in_the_documentation_parse_without_errors() {
-    let mut checked = 0;
     for (file, document) in DOCUMENTS {
-        for (name, body) in golem_examples(document) {
+        let examples = golem_examples(document);
+        if matches!(file, "README.md" | "book/src/write.md") {
+            assert!(!examples.is_empty(), "{file} must show at least one golem");
+        }
+        for (name, body) in examples {
             let golem = parse_golem(&name, &body);
             assert!(
                 golem.errors.is_empty(),
                 "{file}: example `{name}` is invalid: {:?}",
                 golem.errors
             );
-            checked += 1;
         }
     }
-    assert!(checked >= 1, "the README shows at least one golem");
 }
 
 #[test]

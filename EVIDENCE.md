@@ -36,6 +36,15 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-26: Local mdBook preview
+
+Mise built the book on Windows with mdBook 0.5.4, the published v25 release notes, and Linux line coverage from [trunk CI run 45789314401, attempt 1](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45789314401/attempts/1): router 98.4%, runner 88.9%, xtask 46.6%.
+An offline URL-resolution audit used the `/isp-golem-xiv/` prefix and found no broken local references across 11 output HTML pages, including 51 HTML fragment targets.
+The external check returned HTTP 200 for 19 GitHub URLs and GitHub sign-in redirects for Seats and the organization dashboard; authenticated flows were not exercised.
+The reports chapter was inspected in headless Chrome.
+The focused router documentation test passed both cases in WSL and requires a parseable example from the book.
+The Pages workflow passed actionlint and an offline zizmor audit; it was not run.
+
 ### 2026-11-26: Captured App webhook parser fixtures
 
 Captured four original deliveries on 2026-11-26 UTC through GitHub's App webhook delivery list and detail GET endpoints, authenticated as the existing App.

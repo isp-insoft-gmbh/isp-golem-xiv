@@ -1,0 +1,8 @@
+[book]
+title = "isp-golem-xiv"
+description = "How to write and run golems on GitHub."
+language = "en"
+
+[output.html]
+site-url = "/isp-golem-xiv/"
+git-repository-url = "https://github.com/isp-insoft-gmbh/isp-golem-xiv"
