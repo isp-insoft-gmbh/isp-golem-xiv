@@ -58,10 +58,10 @@ function reportsPage() {
   }
 
   // Only publish three numeric measurements from the coverage step, never the log.
-  const log = gh("run", "view", String(run.id), "--repo", repository, "--attempt",
-    String(run.run_attempt), "--job", successfulCiJob(run), "--log");
+  const job = successfulCiJob(run);
+  const log = gh("api", "--allow-escape-sequences", `repos/${repository}/actions/jobs/${job}/logs`);
   const lines = [...log.matchAll(
-    /^ci\tRun mise run ci\t[0-9TZ:.+-]+ x: (router|runner|x) line coverage ((?:[0-9]{1,2}\.[0-9]|100\.0)%) \(baseline ((?:[0-9]{1,2}\.[0-9]|100\.0)%)\)\r?$/gm,
+    /^[0-9TZ:.+-]+ x: (router|runner|x) line coverage ((?:[0-9]{1,2}\.[0-9]|100\.0)%) \(baseline ((?:[0-9]{1,2}\.[0-9]|100\.0)%)\)\r?$/gm,
   )];
   const rows = ["router", "runner", "x"].map((crate) => {
     const matches = lines.filter((line) => line[1] === crate);
