@@ -74,8 +74,9 @@ impl Github {
         token: &str,
         body: Option<Value>,
     ) -> Result<Value> {
-        let response = self.call(method, path, token, body).await?;
+        let response = self.call(method.clone(), path, token, body).await?;
         if !response.status().is_success() {
+            eprintln!("golem GitHub: {method} HTTP {}", response.status().as_u16());
             return Err("GitHub rejected request");
         }
         let bytes = bounded_body(response, RESPONSE_BYTES_MAX).await?;

@@ -106,10 +106,6 @@ async fn run() -> Result<()> {
         seat.guard(&mut guard);
     }
     let github = github::Github::new()?;
-    let token = github
-        .token(&private_key, &request, false, &mut guard)
-        .await?;
-    github.validate_target(&request, &token).await?;
     if request.version == 2 {
         return RunContext {
             github: &github,
@@ -118,9 +114,10 @@ async fn run() -> Result<()> {
             run_id: &run_id,
             attempt: &attempt,
         }
-        .run_writable(token, seat, &mut guard)
+        .run_writable(seat, &mut guard)
         .await;
     }
+    let token = initial_target(&github, &request, &private_key, &mut guard).await?;
     let model = request.model.as_deref().unwrap_or("default");
     let started = github
         .check(&request, &token, "running", model, &run_id, &guard)
@@ -349,22 +346,47 @@ struct RunContext<'a> {
     attempt: &'a str,
 }
 
+async fn initial_target(
+    github: &github::Github,
+    request: &DispatchV1,
+    private_key: &str,
+    guard: &mut OutputGuard,
+) -> Result<String> {
+    let token = github
+        .token(private_key, request, false, guard)
+        .await
+        .inspect_err(|_| eprintln!("golem startup: target installation token failed"))?;
+    github
+        .validate_target(request, &token)
+        .await
+        .inspect_err(|_| eprintln!("golem startup: target validation failed"))?;
+    Ok(token)
+}
+
+async fn admit_target(
+    bind: impl Future<Output = Result<()>>,
+    target: impl Future<Output = Result<String>>,
+) -> Result<String> {
+    // Record exact run ownership before fallible target I/O. A target failure then
+    // leaves a bound run for terminal reconciliation, not an ambiguous dispatch.
+    bind.await?;
+    println!("golem lifecycle: admitted");
+    target.await
+}
+
 impl RunContext<'_> {
-    async fn run_writable(
-        &self,
-        token: String,
-        seat: Result<Seat>,
-        guard: &mut OutputGuard,
-    ) -> Result<()> {
-        github::queue(
-            self.request,
-            self.private_key,
-            self.run_id,
-            self.attempt,
-            "bind",
+    async fn run_writable(&self, seat: Result<Seat>, guard: &mut OutputGuard) -> Result<()> {
+        let token = admit_target(
+            github::queue(
+                self.request,
+                self.private_key,
+                self.run_id,
+                self.attempt,
+                "bind",
+            ),
+            initial_target(self.github, self.request, self.private_key, guard),
         )
         .await?;
-        println!("golem lifecycle: admitted");
         let name = format!("golem-{}-{}", self.run_id, self.attempt);
         let started = self
             .github

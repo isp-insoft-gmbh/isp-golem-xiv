@@ -322,9 +322,16 @@ await scenario('bind missing metadata is transient not identity conflict', async
   assert.equal(result.safeFailure, 'run_missing');
   assert.equal(f.row(req.delivery_id).state, 'dispatching');
 });
-for (const failure of [null, 'audit', '403', '500', 'identity', 'attempt', 'healthy-target']) {
-  await scenario(`failed completed unavailable target ${failure ?? 'audit succeeds'} retains unless privately audited`, async f => {
-    const req = request(); await f.enqueue(req); await f.bind(req, 7000);
+for (const failure of [null, 'target-rejection', 'unbound', 'recreated-target', 'foreign-check', 'audit', '403', '500', 'identity', 'attempt', 'healthy-target']) {
+  await scenario(`terminal failed run releases same seat only with bound identity and safe audit: ${failure ?? 'unavailable target audited'}`, async f => {
+    const req = request(); await f.enqueue(req);
+    const original = f.row(req.delivery_id);
+    await f.bind(req, 7000, failure === 'unbound' ? {generation: randomUUID()} : {}, failure === 'unbound' ? 409 : 200);
+    const successorRepo = 'isp-insoft-gmbh/isp-golem-xiv-test-same-seat';
+    f.repositories.set(successorRepo, {status: 200, body: {id: 101}});
+    const successor = request('member', 'same-seat', {repository: successorRepo, repository_id: 101, check_run_id: 13});
+    await f.enqueue(successor);
+    assert.equal(f.row(successor.delivery_id).state, 'pending');
     const peerRepo = 'isp-insoft-gmbh/isp-golem-xiv-test-peer';
     f.repositories.set(peerRepo, {status: 200, body: {id: 100}});
     const peer = request('other', 'peer', {repository: peerRepo, repository_id: 100, check_run_id: 11});
@@ -336,12 +343,24 @@ for (const failure of [null, 'audit', '403', '500', 'identity', 'attempt', 'heal
     Object.assign(f.runs.get(7000), {status: 'completed', conclusion: 'failure'});
     if (failure === 'identity') f.runs.get(7000).display_title = 'wrong';
     if (failure === 'attempt') f.runs.get(7000).run_attempt = 2;
-    f.checkMissing = req.check_run_id;
-    f.repositories.set(repository, {status: failure === '403' ? 403 : failure === '500' ? 500 : failure === 'healthy-target' ? 200 : 404, body: {id: 99}});
+    if (failure === 'foreign-check') f.checkState.get(req.check_run_id).app.id = 123;
+    else if (!['recreated-target', 'target-rejection'].includes(failure)) f.checkMissing = req.check_run_id;
+    const status = {'403': 403, '500': 500, 'healthy-target': 200, 'recreated-target': 200, 'foreign-check': 200, 'target-rejection': 200}[failure] ?? 404;
+    f.repositories.set(repository, {status, body: {id: failure === 'recreated-target' ? 123 : 99}});
     f.failAudit = failure === 'audit';
     await f.restart(); await f.call('tick');
     const row = f.row(req.delivery_id);
-    assert.equal(row.state, failure ? 'bound' : 'terminal');
+    const released = failure === null || failure === 'target-rejection';
+    assert.equal(row.state, failure === 'unbound' ? 'dispatching' : released ? 'terminal' : 'bound');
+    if (failure === 'unbound') assert.deepEqual(row, original, 'same-title terminal run must not associate or release an unbound row');
+    assert.equal(f.dispatches.filter(r => r.delivery_id === req.delivery_id).length, 1);
+    if (failure === 'target-rejection') {
+      assert.equal(f.checks.length, 1);
+      assert.equal(f.checks[0].conclusion, 'failure');
+      assert.match(f.checks[0].output.summary, /outcome: blocked\n.*\n.*\nmodel: unobserved/s);
+      assert.match(f.checks[0].output.summary, /log: .*\/7000\nreason: workflow ended \(failure\)/);
+    } else assert.equal(f.checks.length, 0, 'no target patch for missing or mismatched check/repository identity');
+    assert.equal(f.row(successor.delivery_id).state, released ? 'dispatching' : 'pending');
     assert.equal(f.dispatches.filter(r => r.delivery_id === peer.delivery_id).length, 1);
     assert.equal(f.row(peer.delivery_id).state, 'dispatching', 'peer must advance during reconciliation tick');
     if (!failure) {
@@ -1067,7 +1086,7 @@ await scenario('terminal retirement reclaims capacity without replaying old requ
 });
 
 await scenario('bounded fair reconciliation reaches fifth run behind four unknown owners', async f => {
-  const requests = Array.from({length: 5}, (_, i) => request(`seat${i}`, `golem${i}`));
+  const requests = Array.from({length: 5}, (_, i) => request(`seat${i}`, `golem${i}`, {check_run_id: 10 + i}));
   for (let i = 0; i < requests.length; i++) { await f.enqueue(requests[i]); await f.bind(requests[i], 1000 + i); }
   for (let i = 0; i < 4; i++) f.runs.delete(1000 + i);
   Object.assign(f.runs.get(1004), {status: 'completed', conclusion: 'cancelled'});

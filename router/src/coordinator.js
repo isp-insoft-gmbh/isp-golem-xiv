@@ -443,9 +443,14 @@ export class Coordinator {
       row.reason = audit.reason;
       return;
     }
+    // A bound run may have failed before native target validation. Verify the
+    // immutable target and check before accepting an audit or writing a repair.
+    if (check.id !== request.check_run_id || check.name !== `golem/${request.golem}` || check.app?.id !== 4605060 || check.head_sha !== request.head_sha) throw new Failure(503);
+    const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
+    if (!positive(request.repository_id) || repository?.id !== request.repository_id) throw new Failure(503);
     const lines = typeof check.output?.summary === 'string' ? check.output.summary.split('\n') : [];
     const outcome = lines.find(line => line.startsWith('outcome: '))?.slice(9);
-    const valid = check.id === request.check_run_id && check.name === `golem/${request.golem}` && check.app?.id === 4605060 && check.status === 'completed' && Object.hasOwn(outcomes, outcome) && check.conclusion === outcomes[outcome]
+    const valid = check.status === 'completed' && Object.hasOwn(outcomes, outcome) && check.conclusion === outcomes[outcome]
       && lines.includes(`seat: ${request.seat_login}/${request.provider}`) && lines.includes(`harness: ${request.harness}`)
       && lines.some(line => /^model: \S[^\r\n]*$/.test(line)) && lines.includes(`budget: ${request.timeout_seconds}s`)
       && lines.includes(`log: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id}`)
