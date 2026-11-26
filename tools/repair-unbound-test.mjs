@@ -20,7 +20,7 @@ historicalText = historicalText.replace(currentMiseLine, '          version: 202
 const currentRunnerLabel = '    runs-on: blacksmith-2vcpu-ubuntu-2404\n';
 assert.equal(historicalText.split(currentRunnerLabel).length - 1, 1, 'unexpected live runner label drift');
 historicalText = historicalText.replace(currentRunnerLabel, '    runs-on: ubuntu-24.04\n');
-historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 4c48bfb9f15a34a28e4cfcd254eb4ccabac769a176ca6f7372de86a1bd0e2987\n');
+historicalText = removeOnce(historicalText, '          RUNNER_SHA256: 049e1159a1c3b483ea360f0a685720e6835dca02bdec07b7b75baf8712027b07\n');
 historicalText = removeOnce(historicalText, [
   '      - name: Name the agent image cache\n',
   '        id: image\n',
