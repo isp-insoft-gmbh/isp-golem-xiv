@@ -36,6 +36,13 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-26: Handbook and v26 release
+
+[Pages deployment](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45805227150) published the guide, release notes and CI report; each returned HTTP 200.
+[Integrity record](evidence/native-v26-integrity-20261126.json) ties the binary to `c1cfc66`; [ops PR #44](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/pull/44) pins the verified digest.
+Oliver approved three read-only canaries: Codex/OpenAI, Claude Code/Anthropic and Pi/OpenAI, one each with no retries.
+Each must load the cached image, use the intended seat and harness without fallback, return the fixture contents exactly, complete its check successfully and leave repository contents unchanged.
+
 ### 2026-11-26: Local mdBook preview
 
 Mise built the book on Windows with mdBook 0.5.4, the published v25 release notes, and Linux line coverage from [trunk CI run 45789314401, attempt 1](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45789314401/attempts/1): router 98.4%, runner 88.9%, xtask 46.6%.
