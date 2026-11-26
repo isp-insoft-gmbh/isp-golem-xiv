@@ -1,0 +1,27 @@
+{
+  "action": "created",
+  "sender": {
+    "id": 101,
+    "login": "fixture-actor-1[bot]",
+    "type": "Bot"
+  },
+  "repository": {
+    "id": 201,
+    "full_name": "fixture-org/fixture-repo"
+  },
+  "installation": {
+    "id": 301
+  },
+  "issue": {
+    "number": 401
+  },
+  "comment": {
+    "id": 501,
+    "body": "Fixture comment.",
+    "user": {
+      "id": 101,
+      "login": "fixture-actor-1[bot]",
+      "type": "Bot"
+    }
+  }
+}

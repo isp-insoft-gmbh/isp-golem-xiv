@@ -36,6 +36,27 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-26: Captured App webhook parser fixtures
+
+Captured four original deliveries on 2026-11-26 UTC through GitHub's App webhook delivery list and detail GET endpoints, authenticated as the existing App.
+No acceptance repository was found in the bounded metadata search; the four detail reads were verified as belonging to public organization repositories.
+The capture verified event and action against the listing and compared the parser-relevant projections before and after scrubbing in memory:
+
+| Delivery | Preserved and tested |
+| --- | --- |
+| `push` | No action field or thread object; the decoded event matches the bare trigger only. |
+| `pull_request.opened` | PR number at `pull_request.number`, no `issue` object and exact action matching. |
+| `issue_comment.created` | Bot sender and matching comment author, issue number and comment ID, non-command body decoded as event context. |
+| `issues.edited` | Bot dashboard edit with string bodies at `issue.body` and `changes.body.from`; the parser extracts current and prior values separately. |
+
+Only allowlisted payload fields were written to [fixtures/webhooks](router/tests/fixtures/webhooks); review confirmed that IDs, logins, repository names and free text are synthetic.
+Raw responses stayed in memory and were not sent to the model.
+No headers, URLs, source IDs or raw bodies were retained.
+Dashboard text distinguishes the two fields with synthetic placeholders; this does not claim a real checkbox transition.
+These samples do not cover a human mention or `pull_request_review`; the existing synthetic tests still cover positive mention and dashboard routing.
+On pinned Rust 1.99.1, local workspace tests passed (190 passed, two existing ignores), including all four capture-backed cases; router Clippy passed with warnings denied.
+No replay, external write, seat run or deployment verification was performed.
+
 ### 2026-11-25: Semantic snapshots and bounded properties
 
 Reviewed 12 `insta` baselines in `router/tests/snapshots/` and `runner/src/snapshots/` against the reply markers, remedies, check attribution and repository dashboard sections in `contract.nuon` and `SPEC.md`.

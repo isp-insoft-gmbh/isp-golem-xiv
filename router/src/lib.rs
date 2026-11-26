@@ -1375,6 +1375,29 @@ struct EditedText {
     from: Option<String>,
 }
 
+#[cfg(test)]
+#[test]
+fn captured_dashboard_edit_decodes_current_and_previous_issue_bodies() -> serde_json::Result<()> {
+    let body = include_bytes!("../tests/fixtures/webhooks/issues-edited.json");
+    let delivery: EventDelivery = serde_json::from_slice(body)?;
+    let edit: DashboardEdit = serde_json::from_slice(body)?;
+
+    assert_eq!(delivery.action, "edited");
+    assert_eq!(
+        delivery.issue.map(|issue| issue.number),
+        Some(edit.issue.number)
+    );
+    assert_eq!(
+        edit.issue.body.as_deref(),
+        Some("Fixture current issue text.")
+    );
+    assert_eq!(
+        edit.changes.body.from.as_deref(),
+        Some("Fixture previous issue text.")
+    );
+    Ok(())
+}
+
 /// Golems a person newly ticked in the App's dashboard issue, at most
 /// [`DASHBOARD_TICKS_MAX`]; empty for any other event, sender, issue or edit.
 #[must_use]

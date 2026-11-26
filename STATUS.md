@@ -18,7 +18,7 @@ Oliver decided that 1.0 is the next `v<n>` release after these land, each as its
    Until rollout, every Renovate bump of Toktrak's Mise past 2026.11.14 can still block its golems.
 2. Done in v25: detect child memory kills from the kernel counter, with Docker inspection as fallback.
 3. `insta` snapshots for replies, check summaries and the repository dashboard, plus `proptest` for parsers and seat names: implemented locally on `test/semantic-snapshots-properties`, not merged.
-4. Payload parsers tested with real webhook deliveries captured from the App, scrubbed.
+4. Payload parsers tested locally against four scrubbed App deliveries on `test/captured-webhook-deliveries`, not merged ([EVIDENCE.md](EVIDENCE.md#2026-11-26-captured-app-webhook-parser-fixtures)).
 5. The mdBook site on GitHub Pages: user documentation, release notes, CI reports.
 
 Then: release, integrity record, ops pin, `ops/` template, and a canary per harness.
