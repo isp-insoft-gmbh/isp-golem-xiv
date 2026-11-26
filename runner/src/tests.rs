@@ -12,6 +12,70 @@ use std::{
 
 type ObservedRequest = (String, Value);
 
+#[tokio::test]
+async fn target_http_rejection_must_follow_persisted_bind() {
+    // Generated for this test only; the JWT never leaves the loopback fixture.
+    let key = include_str!("../tests/fixtures/synthetic-app-key.pem");
+    let mut request = request();
+    request.version = 2;
+    for reject_token in [true, false] {
+        let rejection = (403, json!({"message":"private fixture body"}));
+        let responses = if reject_token {
+            vec![rejection]
+        } else {
+            vec![(201, json!({"token":"mock-installation-token"})), rejection]
+        };
+        let (github, observed) = server(responses);
+        let bound = std::cell::Cell::new(false);
+        let result = admit_target(
+            async {
+                bound.set(true);
+                Ok(())
+            },
+            initial_target(&github, &request, key, &mut OutputGuard::default()),
+        )
+        .await;
+        assert_eq!(result, Err("GitHub rejected request"));
+        assert!(
+            bound.get(),
+            "target rejection left the dispatch without a bound run"
+        );
+        let calls = observed.join().unwrap().unwrap();
+        assert_eq!(calls.len(), if reject_token { 1 } else { 2 });
+        assert!(calls[0].0.starts_with("POST /app/installations/"));
+        assert_eq!(calls[0].1["repository_ids"], json!([request.repository_id]));
+        assert_eq!(calls[0].1["permissions"]["contents"], "read");
+        if !reject_token {
+            assert!(
+                calls[1]
+                    .0
+                    .starts_with(&format!("GET /repos/{} ", request.repository))
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn denied_or_unconfirmed_bind_never_polls_target_preflight() {
+    for error in [
+        "queue conflict",
+        "queue transport failed; execution denied",
+        "queue ownership not confirmed",
+    ] {
+        let target_polled = std::cell::Cell::new(false);
+        let result = admit_target(async { Err(error) }, async {
+            target_polled.set(true);
+            Ok("mock-target-token".to_owned())
+        })
+        .await;
+        assert_eq!(result, Err(error));
+        assert!(
+            !target_polled.get(),
+            "failed bind must not touch the target"
+        );
+    }
+}
+
 // Layer: actual provider + Linux sandbox; loopback-only mock publication, not GitHub proof.
 #[tokio::test]
 // Keep real-provider cases and their cleanup in one explicit opt-in boundary.

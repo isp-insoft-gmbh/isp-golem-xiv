@@ -36,6 +36,46 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-26: Unbound Anthropic dispatch
+
+Read-only inspection of ops run `45518485114` found attempt-one workflow commit `0caa920e7ed5dfde6c9ef33e367379b8669d31e4` pinned to v24 (`63da39076c5852df50a0f208a4e297f246e4490e`), successful preparation, a failed native step, successful cleanup and no native admission or later lifecycle marker.
+The two logged delivery/generation identities match the immutable request tag ref and authoritative journal row; the row is `dispatching` with no run or attempt.
+The same-seat pending row points to the v26 canary check `139910273401` and has neither a dispatch intent nor a run.
+The fatal `GitHub rejected request` does not identify the endpoint or status; both target token mint and target validation preceded bind at v24 and v26.
+A loopback target metadata HTTP 403 reproduced the ordering defect before the fix.
+The regression now uses the native token and target preflight against loopback HTTP 403s from either installation-token mint or target lookup (`runner/src/tests.rs`).
+The coordinator suite exercises failed bound cleanup with the original target or a confirmed unavailable target, same-seat advancement, and retention on wrong generation, target/check mismatch, missing proof or uncertain GitHub responses (`router/tests/coordinator.mjs`).
+The patch adds no path that can release historical unbound requests on deploy; the coordinator change only restricts existing bound reconciliation.
+If a separately authorized repair released the historical seat, normal advancement would recheck the deleted canary target, privately block on confirmed 404 without dispatch, and could advance other eligible work.
+Failures before the signed bind can run or be durably confirmed still fail closed.
+No policy, repair profile or live queue state was changed.
+The existing repair tool cannot authorize this case: v24 is not a reviewed profile, the target is outside the repair sandbox, and the available CLI logs have masked request JSON and `UNKNOWN STEP` framing.
+Even for supported historical profiles, deploying changed coordinator source fails the tool's pinned deployment digest check; the local suite verifies rejection before any write (`tools/repair-unbound-test.mjs`).
+Pinned Linux `mise run coverage` exited zero with fresh instrumented binaries and profiles in isolated WSL scratch: router 98.4%, runner 89.6%, xtask 46.6%.
+Pinned Linux `mise run ci` also exited zero on Rust 1.99.1 / Clippy 0.1.99, including the Worker and coordinator suites; this does not replace GitHub's `ci` check on the exact PR head.
+
+### 2026-11-26: v26 live harness canaries
+
+Oliver amended the approval to allow the deployed v2 runner's writable workspace on a private disposable repository for a read-only fixture task with no published code changes.
+Three manual requests were sent, exactly one per pairing, without event or schedule triggers and without retries.
+The expected reply was stored only in the fixture, not in task instructions; the probe matched the entire App reply after accounting for its marker.
+
+| Harness / seat provider | Observed run | Exact reply | Image cache load | Exact seat and harness, no fallback | Successful replied check | Repository unchanged | Result |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Codex / OpenAI Codex | [45820273770](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/45820273770) | Pass | Pass | Pass | Pass | Pass | Pass |
+| Pi / OpenAI Codex | [45820579216](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/45820579216) | Pass | Pass | Pass | Pass | Pass | Pass |
+| Claude Code / Anthropic | No matching run observed | Inconclusive | Inconclusive | Inconclusive | Inconclusive | Baseline still intact at inspection; post-run inconclusive | Inconclusive |
+
+Both observed runs completed successfully on attempt 1 at ops pin `43d5c51`; the full post-run probe found one cache-load marker per run and the intended `bugabinga` seat/provider and harness in each run-linked check.
+At the final probe the disposable repository still had only the original trunk ref at its original SHA, no tags and no pull requests.
+This proves no published changes in those refs, not a read-only mount or absence of transient local writes.
+Claude's [check 139910273401](https://github.com/isp-insoft-gmbh/isp-golem-xiv-test-v26-466d935ea5f8/runs/139910273401) was queued with no conclusion or App reply at the final probe; the link may no longer resolve after cleanup.
+No execution or terminal outcome is established for Claude.
+
+Public trunk `e14b46f76122c9cc916787467c30cf11aa517c99` passed [CI](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45811994875) and [deploy](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45811994711); [/health](https://isp-golem-xiv.isp-insoft-gmbh.workers.dev/health) returned the same SHA.
+Ops [CI](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/45809883444) and [image build](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/45809883622) passed at the v26 pin.
+Only the task-created repo (ID `1473132976`) was deleted: HTTP 204, then 404 by both name and numeric ID with authenticated org membership and private-repo controls still returning 200.
+
 ### 2026-11-26: Handbook and v26 release
 
 [Pages deployment](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45805227150) published the guide, release notes and CI report; each returned HTTP 200.

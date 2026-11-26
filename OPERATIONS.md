@@ -109,6 +109,8 @@ Read-only runs print the snapshot, Mise selection and agent phases and end with 
 
 - `golem image:` in the preparation step: loaded from cache, or no usable cache, building, then built, cached; a build also runs the image's own self-tests.
 - `golem lifecycle:` admitted, containers_destroyed, publication_credentials_minted, publication_complete, reservation_released, in that order; a missing step shows where the run stopped.
+  `admitted` means the run owns the queue reservation, not that target validation passed or an agent started.
+- `golem startup:` target installation token or validation failure; `golem GitHub:` reports the HTTP method and rejection status without the URL or body.
 - `golem mise: using verified <version>` appears only when using a checked per-run upgrade.
 - `golem phase:` precedes each step reached: snapshot, Mise selection, target preparation, agent, agent result, agent workspace scan, verification, verified workspace scan (only after a passing verification), publication (only when there are changes); an error after a phase line belongs to that phase.
 - `golem dashboard:` whether the repository dashboard was updated, before publication_complete.

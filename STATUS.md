@@ -20,10 +20,13 @@ Oliver decided that 1.0 is the next `v<n>` release after these land, each as its
 4. Parser tests for four scrubbed App deliveries: merged in #97 ([EVIDENCE.md](EVIDENCE.md#2026-11-26-captured-app-webhook-parser-fixtures)).
 5. The [public handbook](https://isp-insoft-gmbh.github.io/isp-golem-xiv/) serves the guide, release notes, and CI report.
 
-v26 is the 1.0 milestone release; live harness verification is pending.
+v26 is the 1.0 milestone release; Codex/OpenAI and Pi/OpenAI passed live fixture canaries in approved writable disposable workspaces.
+Claude Code/Anthropic remains inconclusive: its check was queued with no matching run or reply observed before verified test-repository cleanup ([EVIDENCE.md](EVIDENCE.md#2026-11-26-v26-live-harness-canaries)).
 
 ## Open gaps
 
+- Local fix on `fix/recover-unbound-seat` binds future v2 runs before target preflight; not released or deployed.
+  The older unbound Anthropic dispatch and the queued v26 Claude request are unchanged; historical repair needs a separate decision ([EVIDENCE.md](EVIDENCE.md#2026-11-26-unbound-anthropic-dispatch)).
 - No warning before a seat's sign-in expires: expiry and refresh state are not recorded anywhere the router can read.
 - `golem-delivery` tags in ops grow without bound; retention is a later product decision.
 - The golem frontmatter field `runner` is accepted but not honoured: every golem runs on the ops label `blacksmith-2vcpu-ubuntu-2404`.

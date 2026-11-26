@@ -62,7 +62,19 @@ const workflow = Buffer.from(workflowV3.toString('utf8').replace(
   'RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v2\n',
 ));
 assert.equal(digest(workflow), WORKFLOW_SHA256);
-const coordinator = await readFile(new URL('../router/src/coordinator.js', import.meta.url));
+// Reconstruct reviewed coordinator bytes for the positive fixture, even in a shallow checkout.
+const currentCoordinator = await readFile(new URL('../router/src/coordinator.js', import.meta.url));
+const checkIdentity = "check.id === request.check_run_id && check.name === `golem/${request.golem}` && check.app?.id === 4605060";
+const currentCheck = '    const valid = check.status';
+const reviewedSource = removeOnce(currentCoordinator.toString('utf8'), [
+  '    // A bound run may have failed before native target validation. Verify the\n',
+  '    // immutable target and check before accepting an audit or writing a repair.\n',
+  '    if (check.id !== request.check_run_id || check.name !== `golem/${request.golem}` || check.app?.id !== 4605060 || check.head_sha !== request.head_sha) throw new Failure(503);\n',
+  "    const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);\n",
+  '    if (!positive(request.repository_id) || repository?.id !== request.repository_id) throw new Failure(503);\n',
+].join(''));
+assert.equal(reviewedSource.split(currentCheck).length - 1, 1, 'unexpected coordinator check drift');
+const coordinator = Buffer.from(reviewedSource.replace(currentCheck, `    const valid = ${checkIdentity} && check.status`));
 assert.equal(digest(coordinator), COORDINATOR_SHA256);
 function provenance() {
   return {
@@ -298,7 +310,7 @@ for (const mutate of [
   s => { delete s.health.version; },
   s => { s.health.version = 'v2'; },
   s => { s.health.version = 'g'.repeat(40); },
-  s => { s.deployedSource = Buffer.from('old deployed coordinator'); },
+  s => { s.deployedSource = currentCoordinator; },
   s => { s.deployedSource = Buffer.concat([coordinator, Buffer.from('\\n')]); },
 ]) {
   const m = mock(); mutate(m.s);

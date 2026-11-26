@@ -691,6 +691,15 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 
 New dated entries go here, newest first.
 
+### 2026-11-26: Bind future runs before target preflight
+
+The v2 runner records the signed, generation-scoped run binding before minting its target token or validating the target.
+The grant establishes queue ownership only; all native target, membership, check and definition validation still precedes execution and publication.
+A target preflight error leaves a bound run for existing terminal reconciliation, not an ambiguous dispatch.
+The coordinator verifies the exact repository and check identities before accepting or repairing a check on this path.
+Deploy that guard before pinning a runner that binds before target validation.
+No unbound association, replay, expiry, migration, or repair-tool approval is added.
+
 ### 2026-11-26: Build the public book without private inputs
 
 Pin mdBook in Mise and generate release notes and the coverage report at build time from the public code repository.
