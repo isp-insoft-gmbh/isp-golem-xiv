@@ -36,6 +36,12 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-26: v27 seat fix rollout
+
+[Release verification](evidence/native-v27-integrity-20261126.json) matched the v27 binary to all three checksum records for `fbe4b4f`.
+The [coordinator deployment](https://github.com/isp-insoft-gmbh/isp-golem-xiv/actions/runs/45828787562) and `/health` confirmed that revision before [ops PR #45](https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/pull/45) pinned the runner.
+The rollout does not repair historical queue records or retry Claude.
+
 ### 2026-11-26: Unbound Anthropic dispatch
 
 Read-only inspection of ops run `45518485114` found attempt-one workflow commit `0caa920e7ed5dfde6c9ef33e367379b8669d31e4` pinned to v24 (`63da39076c5852df50a0f208a4e297f246e4490e`), successful preparation, a failed native step, successful cleanup and no native admission or later lifecycle marker.

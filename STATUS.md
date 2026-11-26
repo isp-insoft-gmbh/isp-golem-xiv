@@ -5,7 +5,7 @@ Current state for whoever continues; decisions are in [DECISIONS.md](DECISIONS.m
 ## Where things stand (2026-11-26)
 
 - **All four slices accepted**; the last full run passed 47 of 47 gates on 2026-11-23 ([EVIDENCE.md](EVIDENCE.md#acceptance)).
-- **Live:** router deployed from `trunk` (check `/health`); runner v26 (SHA-256 `4c48bfb9f15a34a28e4cfcd254eb4ccabac769a176ca6f7372de86a1bd0e2987`, Mise 2026.11.14) pinned in ops `trunk` `43d5c51`; all CI and golem jobs run on Blacksmith runners.
+- **Live:** router deployed from `trunk` (check `/health`); runner v27 (SHA-256 `049e1159a1c3b483ea360f0a685720e6835dca02bdec07b7b75baf8712027b07`, Mise 2026.11.14) pinned in ops `trunk` `e9d668b`; all CI and golem jobs run on Blacksmith runners.
 - **Toktrak** runs Markdown-only golems on its OpenAI Codex and Anthropic seats; its bug, performance and security golems opened pull requests #164, #165 and #175, all merged.
   On v24 a Claude Code canary on the Anthropic seat passed its full lifecycle; the documentation and refactor golems have not yet run on a current runner.
 - **Docs:** README, developer onboarding in [CONTRIBUTING.md](CONTRIBUTING.md), the introductory Confluence page [isp-golem-xiv: Golems für unsere GitHub-Repositories](https://isp-insoft.atlassian.net/wiki/spaces/RD/pages/2279178242) and its child [isp-golem-xiv: Einstieg für Entwickler](https://isp-insoft.atlassian.net/wiki/spaces/RD/pages/2277376047) are current; the current line coverage ratchet holds router 98.4%, runner 88.9%, xtask 46.6%.
@@ -25,7 +25,7 @@ Claude Code/Anthropic remains inconclusive: its check was queued with no matchin
 
 ## Open gaps
 
-- Local fix on `fix/recover-unbound-seat` binds future v2 runs before target preflight; not released or deployed.
+- Runner v27 records each new v2 job before checking target access; the historical blockage requires separate repair.
   The older unbound Anthropic dispatch and the queued v26 Claude request are unchanged; historical repair needs a separate decision ([EVIDENCE.md](EVIDENCE.md#2026-11-26-unbound-anthropic-dispatch)).
 - No warning before a seat's sign-in expires: expiry and refresh state are not recorded anywhere the router can read.
 - `golem-delivery` tags in ops grow without bound; retention is a later product decision.
