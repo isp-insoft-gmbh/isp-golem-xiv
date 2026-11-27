@@ -170,7 +170,8 @@ fn utc_dates_are_strict_and_page_escapes_untrusted_text() {
     let page = page("<script>\"&'", "fixture-csrf");
     assert!(!page.contains("<script>\""));
     assert!(page.contains("&lt;script&gt;&quot;&amp;&#39;"));
-    for heading in ["Runs", "Usage", "Health", "Seats", "Repositories"] {
-        assert!(page.contains(&format!(">{heading}</h2>")));
+    for heading in ["Operations", "Usage", "Health", "Seats", "Repositories"] {
+        assert!(page.contains(&format!(">{heading}</h1>")));
     }
+    assert!(page.contains(">Run history</h2>"));
 }

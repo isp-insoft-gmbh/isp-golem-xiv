@@ -106,7 +106,10 @@ pub(super) async fn route(
         matches!(path, "/admin" | "/admin.js" | "/admin.css") || path.starts_with("/v1/admin/");
     if admin_path
         && method != Method::Get
-        && !(path == "/v1/admin/onboarding" && method == Method::Post)
+        && !(matches!(
+            path,
+            "/v1/admin/onboarding" | "/v1/admin/queue/preview" | "/v1/admin/queue/confirm"
+        ) && method == Method::Post)
     {
         return Some(
             Response::error("Method not allowed", 405)
@@ -127,6 +130,19 @@ pub(super) async fn route(
             .and_then(|script| secured(script, "text/javascript; charset=utf-8")),
         (Method::Get, "/admin.css") => Response::ok(include_str!("../admin.css"))
             .and_then(|style| secured(style, "text/css; charset=utf-8")),
+        (Method::Get, "/v1/admin/queue/sign-in") => sign_in(true),
+        (Method::Get, "/v1/admin/queue") => {
+            bounded(super::admin::queue(request, env, "queue_view"), 25_000).await
+        }
+        (Method::Post, "/v1/admin/queue/preview") => {
+            bounded(super::admin::queue(request, env, "queue_preview"), 25_000).await
+        }
+        (Method::Post, "/v1/admin/queue/confirm") => {
+            bounded(super::admin::queue(request, env, "queue_confirm"), 25_000).await
+        }
+        (Method::Get, "/v1/admin/onboarding/preview") => {
+            bounded(super::admin::onboarding_preview(request, env), 25_000).await
+        }
         (Method::Get, "/v1/admin/runs") => {
             bounded(super::admin::data(request, env, "runs"), 25_000).await
         }
@@ -192,6 +208,16 @@ pub(super) fn signed_login(request: &Request, env: &Env) -> Result<Option<String
     Ok(session(request, env)?.map(|s| s.login))
 }
 
+pub(super) fn queue_identity(request: &Request, env: &Env) -> Result<Option<(String, u64)>> {
+    let Some(session) = session(request, env)? else {
+        return Ok(None);
+    };
+    let cookies = request.headers().get("Cookie")?.unwrap_or_default();
+    let id = policy::cookie(&cookies, policy::IDENTITY_COOKIE)
+        .and_then(|value| policy::session_identity(&session.key, &session.value, value));
+    Ok(id.map(|id| (session.login, id)))
+}
+
 fn query(request: &Request) -> Result<Option<(String, String)>> {
     let url = request.url()?;
     if url.query().is_some_and(|query| query.len() > 2048) {
@@ -234,6 +260,10 @@ async fn exchange(form: String) -> Result<Option<String>> {
 
 /// The user token proves identity once and is dropped; only the signed login is kept.
 pub(super) async fn user_login(token: String) -> Result<Option<String>> {
+    Ok(user_identity(token).await?.map(|(login, _)| login))
+}
+
+async fn user_identity(token: String) -> Result<Option<(String, Option<u64>)>> {
     let user = Github::new(token);
     let (status, profile) = user.call(Method::Get, "/user", None).await?;
     if status != 200 {
@@ -243,7 +273,15 @@ pub(super) async fn user_login(token: String) -> Result<Option<String>> {
         .get("login")
         .and_then(Value::as_str)
         .filter(|login| valid_login(login))
-        .map(str::to_owned))
+        .map(|login| {
+            (
+                login.to_owned(),
+                profile
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .filter(|id| *id > 0),
+            )
+        }))
 }
 
 async fn callback(request: &Request, env: &Env) -> Result<Response> {
@@ -276,7 +314,7 @@ async fn callback(request: &Request, env: &Env) -> Result<Response> {
             403,
         );
     };
-    let Some(login) = user_login(token).await? else {
+    let Some((login, id)) = user_identity(token).await? else {
         return Response::error(
             "GitHub did not confirm the sign-in; open /seats again.",
             403,
@@ -294,6 +332,9 @@ async fn callback(request: &Request, env: &Env) -> Result<Response> {
     let headers = Headers::new();
     headers.set("Location", if admin { "/admin" } else { "/seats" })?;
     headers.append("Set-Cookie", &policy::session_cookie(&value))?;
+    if let Some(identity) = id.and_then(|id| policy::identity_cookie(&key, &value, id)) {
+        headers.append("Set-Cookie", &identity)?;
+    }
     headers.append("Set-Cookie", policy::STATE_COOKIE_CLEAR)?;
     headers.set("Cache-Control", "no-store")?;
     Ok(Response::empty()?.with_status(302).with_headers(headers))

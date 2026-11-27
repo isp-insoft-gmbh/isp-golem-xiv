@@ -25,6 +25,9 @@ Claude Code/Anthropic remains inconclusive: its check was queued with no matchin
 
 ## Open gaps
 
+- The admin UI separates Operations and Repositories, with an owner-only Queue, exact pending cancellation, and Verify and release for already bound runs with terminal proof and a verified check or audit.
+  Queue is grouped by paying seat with exact cross-seat blocker references; Repositories separates configuration from definition health.
+  The historical unbound reservation is unchanged and is not eligible for this action.
 - Runner v27 records each new v2 job before checking target access; the historical blockage requires separate repair.
   The older unbound Anthropic dispatch and the queued v26 Claude request are unchanged; historical repair needs a separate decision ([EVIDENCE.md](EVIDENCE.md#2026-11-26-unbound-anthropic-dispatch)).
 - No warning before a seat's sign-in expires: expiry and refresh state are not recorded anywhere the router can read.

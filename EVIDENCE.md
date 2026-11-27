@@ -36,6 +36,26 @@ Two `ci` runs of commit `2ff1fa3` on different Blacksmith machines (run 45377744
 
 New dated proofs go here, newest first.
 
+### 2026-11-27: Grouped Queue and Repositories refinement
+
+The rebuilt Worker passed `mise run test-worker`, including 119 SQLite coordinator scenarios; backend code and authorization are unchanged from the guarded Queue implementation.
+The Chromium fixture checked reservations first, pending journal order despite different timestamps, exact cross-seat blocker navigation, filter and focus restoration, repository configuration and health groups, and starter action visibility.
+Inspected 360 and 390 px narrow views and 1120 px desktop in light and dark, including keyboard scrolling and opening **Why?** with Space.
+The exported local HTML demo reused production assets and synthetic fixture data; Chromium observed only the file navigation through simulated refusal, stale and confirmed release, and starter review and result.
+No deployed or live behavior was checked.
+
+### 2026-11-27: Operations, Repositories and guarded Queue controls
+
+`mise run test-worker` rebuilt the Wasm artifact and passed the Workerd suites via WSL after the final coordinator owner and evidence rechecks.
+The Worker tests hold repository mutations closed during authorized starter preview, verify the proposed base, body and files match creation, and deny nonowners, missing or mismatched identity, revoked roles and invalid origin or CSRF before forwarding queued operations.
+The SQLite coordinator tests confirm exact pending cancellation with concurrent duplicate confirm refusal, no dispatch from reads or actions, a valid next candidate removed when `head_sha` is missing, and positive release with an immutable audit and one terminal journal transition.
+Revocation at the coordinator recheck denied confirmation without a write; a rerun starting during audit publication returned 409 and kept the row bound despite the existing audit tag.
+`router/tests/admin-browser.mjs` exercised the production page assets under CSP against a loopback API fixture in Chromium, including narrow keyboard focus from Skip to Manage seats to Operations, activated skip to main, filter preservation, stale and eligible release, unbound refusal, cancellation, starter preview and existing PR result, and no queue rows for a member.
+Inspected Chromium at 390 px dark and 1120 px light; the preview and identifiers wrapped without horizontal overflow at 390 px.
+This supersedes the standalone synthetic Queue prototype; browser fixtures validate UI behavior and Workerd fixtures validate server boundaries, not deployed behavior.
+The pinned native workspace suite passed 193 tests with two existing ignores; the historical repair regression suite, Wasm Clippy, and stylesheet parsing also passed.
+No historical repair digest or contract change, live queue access, deployment, remote mutation or seat spend.
+
 ### 2026-11-26: v27 seat fix rollout
 
 [Release verification](evidence/native-v27-integrity-20261126.json) matched the v27 binary to all three checksum records for `fbe4b4f`.

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {gunzipSync} from 'node:zlib';
 import {repair, verify, options, OPS, CODE, WORKFLOW_SHA256, COORDINATOR_SHA256, digest, FAILURE_MESSAGE, client, GitHubHttpError} from './repair-unbound.mjs';
 
 const delivery = 'f37f6672-d908-4ffa-6488-c011eb2f94c7';
@@ -62,19 +63,10 @@ const workflow = Buffer.from(workflowV3.toString('utf8').replace(
   'RUNNER_RELEASE_URL: https://github.com/isp-insoft-gmbh/isp-golem-xiv/releases/download/v2\n',
 ));
 assert.equal(digest(workflow), WORKFLOW_SHA256);
-// Reconstruct reviewed coordinator bytes for the positive fixture, even in a shallow checkout.
+// Exact reviewed coordinator from a3b73b2, not whichever revision is under test.
+// Keep this proof available even in a shallow checkout. No historical approval is added.
+const coordinator = gunzipSync(await readFile(new URL('./fixtures/repair-reviewed-coordinator.js.gz', import.meta.url)));
 const currentCoordinator = await readFile(new URL('../router/src/coordinator.js', import.meta.url));
-const checkIdentity = "check.id === request.check_run_id && check.name === `golem/${request.golem}` && check.app?.id === 4605060";
-const currentCheck = '    const valid = check.status';
-const reviewedSource = removeOnce(currentCoordinator.toString('utf8'), [
-  '    // A bound run may have failed before native target validation. Verify the\n',
-  '    // immutable target and check before accepting an audit or writing a repair.\n',
-  '    if (check.id !== request.check_run_id || check.name !== `golem/${request.golem}` || check.app?.id !== 4605060 || check.head_sha !== request.head_sha) throw new Failure(503);\n',
-  "    const repository = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);\n",
-  '    if (!positive(request.repository_id) || repository?.id !== request.repository_id) throw new Failure(503);\n',
-].join(''));
-assert.equal(reviewedSource.split(currentCheck).length - 1, 1, 'unexpected coordinator check drift');
-const coordinator = Buffer.from(reviewedSource.replace(currentCheck, `    const valid = ${checkIdentity} && check.status`));
 assert.equal(digest(coordinator), COORDINATOR_SHA256);
 function provenance() {
   return {

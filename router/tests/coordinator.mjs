@@ -76,10 +76,17 @@ class Fixture {
     const p = url.pathname;
     const bodyText = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await req.text() : '';
     const body = bodyText ? JSON.parse(bodyText) : null;
+    if (req.method !== 'GET' && p !== '/app/installations/153964219/access_tokens') {
+      (this.mutations ??= []).push({method: req.method, path: p});
+      if (this.readOnly) return json(500);
+    }
     if (this.redirect && p === '/app/installations/153964219/access_tokens') return new Answer(null, {status: 302, headers: {Location: 'https://must-not-receive-token.invalid/'}});
     if (p === '/app/installations/153964219/access_tokens') {
       assert.deepEqual(body, {}, 'installation token must not narrow repositories or permissions');
       return json(201, {token: 'synthetic-installation-token'});
+    }
+    if (p === '/orgs/isp-insoft-gmbh/memberships/fixture-owner') {
+      return json(200, {state:'active', role:this.ownerRevoked ? 'member' : 'admin', user:{id:42, login:'fixture-owner'}});
     }
     if (req.method === 'GET' && /^\/repos\/[^/]+\/[^/]+$/.test(p)) {
       const name = p.slice('/repos/'.length);
@@ -152,6 +159,7 @@ class Fixture {
       if (this.failAudit && body.ref.startsWith('refs/tags/golem-audit/')) return json(typeof this.failAudit === 'number' ? this.failAudit : 503);
       if (this.refs.has(body.ref)) return json(422);
       this.refs.set(body.ref, body.sha);
+      if (this.rerunWhenAudited && body.ref.startsWith('refs/tags/golem-run/')) this.runs.get(this.rerunWhenAudited).run_attempt = 2;
       if (this.loseAdminRef && body.ref.startsWith('refs/tags/golem-admin/')) { this.loseAdminRef = false; return json(503); }
       if (this.loseAuditRef && body.ref.startsWith('refs/tags/golem-audit/')) { this.loseAuditRef = false; return json(503); }
       if (this.failReceipt && body.ref.startsWith('refs/tags/golem-terminal/')) { this.failReceipt = false; return json(500); }
@@ -171,7 +179,7 @@ class Fixture {
       this.tags.set(sha, {...body, object: {type: body.type, sha: body.object}, sha});
       return json(201, {sha});
     }
-    if (p.startsWith(`${ops}/git/tags/`)) return json(200, this.tags.get(p.split('/').at(-1)));
+    if (p.startsWith(`${ops}/git/tags/`)) return json(200, {tagger: {date: startedAt}, ...this.tags.get(p.split('/').at(-1))});
     if (p === `${ops}/actions/workflows/runner.yml/runs`) {
       const runs = [...this.runs.values()].filter(r => r.status === url.searchParams.get('status'));
       return json(200, this.malformedList ? {workflow_runs: []} : {total_count: runs.length, workflow_runs: runs});
@@ -258,6 +266,133 @@ class Fixture {
 }
 const scenarios = [];
 async function scenario(name, fn) { scenarios.push({name, fn}); }
+
+const operator = {id: 42, login: 'fixture-owner'};
+const intent = (req, operation) => ({request_id: req.delivery_id, operation});
+const preview = (f, req, operation, status = 200) => f.call('queue_preview', {actor: operator, input: intent(req, operation)}, status);
+const confirm = (f, req, operation, proof, status = 200, actor = operator) => f.call('queue_confirm', {actor, input: {...intent(req, operation), expires: proof.expires, token: proof.token}}, status);
+function completedCheck(check) {
+  Object.assign(check, {status: 'completed', conclusion: 'success', output: {summary: 'outcome: replied\nseat: member/anthropic\nharness: claude\nmodel: observed-model\nbudget: 1800s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/77'}});
+}
+
+await scenario('queue view does not initialize or dispatch and never recommends malformed requests', async f => {
+  f.readOnly = true;
+  assert.deepEqual((await f.call('queue_view', {actor: operator})).rows, []);
+  assert.equal(f.index, null);
+  assert.deepEqual(f.mutations ?? [], []);
+  f.readOnly = false;
+  const holder = request('member', 'hold');
+  const waiting = request('member', 'hello', {check_run_id: 11});
+  const other = request('other', 'other', {check_run_id: 12});
+  await f.enqueue(holder);
+  await f.enqueue(waiting);
+  f.runs.set(13, {id: 13, status: 'queued'}); // Prevent automatic advancement before listing.
+  await f.enqueue(other);
+  const before = f.mutations.length;
+  f.readOnly = true;
+  const view = await f.call('queue_view', {actor: operator});
+  assert.equal(view.rows.find(row => row.id === waiting.delivery_id).blockers[0].id, holder.delivery_id);
+  assert.deepEqual(view.next, [other.delivery_id]);
+  const tag = f.tags.get(f.row(other.delivery_id).tag);
+  const {head_sha, ...broken} = JSON.parse(tag.message);
+  assert.equal(head_sha, head);
+  tag.message = JSON.stringify(broken);
+  const incomplete = await f.call('queue_view', {actor: operator});
+  assert.deepEqual(incomplete.next, []);
+  assert.equal(incomplete.rows.find(row => row.id === other.delivery_id).request_verified, false);
+  assert.doesNotMatch(JSON.stringify(view), /instructions|head_sha|actor_id/);
+  const denied = await preview(f, holder, 'release');
+  assert.equal(denied.eligible, false);
+  assert.equal(denied.reason, 'unbound');
+  assert.equal(f.mutations.length, before);
+});
+
+await scenario('verify release checks current exact evidence, then audits a single request without dispatch', async f => {
+  const target = request('member', 'hold');
+  const successor = request('member', 'hello', {check_run_id: 11});
+  await f.enqueue(target);
+  await f.enqueue(successor);
+  await f.bind(target, 77);
+  const before = f.mutations.length;
+  f.readOnly = true;
+  assert.equal((await preview(f, target, 'release')).reason, 'not_terminal');
+  const run = f.runs.get(77);
+  Object.assign(run, {status: 'completed', conclusion: 'success'});
+  assert.equal((await preview(f, target, 'release')).reason, 'audit');
+  const check = f.checkState.get(10);
+  completedCheck(check);
+  const proof = await preview(f, target, 'release');
+  assert.equal(proof.eligible, true);
+  assert.equal(proof.run.id, 77);
+  assert.equal(proof.unblocked[0].id, successor.delivery_id);
+  await confirm(f, target, 'release', proof, 409, {id: 44, login: 'different-owner'});
+  run.run_attempt = 2;
+  await confirm(f, target, 'release', proof, 409);
+  run.run_attempt = 1;
+  check.output.summary = check.output.summary.replace('observed-model', 'different-model');
+  await confirm(f, target, 'release', proof, 409);
+  assert.equal(f.mutations.length, before);
+  f.readOnly = false;
+  const fresh = await preview(f, target, 'release');
+  f.ownerRevoked = true;
+  await confirm(f, target, 'release', fresh, 403);
+  assert.equal(f.mutations.length, before);
+  f.ownerRevoked = false;
+  const committed = await confirm(f, target, 'release', fresh);
+  assert.equal(committed.request.state, 'terminal');
+  assert.equal(f.row(target.delivery_id).operator_action.actor_id, operator.id);
+  assert.equal(f.refs.get(`refs/tags/golem-admin/${target.delivery_id}`), committed.audit.evidence_sha);
+  assert.equal(f.row(successor.delivery_id).state, 'pending');
+  assert.equal(f.dispatches.length, 1);
+  assert.deepEqual(f.cancels, []);
+  assert.deepEqual(f.checks, []);
+  const after = f.mutations.length;
+  await confirm(f, target, 'release', fresh, 409);
+  assert.equal(f.mutations.length, after);
+});
+
+await scenario('verify release retains the hold if a rerun starts while writing the audit', async f => {
+  const target = request('member', 'hold');
+  await f.enqueue(target);
+  await f.bind(target, 77);
+  Object.assign(f.runs.get(77), {status:'completed', conclusion:'success'});
+  completedCheck(f.checkState.get(10));
+  const fresh = await preview(f, target, 'release');
+  assert.equal(fresh.eligible, true);
+  f.rerunWhenAudited = 77;
+  await confirm(f, target, 'release', fresh, 409);
+  assert.ok(f.refs.get(`refs/tags/golem-admin/${target.delivery_id}`));
+  assert.equal(f.row(target.delivery_id).state, 'bound', 'immutable audit is not a release receipt');
+  assert.equal(f.row(target.delivery_id).operator_action, undefined);
+  assert.equal((await preview(f, target, 'release')).reason, 'identity');
+});
+
+await scenario('exact pending cancellation refuses an updated journal and serializes duplicate confirms', async f => {
+  const target = request('member', 'cancel');
+  f.runs.set(13, {id: 13, status: 'queued'});
+  await f.enqueue(target);
+  const before = f.mutations.length;
+  f.readOnly = true;
+  const stale = await preview(f, target, 'cancel');
+  assert.equal(stale.eligible, true);
+  f.rewrite(target.delivery_id, row => { row.state = 'reserved'; });
+  await confirm(f, target, 'cancel', stale, 409);
+  f.rewrite(target.delivery_id, row => { row.state = 'pending'; });
+  await confirm(f, target, 'cancel', stale, 409); // Same row fields, changed blob revision.
+  assert.equal(f.mutations.length, before);
+  f.readOnly = false;
+  const fresh = await preview(f, target, 'cancel');
+  const inputs = {actor: operator, input: {...intent(target, 'cancel'), expires: fresh.expires, token: fresh.token}};
+  const statuses = await Promise.all([1, 2].map(async () => (await f.worker.dispatchFetch('https://queue.invalid/', {method: 'POST', body: JSON.stringify({action: 'queue_confirm', ...inputs})})).status));
+  assert.deepEqual(statuses.sort(), [200, 409]);
+  assert.equal(f.mutations.length, before + 1);
+  assert.equal(f.row(target.delivery_id).state, 'stop_requested');
+  assert.equal(f.row(target.delivery_id).dispatched, false);
+  assert.equal(f.row(target.delivery_id).operator_action.actor_id, operator.id);
+  assert.deepEqual(f.dispatches, []);
+  assert.deepEqual(f.cancels, []);
+  assert.deepEqual(f.checks, []);
+});
 async function runScenarios() {
   const started = performance.now();
   const timings = [];

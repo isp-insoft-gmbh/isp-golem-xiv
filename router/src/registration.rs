@@ -12,6 +12,7 @@ use crate::{CLIENT_ID, OAUTH_CALLBACK, PROVIDERS, ROUTER_URL, percent_encode, va
 type HmacSha256 = Hmac<Sha256>;
 
 pub const SESSION_COOKIE: &str = "golem_session";
+pub const IDENTITY_COOKIE: &str = "golem_identity";
 pub const STATE_COOKIE: &str = "golem_oauth_state";
 pub const SESSION_SECONDS: u64 = 3600;
 pub const STATE_COOKIE_CLEAR: &str =
@@ -120,6 +121,28 @@ pub fn session_login<'a>(key: &[u8; 32], value: &'a str, now_s: u64) -> Option<&
     let expires_s: u64 = expires.parse().ok()?;
     let latest = now_s.saturating_add(SESSION_SECONDS + CLOCK_SKEW_SECONDS);
     (now_s < expires_s && expires_s <= latest).then_some(login)
+}
+
+// Bind the stable OAuth identity to the existing signed login session without
+// changing legacy sessions used by ordinary dashboard and seat functions.
+#[must_use]
+pub fn identity_cookie(key: &[u8; 32], session: &str, id: u64) -> Option<String> {
+    let id = id.to_string();
+    let tag = mac(key, &[b"identity", session.as_bytes(), id.as_bytes()])?;
+    Some(format!(
+        "{IDENTITY_COOKIE}={id}.{}; Path=/v1/admin/queue; Max-Age={SESSION_SECONDS}; HttpOnly; Secure; SameSite=Lax",
+        hex(&tag.finalize().into_bytes())
+    ))
+}
+
+#[must_use]
+pub fn session_identity(key: &[u8; 32], session: &str, value: &str) -> Option<u64> {
+    let (id, tag) = value.split_once('.')?;
+    let numeric = id.parse::<u64>().ok().filter(|id| *id > 0)?;
+    mac(key, &[b"identity", session.as_bytes(), id.as_bytes()])?
+        .verify_slice(&unhex32(tag)?)
+        .ok()?;
+    Some(numeric)
 }
 
 /// Per-session CSRF token the page sends back in [`CSRF_HEADER`].

@@ -539,9 +539,9 @@ fn sign_in_location_uses_public_client_encoded_callback_and_uuid_state() {
 mod registration {
     use router::registration::{
         SESSION_SECONDS, SeatRegistration, admin_page, base64_length, cookie, csrf_token,
-        csrf_valid, oauth_access_token, oauth_exchange_body, preferred_registration, public_key,
-        seat_registration, seats_page, session_cookie, session_key, session_login, session_value,
-        state_matches,
+        csrf_valid, identity_cookie, oauth_access_token, oauth_exchange_body,
+        preferred_registration, public_key, seat_registration, seats_page, session_cookie,
+        session_identity, session_key, session_login, session_value, state_matches,
     };
     use serde_json::json;
 
@@ -624,6 +624,24 @@ mod registration {
             session_cookie(&value),
             format!("golem_session={value}; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Lax")
         );
+    }
+
+    #[test]
+    fn oauth_identity_cannot_be_transplanted_to_another_session_or_account() {
+        let key = key();
+        let session = session_value(&key, "member", NOW).unwrap();
+        let refreshed = session_value(&key, "member", NOW + 1).unwrap();
+        let header = identity_cookie(&key, &session, 42).unwrap();
+        let encoded = cookie(header.split(';').next().unwrap(), "golem_identity").unwrap();
+        assert_eq!(session_identity(&key, &session, encoded), Some(42));
+        assert_eq!(session_identity(&key, &refreshed, encoded), None);
+        assert_eq!(
+            session_identity(&key, &session, &encoded.replace("42.", "43.")),
+            None
+        );
+        for malformed in ["", "42", "42.fake", "zero.fake", "0.fake"] {
+            assert_eq!(session_identity(&key, &session, malformed), None);
+        }
     }
 
     #[test]

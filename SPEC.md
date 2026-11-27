@@ -236,6 +236,14 @@ The implementation chooses the audit record's form and records it in `DECISIONS.
 The dashboard keeps no data of its own beyond rebuildable caches, works within Workers Free limits, and never shows a credential.
 Log links lead to the ops repository, so only people with access to it can read logs.
 
+Operations separates run history from the current Queue; Repositories separates setup and starter PR review from incident work.
+Queue is visible only to active GitHub organization owners, with a fresh role check for every read, preview and confirmation.
+Queue shows waiting age, paying seat, blocking requests, and what execution evidence is known or missing.
+Next candidates reflect queue order and resource availability, not a promise of dispatch.
+Owners can review and cancel one exact pending request that has never been dispatched, or verify and release one already bound run with trusted terminal proof.
+Confirmation rechecks the preview; a changed or unproven request is left alone.
+Both actions record the actor in the authoritative queue journal and neither dispatches a run, cancels an Actions workflow, or flushes the queue.
+
 ## Security
 
 - Only organization members can start golems by mention or dashboard; events and schedules start them only on a member's or the `owner`'s seat.

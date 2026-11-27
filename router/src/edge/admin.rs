@@ -33,6 +33,76 @@ fn denied(status: u16) -> Result<Response> {
     )
 }
 
+pub(super) async fn queue(request: &mut Request, env: &Env, action: &str) -> Result<Response> {
+    let forbidden = || {
+        registration::secured(
+            Response::error(
+                "Queue requires a fresh sign-in as an active organization owner",
+                403,
+            )?,
+            "text/plain; charset=utf-8",
+        )
+    };
+    if request.headers().get("Authorization")?.is_some() {
+        return forbidden();
+    }
+    let Some((login, id)) = registration::queue_identity(request, env)? else {
+        return forbidden();
+    };
+    if action != "queue_view" && registration::write_login(request, env)?.as_deref() != Some(&login)
+    {
+        return forbidden();
+    }
+    let github = Github::installation(env).await?;
+    let (status, membership) = github
+        .call(
+            Method::Get,
+            &format!("/orgs/{ORGANIZATION}/memberships/{login}"),
+            None,
+        )
+        .await?;
+    if status != 200
+        || membership.get("state").and_then(Value::as_str) != Some("active")
+        || membership.get("role").and_then(Value::as_str) != Some("admin")
+        || membership.pointer("/user/id").and_then(Value::as_u64) != Some(id)
+        || !membership
+            .pointer("/user/login")
+            .and_then(Value::as_str)
+            .is_some_and(|current| current.eq_ignore_ascii_case(&login))
+    {
+        return forbidden();
+    }
+    let input = if action == "queue_view" {
+        None
+    } else {
+        if request.headers().get("Content-Type")?.as_deref() != Some("application/json") {
+            return registration::secured(
+                Response::error("JSON request required", 415)?,
+                "text/plain; charset=utf-8",
+            );
+        }
+        let bytes = super::bounded(super::read_stream(request.stream()?, 512), 5000).await?;
+        let Ok(input) = serde_json::from_slice::<Value>(&bytes) else {
+            return registration::secured(
+                Response::error("Invalid queue request", 400)?,
+                "text/plain; charset=utf-8",
+            );
+        };
+        Some(input)
+    };
+    let mut response = super::coordinator(
+        env,
+        action,
+        json!({"actor": {"id": id, "login": login}, "input": input}),
+    )
+    .await?;
+    let status = response.status_code();
+    // Fetched DO responses have immutable headers; return locally owned no-store JSON.
+    let data = super::response_bytes(&mut response, 524_288).await?;
+    let response = Response::from_bytes(data)?.with_status(status);
+    registration::secured(response, "application/json; charset=utf-8")
+}
+
 async fn authenticated(request: &Request, env: &Env) -> Result<Option<(Github, String)>> {
     // Explicit bearer credentials never fall back to a cookie on failure.
     let login = if let Some(header) = request.headers().get("Authorization")? {
@@ -53,6 +123,80 @@ async fn authenticated(request: &Request, env: &Env) -> Result<Option<(Github, S
         return Ok(None);
     }
     Ok(Some((github, login)))
+}
+
+pub(super) async fn onboarding_preview(request: &Request, env: &Env) -> Result<Response> {
+    let Some((github, login)) = authenticated(request, env).await? else {
+        return denied(403);
+    };
+    let url = request.url()?;
+    let mut fields = url.query_pairs();
+    let Some((key, repository)) = fields.next() else {
+        return bad_repository();
+    };
+    if key != "repository" || fields.next().is_some() || !valid_repository(&repository) {
+        return bad_repository();
+    }
+    let Some(info) = github.repository(&repository).await? else {
+        return registration::secured(
+            Response::error("Repository unavailable", 404)?,
+            "text/plain; charset=utf-8",
+        );
+    };
+    if !onboarding_permission(&github, &login, &repository).await? {
+        return denied(403);
+    }
+    if let Some(url) = super::existing_onboarding(&github, &repository).await? {
+        return registration::json_answer(&json!({"existing": url}));
+    }
+    if ["archived", "disabled"]
+        .iter()
+        .any(|key| info.get(key).and_then(Value::as_bool) == Some(true))
+    {
+        return registration::secured(
+            Response::error("Repository archived or disabled", 409)?,
+            "text/plain; charset=utf-8",
+        );
+    }
+    let head = github.head(&repository, &info).await?;
+    let (status, _) = github
+        .call(
+            Method::Get,
+            &format!("/repos/{repository}/contents/.golems?ref={head}"),
+            None,
+        )
+        .await?;
+    match status {
+        404 => (),
+        200 => {
+            return registration::secured(
+                Response::error("Repository already configured", 409)?,
+                "text/plain; charset=utf-8",
+            );
+        }
+        _ => return Err(failure("golem directory lookup failed")),
+    }
+    let pull = super::onboarding_pull(&github, &repository, &info, &head).await?;
+    registration::json_answer(&json!({"pull": pull, "files": crate::onboarding_files()}))
+}
+
+fn bad_repository() -> Result<Response> {
+    registration::secured(
+        Response::error("Invalid repository", 400)?,
+        "text/plain; charset=utf-8",
+    )
+}
+
+async fn onboarding_permission(github: &Github, login: &str, repository: &str) -> Result<bool> {
+    let permission = github
+        .get(&format!(
+            "/repos/{repository}/collaborators/{login}/permission"
+        ))
+        .await?;
+    Ok(matches!(
+        permission.get("permission").and_then(Value::as_str),
+        Some("admin" | "write")
+    ))
 }
 
 #[derive(serde::Deserialize)]
@@ -124,16 +268,7 @@ pub(super) async fn onboarding(request: &mut Request, env: &Env) -> Result<Respo
             "text/plain; charset=utf-8",
         );
     };
-    let permission = github
-        .get(&format!(
-            "/repos/{}/collaborators/{login}/permission",
-            input.repository
-        ))
-        .await?;
-    if !matches!(
-        permission.get("permission").and_then(Value::as_str),
-        Some("admin" | "write")
-    ) {
+    if !onboarding_permission(&github, &login, &input.repository).await? {
         return denied(403);
     }
     let (status, result) = super::onboard(&github, &input.repository, &info).await?;
