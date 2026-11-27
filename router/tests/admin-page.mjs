@@ -4,26 +4,11 @@ import assert from 'node:assert/strict';
 import {runInNewContext} from 'node:vm';
 
 export async function verifyAdminPage(script) {
-  class Element {
-    constructor(tag) { this.tag = tag; this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.href = ''; this.scope = ''; }
-    append(child) { this.children.push(child); }
-    replaceChildren() { this.children = []; this.value = ''; }
-    set textContent(value) { this.value = String(value); this.children = []; }
-    get textContent() { return this.value + this.children.map(child => child.textContent).join(' '); }
-    set innerHTML(_) { assert.fail('Untrusted metadata must never reach an HTML sink'); }
-  }
-  const ids = new Map(['runs-status','runs','more-runs','undispatched-status','more-undispatched','usage','health','seats-status','seats','repositories-status','repositories','more-repositories'].map(id => [id, new Element('div')]));
-  const document = {getElementById: id => { assert.ok(ids.has(id)); return ids.get(id); }, createElement: tag => new Element(tag), createTextNode: text => ({textContent: String(text)})};
   const log = id => `https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${id}`;
   const first = {run_id:1,repo:'<img src=x onerror=attack()>',golem:'hello',trigger:'mention',seat:'member/anthropic',model:'claude-sonnet-5-5',outcome:'blocked',duration_s:42,log:log(1),completed_at:'2026-11-16T10:00:00Z'};
   const second = {...first,run_id:2,model:null,duration_s:null,outcome:'replied',log:log(2),completed_at:'2026-11-16T11:00:00Z'};
   const third = {...first,run_id:3,seat:'gone-person/openai-codex',outcome:'no_change',duration_s:1,log:'https://attacker.invalid/',completed_at:'2026-11-16T12:00:00Z'};
-  const requests = [];
-  async function fetch(path, options) {
-    requests.push(path);
-    assert.equal(options.credentials, 'same-origin');
-    assert.equal(options.cache, 'no-store');
-    assert.equal(options.redirect, 'error');
+  const dashboard = harness(script, async path => {
     let body;
     if (path.startsWith('/v1/admin/runs')) {
       const page = new URL(path, 'https://router.invalid').searchParams.get('page');
@@ -37,16 +22,23 @@ export async function verifyAdminPage(script) {
       const page = new URL(path, 'https://router.invalid').searchParams.get('page');
       body = {complete:page !== '1',total_repositories:2,next_page:page === '1' ? 2 : null,repositories:[page === '1' ? {repo:'isp-insoft-gmbh/unreadable',repository_id:1,enabled:null,metadata_status:'unavailable',golems:[]} : {repo:'isp-insoft-gmbh/healthy',repository_id:2,enabled:true,metadata_status:'available',golems:[{name:'bad',enabled:false,reason:'invalid definition'}]}]};
     } else assert.fail(`Unexpected dashboard URL: ${path}`);
-    return {ok:true,json:async () => structuredClone(body)};
-  }
-  runInNewContext(script, {document,fetch,URL,console});
+    return body;
+  });
+  const {ids, requests} = dashboard;
+  dashboard.run();
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(requests.length, 4);
-  assert.match(ids.get('runs').children[0].children[0].textContent, /Audited runs on loaded pages/);
-  assert.equal(ids.get('runs').children[0].children[2].children.length, 3);
-  assert.match(ids.get('runs').textContent, /not dispatched/);
+  assert.equal(requests.length, 5);
+  assert.equal(records(ids, 'runs').length, 3);
+  const stopped = records(ids, 'runs').find(row => row.textContent.includes('stopped'));
+  stopped.onclick();
+  assert.match(ids.get('runs').textContent, /Not dispatched/);
+  control(ids.get('runs'), 'Back to run history').onclick();
   assert.match(ids.get('runs').textContent, /<img src=x onerror=attack\(\)>/);
-  assert.match(ids.get('runs').textContent, /unknown/);
+  const replied = records(ids, 'runs').find(row => row.textContent.includes('replied'));
+  replied.onclick();
+  assert.match(ids.get('runs').textContent, /Observed model unknown/);
+  assert.ok(find(ids.get('runs'), node => node.href === log(2)));
+  control(ids.get('runs'), 'Back to run history').onclick();
   assert.match(ids.get('usage').textContent, /member\/anthropic 2 42 1/);
   const metric = label => ids.get('health').children[0].children.find(group => group.children[0].textContent === label)?.children[1].textContent;
   assert.equal(ids.get('health').children[0].tag, 'dl', 'health uses semantic label/value pairs');
@@ -59,17 +51,21 @@ export async function verifyAdminPage(script) {
   // Last runs per seat come from loaded audits, matched case-insensitively by login.
   assert.match(ids.get('seats').textContent, /Member anthropic active GitHub login no 2026-11-16T11:00:00Z 2026-11-16T10:00:00Z/);
   assert.match(ids.get('seats-status').textContent, /sign-in expiry and refresh state are not recorded/);
-  assert.match(ids.get('repositories').textContent, /Metadata unavailable; enabled state unknown/);
-  assert.doesNotMatch(ids.get('repositories').textContent, /Not enabled/);
-  assert.equal(ids.get('repositories').children.filter(child => child.tag === 'table').length, 0, 'no empty golem table for unreadable repository');
+  assert.equal(groupOf(ids.get('repositories'), 'unreadable'), 'Unknown');
+  records(ids, 'repositories')[0].onclick();
+  assert.equal(control(ids.get('repositories'), 'Review starter PR'), undefined);
+  control(ids.get('repositories'), 'Back to repositories').onclick();
   assert.equal(ids.get('more-repositories').hidden, false);
   assert.equal(ids.get('more-runs').hidden, false);
   await ids.get('more-runs').onclick();
   assert.ok(requests.includes('/v1/admin/runs?page=2&as_of=1794902400'));
-  assert.equal(ids.get('runs').children[0].children[2].children.length, 4, 'pagination deduplicates immutable run IDs');
-  const pagedRows = ids.get('runs').children[0].children[2].children;
-  assert.deepEqual(pagedRows.flatMap(row => row.children[8].children.map(link => link.href)).sort(), [log(1), log(2)], 'existing audited runs remain exactly once after an overlapping page');
-  assert.equal(pagedRows.filter(row => row.children[3].textContent === third.seat && row.children[6].textContent === third.outcome).length, 1, 'new audited run appends exactly once');
+  const pagedRows = records(ids, 'runs');
+  assert.equal(pagedRows.length, 4, 'pagination deduplicates immutable run IDs');
+  const match = pagedRows.filter(row => row.textContent.includes(third.seat));
+  assert.equal(match.length, 1, 'new audited run appends exactly once');
+  match[0].onclick();
+  assert.equal(find(ids.get('runs'), node => node.href === third.log), undefined);
+  control(ids.get('runs'), 'Back to run history').onclick();
   assert.equal(metric('Workflow failures'), '1 / 3 (33.3%)');
   assert.equal(metric('Missing audits'), '1');
   assert.equal(metric('Runs before audits'), '2');
@@ -85,8 +81,10 @@ export async function verifyAdminPage(script) {
   assert.match(ids.get('undispatched-status').textContent, /Malformed undispatched audits: 2/, 'clean final page must not erase earlier malformed records');
   assert.equal(metric('Malformed audits'), '2', 'health includes malformed undispatched audits');
   await ids.get('more-repositories').onclick();
-  assert.match(ids.get('repositories').textContent, /healthy Enabled/);
-  assert.match(ids.get('repositories').textContent, /bad disabled invalid definition/);
+  assert.equal(groupOf(ids.get('repositories'), 'healthy'), 'Configured');
+  assert.match(records(ids, 'repositories').find(row => row.textContent.includes('healthy')).textContent, /Disabled/);
+  records(ids, 'repositories').find(row => row.textContent.includes('healthy')).onclick();
+  assert.match(ids.get('repositories').textContent, /\.golems\/bad\.md.*invalid definition/);
   assert.equal(ids.get('more-repositories').hidden, true);
   assert.equal(await verifyEmptyLoad(script), true);
   assert.equal(await verifyInitialRetry(script), true);
@@ -113,12 +111,12 @@ async function verifyMixedSourceRetry(script) {
   await new Promise(resolve => setImmediate(resolve));
   const status = dashboard.ids.get('undispatched-status');
   assert.match(status.textContent, /Metadata unavailable/);
-  assert.equal(dashboard.ids.get('runs').children[0].children[2].children.length, 1, 'successful workflow rows survive another source failing');
+  assert.equal(records(dashboard.ids, 'runs').length, 1, 'successful workflow rows survive another source failing');
   const retry = status.children.find(child => child.tag === 'button');
   assert.ok(retry, 'failed undispatched source has its own recovery action');
   fail = false;
   await retry.onclick();
-  assert.equal(dashboard.ids.get('runs').children[0].children[2].children.length, 2);
+  assert.equal(records(dashboard.ids, 'runs').length, 2);
   assert.match(dashboard.ids.get('usage').textContent, /member\/anthropic 1 42 0/, 'undispatched recovery does not add dispatched usage');
   assert.match(dashboard.ids.get('health').textContent, /Stopped 1/);
 }
@@ -137,7 +135,7 @@ async function verifyRevokedPagination(script) {
   await dashboard.ids.get('more-runs').onclick();
   assert.match(dashboard.ids.get('runs-status').textContent, /Organization membership required/);
   assert.equal(dashboard.ids.get('more-runs').hidden, true);
-  assert.equal(dashboard.ids.get('runs').children[0].children[2].children.length, 1, 'membership loss preserves existing rows without adding denied data');
+  assert.equal(records(dashboard.ids, 'runs').length, 1, 'membership loss preserves existing rows without adding denied data');
   assert.match(dashboard.ids.get('usage').textContent, /member\/anthropic 1 42 0/);
 }
 
@@ -165,7 +163,7 @@ async function verifyEmptyLoad(script) {
         : {complete:true,total_repositories:0,next_page:null,repositories:[]});
   dashboard.run();
   await new Promise(resolve => setImmediate(resolve));
-  assert.match(dashboard.ids.get('runs').textContent, /Audited runs on loaded pages/);
+  assert.match(dashboard.ids.get('runs').textContent, /No records loaded/);
   assert.match(dashboard.ids.get('runs-status').textContent, /No audited runs on loaded pages; 0 workflows reported/);
   assert.doesNotMatch(dashboard.ids.get('runs-status').textContent, /No runs/);
   assert.match(dashboard.ids.get('usage').textContent, /No records on loaded pages/);
@@ -214,11 +212,27 @@ async function verifyInitialRetry(script) {
   return true;
 }
 
+function find(element, predicate) {
+  if (predicate(element)) return element;
+  for (const child of element.children ?? []) {
+    const result = find(child, predicate);
+    if (result) return result;
+  }
+  return undefined;
+}
+const control = (parent, label) => find(parent, node => node.tag === 'button' && node.textContent === label);
+function collect(node, predicate) {
+  return [...(predicate(node) ? [node] : []), ...(node.children ?? []).flatMap(child => collect(child, predicate))];
+}
+const records = (ids, area) => collect(ids.get(area), node => node.className === 'record');
+const groupOf = (area, name) => collect(area, node => node.className === 'record-group').find(group => group.textContent.includes(name))?.children[0].textContent;
+
 async function verifyOnboarding(script) {
   const repo = 'isp-insoft-gmbh/fixture';
   let posts = 0, release;
   let mode = 'pending';
   const dashboard = harness(script, async (path, options) => {
+    if (path.startsWith('/v1/admin/onboarding/preview?')) return {pull:{title:'Enable golems',head:'golems/enable',base:'trunk',body:'Preview body'},files:[['.golems/hello.md','Preview file']]};
     if (path === '/v1/admin/onboarding') {
       posts++;
       assert.equal(options.method, 'POST');
@@ -244,12 +258,25 @@ async function verifyOnboarding(script) {
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(posts, 0, 'loading never mutates');
   const parent = dashboard.ids.get('repositories');
-  const buttons = parent.children.filter(child => child.tag === 'button');
-  assert.equal(buttons.length, 1);
-  const button = buttons[0];
-  const status = parent.children.find(child => child.role === 'status');
-  assert.equal(status['aria-live'], 'polite');
-  assert.match(parent.textContent, /reviewable starter files/);
+  assert.equal(groupOf(parent, repo), 'Not configured');
+  assert.equal(groupOf(parent, '/unknown'), 'Unknown');
+  assert.equal(groupOf(parent, '/enabled'), 'Configured');
+  assert.match(records(dashboard.ids, 'repositories').find(row => row.textContent.includes('/enabled')).textContent, /No definitions/);
+  assert.equal(control(parent, 'Review starter PR'), undefined);
+  const select = repo => records(dashboard.ids, 'repositories').find(row => row.textContent.includes(repo)).onclick();
+  for (const name of ['isp-insoft-gmbh/unknown', 'isp-insoft-gmbh/enabled', 'evil/fixture']) {
+    select(name);
+    assert.equal(control(parent, 'Review starter PR'), undefined);
+    control(parent, 'Back to repositories').onclick();
+  }
+  select(repo);
+  assert.equal(control(parent, 'Create starter PR'), undefined);
+  await control(parent, 'Review starter PR').onclick();
+  assert.equal(posts, 0, 'preview does not submit');
+  assert.match(parent.textContent, /Base trunk.*Preview body.*Preview file/);
+  const button = control(parent, 'Create starter PR');
+  const status = find(parent, child => child.tag === 'div' && child['aria-live'] === 'polite');
+  assert.equal(status.role, 'status');
   const pending = button.onclick();
   assert.equal(button.disabled, true);
   await button.onclick();
@@ -282,24 +309,27 @@ async function verifyOnboarding(script) {
 function harness(script, respond) {
   class Element {
     constructor(tag) { this.tag = tag; this.children = []; this.value = ''; this.hidden = false; this.disabled = false; this.href = ''; }
-    append(child) { this.children.push(child); }
+    append(...children) { this.children.push(...children); }
     setAttribute(name, value) { this[name] = value; }
-    replaceChildren() { this.children = []; this.value = ''; }
+    focus() {}
+    replaceChildren(...children) { this.children = children; this.value = ''; }
+    get options() { return this.children; }
     set textContent(value) { this.value = String(value); this.children = []; }
     get textContent() { return this.value + this.children.map(child => child.textContent).join(' '); }
     set innerHTML(_) { assert.fail('Untrusted metadata must never reach an HTML sink'); }
   }
-  const ids = new Map(['runs-status','runs','more-runs','undispatched-status','more-undispatched','usage','health','seats-status','seats','repositories-status','repositories','more-repositories','onboarding-csrf'].map(id => [id, new Element('div')]));
+  const ids = new Map(['runs-status','runs','more-runs','undispatched-status','more-undispatched','usage','health','seats-status','seats','repositories-status','repositories','more-repositories','onboarding-csrf','queue-access','queue-section','runs-section','queue-tab','history-tab','queue-refresh','queue-list','queue-status','queue-next'].map(id => [id, new Element('div')]));
   ids.get('onboarding-csrf').value = 'csrf-token';
   const requests = [];
-  const document = {getElementById: id => { assert.ok(ids.has(id)); return ids.get(id); }, createElement: tag => new Element(tag), createTextNode: text => ({textContent:String(text)})};
+  const document = {getElementById: id => { assert.ok(ids.has(id), id); return ids.get(id); }, createElement: tag => new Element(tag), createTextNode: text => ({textContent:String(text)}), querySelectorAll: () => [], querySelector: () => new Element('a')};
   async function fetch(path, options) {
     requests.push(path);
     assert.equal(options.credentials, 'same-origin'); assert.equal(options.cache, 'no-store'); assert.equal(options.redirect, 'error');
-    const body = await respond(path, options);
+    const body = path === '/v1/admin/queue' ? {errorStatus:403} : await respond(path, options);
     if (body === null) return {ok:false,status:503};
     if (body.errorStatus) return {ok:false,status:body.errorStatus};
     return {ok:true,status:body.responseStatus ?? 200,json:async () => structuredClone(body)};
   }
-  return {ids,requests,run:() => runInNewContext(script, {document,fetch,URL,console})};
+  function Option(textContent, value) { this.textContent = textContent; this.value = value; }
+  return {ids,requests,run:() => runInNewContext(script, {document,fetch,URL,Option,console, location:{hash:''}, window:{addEventListener() {}}})};
 }

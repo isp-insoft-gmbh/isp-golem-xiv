@@ -65,6 +65,10 @@ async function github(request) {
   const url = new URL(request.url);
   if (url.origin === 'https://fixture-coordinator.invalid') {
     const body = await request.json();
+    if (body.action.startsWith('queue_')) {
+      (state.operatorCalls ??= []).push(body);
+      return answer(200, {rows:[], next:[], snapshot_at:'2030-01-01T00:00:00Z'});
+    }
     if (body.action === 'enqueue') {
       state.enqueueAttempts.push(structuredClone(body.request));
       if (state.rejectNextEnqueue > 0) {state.rejectNextEnqueue--; state.rejectedAdmission = body.request; return answer(429,{});}
@@ -87,6 +91,10 @@ async function github(request) {
   assert.equal(url.origin, 'https://api.github.com');
   const path = url.pathname;
   const method = request.method;
+  if (state.readOnlyPreview && method !== 'GET' && !/^\/app\/installations\/\d+\/access_tokens$/.test(path)) {
+    state.previewWrites.push([method, path]);
+    return answer(500, {});
+  }
   const body = (['POST','PUT'].includes(method) || (method === 'DELETE' && path.includes('/contents/'))) ? await request.json() : null;
   if (path.startsWith(`/repos/${ops}/contents/`) && ['PUT','DELETE'].includes(method) && body?.branch === 'golem-state' && !state.refs.has('refs/heads/golem-state')) return answer(404, {message:'Branch not found'});
   if (path === `/repos/${ops}/actions/variables/GOLEM_PROTOCOL_VERSION`) return answer(protocol2 ? 200 : 404, {value:'2'});
@@ -167,7 +175,7 @@ async function github(request) {
   }
   if (path === '/user') {
     const oauthLogin = {'Bearer oauth-member-token':'member', 'Bearer oauth-outsider-token':'outsider'}[request.headers.get('Authorization')];
-    if (oauthLogin) return answer(200, {login:oauthLogin});
+    if (oauthLogin) return answer(200, {login:oauthLogin, id:oauthLogin === 'member' ? 42 : 43});
     if (request.headers.get('Authorization') === 'Bearer redirect-fixture-token') return new ResponseType('{}', {status:302, headers:{Location:'https://must-not-receive-token.invalid/'}});
     return answer(request.headers.get('Authorization') === 'Bearer valid-fixture-token' ? 200 : 401, {login:'member'});
   }
@@ -205,7 +213,12 @@ async function github(request) {
     return sha ? answer(200, {ref, object:{sha, type:ref.startsWith('refs/tags/golem-onboarding/') ? 'commit' : 'tag'}}) : answer(404, {});
   }
   if (path.startsWith(`/repos/${ops}/git/tags/`)) return answer(200, state.tags.get(path.split('/').at(-1)));
-  if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) return path.endsWith('/outsider') || state.removedMembers.has(path.split('/').at(-1)) ? answer(404, {}) : answer(200, {state:'active'});
+  if (path.startsWith('/orgs/isp-insoft-gmbh/memberships/')) {
+    const login = path.split('/').at(-1);
+    if (login === 'outsider' || state.removedMembers.has(login)) return answer(404, {});
+    if (login === 'member' && state.membershipStatus) return answer(state.membershipStatus, {});
+    return answer(200, {state:'active', role:login === 'member' ? state.memberRole ?? 'member' : 'member', user:{login,id:state.membershipId ?? 42}});
+  }
   if (path === `/repos/${ops}/actions/secrets/public-key`) return answer(200, {key_id:'568250167242549743', key:sealedFixture.recipientPublic});
   if (path.startsWith(`/repos/${ops}/actions/secrets/`)) {
     const name = path.split('/').at(-1);
@@ -502,6 +515,23 @@ try {
   assert.equal(o.branches.length,0);
   assert.equal(o.writes.length,0);
   assert.equal(state.refs.has('refs/tags/golem-onboarding/150'),false);
+  const previewOnboarding = () => worker.dispatchFetch(`${base}/v1/admin/onboarding/preview?repository=${encodeURIComponent(onboardRepo)}`, {headers:{Authorization:'Bearer valid-fixture-token'}});
+  state.readOnlyPreview = true;
+  state.previewWrites = [];
+  let starterPreview;
+  try {
+    o.permission = 'read';
+    assert.equal((await previewOnboarding()).status, 403);
+    o.permission = 'write';
+    const response = await previewOnboarding();
+    assert.equal(response.status, 200);
+    starterPreview = await response.json();
+    assert.equal(starterPreview.pull.base, 'trunk');
+    assert.match(starterPreview.pull.body, /`mise\.toml`/);
+    assert.match(starterPreview.pull.body, /`@isp-golem-xiv seat`/);
+    assert.equal(starterPreview.files.length, 2);
+    assert.deepEqual(state.previewWrites, []);
+  } finally { state.readOnlyPreview = false; }
   const requestOnboarding = (headers = {Authorization:'Bearer valid-fixture-token'}, body = {repository:onboardRepo}) => worker.dispatchFetch(`${base}/v1/admin/onboarding`,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
   assert.equal((await requestOnboarding({})).status,401);
   assert.equal((await requestOnboarding({Authorization:'Bearer invalid-token'})).status,403);
@@ -544,6 +574,8 @@ try {
   o.pullAuthor='unrelated-human';
   assert.equal((await requestOnboarding()).status,502,'fixed branch alone does not authenticate a PR');
   o.pullAuthor=null;
+  assert.deepEqual(o.pulls[0], starterPreview.pull);
+  assert.deepEqual(Object.fromEntries(o.writes.map(file => [file.path, file.content])), Object.fromEntries(starterPreview.files));
   assert.deepEqual(o.pulls[0].title, 'Enable golems');
   assert.equal(o.pulls[0].head, 'golems/enable');
   assert.equal(o.pulls[0].base, 'trunk');
@@ -956,7 +988,7 @@ async function seatRegistration() {
   assert.equal(response.headers.get('Location'), '/seats');
   assert.deepEqual(state.oauthExchanges.at(-1), {client_id:'Iv23liEnfLEVCSS2aUdR', client_secret:'fixture-client-secret', code:'member-code', redirect_uri:`${router}/auth/github/callback`});
   const cookies = response.headers.getSetCookie();
-  assert.equal(cookies.length, 2);
+  assert.equal(cookies.length, 3);
   const sessionCookie = cookies.find(cookie => cookie.startsWith('golem_session='));
   assert.match(sessionCookie, /^golem_session=member\.\d+\.[0-9a-f]{64}; Path=\/; Max-Age=3600; HttpOnly; Secure; SameSite=Lax$/);
   assert.ok(!sessionCookie.includes('oauth-member-token'), 'user token is never stored');
@@ -999,7 +1031,39 @@ async function seatRegistration() {
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('Content-Security-Policy'), `${policy}; style-src 'self'`);
   const adminPage = await response.text();
-  for (const heading of ['Runs','Usage','Health','Seats','Repositories']) assert.ok(adminPage.includes(`>${heading}</h2>`));
+  for (const heading of ['Operations','Usage','Health','Seats','Repositories']) assert.ok(adminPage.includes(`>${heading}</h1>`));
+  assert.ok(adminPage.includes('Run history'));
+  const identity = cookies.find(cookie => cookie.startsWith('golem_identity=')).split(';')[0];
+  const operatorCookie = `${session}; ${identity}`;
+  const queue = (suffix = '', overrides = {}) => worker.dispatchFetch(`${base}/v1/admin/queue${suffix}`, {
+    method:suffix ? 'POST' : 'GET',
+    headers:{Cookie:operatorCookie, ...(suffix ? {Origin:router,'X-Golem-Csrf':csrf,'Content-Type':'application/json'} : {}), ...overrides},
+    ...(suffix ? {body:JSON.stringify({operation:'release',request_id:'00000000-0000-4000-8000-000000000001'})} : {}),
+  });
+  assert.equal((await queue()).status, 403, 'ordinary member cannot read Queue');
+  assert.equal((await queue('/preview')).status, 403);
+  assert.equal((await queue('/confirm')).status, 403);
+  assert.deepEqual(state.operatorCalls ?? [], []);
+  state.memberRole = 'admin';
+  assert.equal((await queue('', {Cookie:session})).status, 403, 'old login-only session cannot authorize Queue');
+  assert.equal((await queue('', {Cookie:`${operatorCookie}0`})).status, 403);
+  assert.equal((await queue('', {Authorization:'Bearer valid-fixture-token'})).status, 403);
+  assert.equal((await queue('/preview', {Origin:'https://evil.invalid'})).status, 403);
+  assert.equal((await queue('/confirm', {'X-Golem-Csrf':'bad'})).status, 403);
+  state.membershipId = 44;
+  assert.equal((await queue()).status, 403, 'renamed or reassigned login cannot inherit authority');
+  delete state.membershipId;
+  state.membershipStatus = 503;
+  assert.equal((await queue('/preview')).status, 403);
+  delete state.membershipStatus;
+  assert.deepEqual(state.operatorCalls ?? [], []);
+  assert.equal((await queue()).status, 200);
+  assert.equal((await queue('/preview')).status, 200);
+  assert.equal((await queue('/confirm')).status, 200);
+  assert.deepEqual(state.operatorCalls.map(({action,actor}) => [action,actor]), ['queue_view','queue_preview','queue_confirm'].map(action => [action,{id:42,login:'member'}]));
+  state.memberRole = 'member';
+  assert.equal((await queue('/confirm')).status, 403, 'owner status is rechecked at confirm');
+  assert.equal(state.operatorCalls.length, 3);
   assert.ok(adminPage.includes('/admin.js') && !adminPage.includes('Slice 4'));
   assert.ok(adminPage.includes('<link rel="stylesheet" href="/admin.css">'));
   assert.ok(adminPage.includes(`id="onboarding-csrf" value="${csrf}"`),'admin page carries its session-bound CSRF token');

@@ -691,6 +691,28 @@ Log: 2026-11-20 "One definition per scan bound; ignored outputs never publish"
 
 New dated entries go here, newest first.
 
+### 2026-11-27: Group operator lists by resource and setup state
+
+Use seat groups with reservations first and preserve pending journal order within each group.
+Only server-provided blocker identities establish cross-seat dependencies; visual grouping does not assert a global start order.
+Show the missing release fact inline and escalation details under **Why?** without hiding confirmation consequences.
+Use repository configuration for grouping and definition health for row state; keep the starter action in repository detail.
+No server, role or repair policy changes.
+
+### 2026-11-27: Grant Queue access only to active GitHub organization owners
+
+Oliver approved active GitHub organization owners (`admin` membership role) for Queue reads, previews and confirms.
+The Worker matches the fresh membership user ID to the OAuth identity signed into the browser session, and fails closed on missing or mismatched evidence.
+The coordinator repeats that check before a confirmed write in case the operation waited behind another request.
+Other dashboard functions retain active member access; starter PR preview and submit retain repository write or admin checks.
+Queue previews reuse the 60-second queue protocol freshness window and bind the owner, operation, request generation, immutable tag, journal revision and observed check or run evidence.
+The authoritative journal CAS records the actor and exact transition together; no Queue operation invokes dispatch, Actions cancellation, queue initialization or batch repair.
+A pending cancellation records the stop fence only; normal maintenance completes the original check and existing audit path.
+Verify and release accepts only a uniquely bound attempt-one terminal run and a verified completed check or existing durable admin audit, publishes or reuses the normal audit and verifies workflow state again before marking that row terminal.
+If immutable audit publication succeeds but the journal transition is unconfirmed, the audit alone is not a release receipt.
+The unbound historical incident remains outside the approved repair path, and the historical helper's reviewed deployment digest is unchanged.
+The synthetic proof for that pinned digest now uses the exact archived coordinator bytes from `a3b73b2` rather than reverse-patching the current source.
+
 ### 2026-11-26: Bind future runs before target preflight
 
 The v2 runner records the signed, generation-scoped run binding before minting its target token or validating the target.

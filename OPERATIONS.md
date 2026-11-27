@@ -72,6 +72,29 @@ Unknown values are not requested settings or inferred successful results.
 Runs created before 2026-11-13 predate audits and are counted apart from missing audits; nothing is backfilled.
 Sign-in expiry and refresh state are not recorded, so the dashboard cannot warn before a seat expires; a failing seat shows as blocked runs, and a failed Codex refresh write-back adds a `seat refresh` note to that run's check, and expiry is never inferred from a secret's update time.
 Private log links require separate access to `isp-golem-xiv-ops`.
+Repositories groups configured, unconfigured and unknown entries; configured repositories can have mixed, disabled, or no definitions.
+Open an unconfigured repository to review its proposed starter PR and files; submission can return an existing or closed PR and never reopens it.
+
+### Inspect Queue as an organization owner
+
+Open Operations → Queue and refresh before interpreting a hold.
+If Queue is unavailable on an older login, use **Sign in again** to bind the browser session to your GitHub identity.
+Ordinary members can still read the other dashboard sections and use repository-authorized onboarding.
+Queue groups requests by paying seat, shows reservations first, and keeps pending requests in journal order.
+Cross-seat blockers link to their exact requests; seat grouping does not imply global dispatch order.
+Waiting age is measured from immutable request creation to the displayed snapshot time.
+Candidate requests still need normal dispatch preflight; the view and evidence recheck do not advance the queue.
+
+- **Review pending cancellation:** requires the exact pending request, no dispatch intent or run, and verification of its original queued check.
+  Confirmation records a stop request, not an Actions cancellation; normal maintenance completes its check.
+- **Recheck release evidence:** requires the exact bound attempt, terminal workflow proof and a verified completed check or durable audit.
+  **Verify and release** appears only for eligible evidence and confirms just that reservation, without dispatching a replacement.
+- **Unknown run or missing proof:** keep the reservation; inspect private evidence or ask the operations owner to investigate.
+  The inline missing fact explains what blocks release; open **Why?** for the next step.
+  A matching title alone cannot repair an unbound dispatch, including the historical Anthropic incident.
+
+An expired or changed preview must be checked again; do not repeat an unconfirmed request without reviewing fresh queue state.
+Actor, action and request association are in the authoritative `queue.json` commit history even after ordinary retirement.
 
 ## Diagnose a refusal or blocked run
 

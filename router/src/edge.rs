@@ -945,6 +945,21 @@ async fn onboard(github: &Github, repository: &str, info: &Value) -> Result<(u16
             return Err(failure("onboarding file write failed"));
         }
     }
+    let plan = onboarding_pull(github, repository, info, &head).await?;
+    let pull = github
+        .post(&format!("/repos/{repository}/pulls"), plan)
+        .await?;
+    let url = onboarding_url(&pull, repository)
+        .ok_or_else(|| failure("invalid created onboarding pull request"))?;
+    Ok((201, json!({"url":url,"created":true})))
+}
+
+async fn onboarding_pull(
+    github: &Github,
+    repository: &str,
+    info: &Value,
+    head: &str,
+) -> Result<Value> {
     let root = github
         .get(&format!("/repos/{repository}/contents?ref={head}"))
         .await?;
@@ -960,15 +975,9 @@ async fn onboard(github: &Github, repository: &str, info: &Value) -> Result<(u16
     let toolchain = ["mise.toml", ".mise.toml", ".tool-versions"]
         .into_iter()
         .find(|file| names.contains(file));
-    let pull = github
-        .post(
-            &format!("/repos/{repository}/pulls"),
-            json!({"title":crate::ONBOARDING_TITLE,"head":crate::ONBOARDING_BRANCH,"base":string(info, "default_branch")?,"body":crate::onboarding_body(toolchain)}),
-        )
-        .await?;
-    let url = onboarding_url(&pull, repository)
-        .ok_or_else(|| failure("invalid created onboarding pull request"))?;
-    Ok((201, json!({"url":url,"created":true})))
+    Ok(
+        json!({"title":crate::ONBOARDING_TITLE,"head":crate::ONBOARDING_BRANCH,"base":string(info, "default_branch")?,"body":crate::onboarding_body(toolchain)}),
+    )
 }
 
 /// Seat holders from ops secret names and current organization members; never values.

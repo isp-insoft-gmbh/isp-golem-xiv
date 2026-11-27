@@ -16,12 +16,23 @@ const fenceGraceMs = 15 * 60000;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const states = new Set(['pending', 'reserved', 'dispatching', 'bound', 'dispatch_uncertain', 'stop_requested', 'terminal']);
 const positive = value => Number.isSafeInteger(value) && value > 0;
+const terminalConclusions = new Set(['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral', 'skipped', 'startup_failure', 'stale']);
+const activeStatuses = ['queued', 'in_progress', 'waiting', 'pending', 'requested'];
+const terminalRun = run => run?.status === 'completed' && terminalConclusions.has(run.conclusion) && utc(run.updated_at)
+  ? {id: run.id, attempt: run.run_attempt, conclusion: run.conclusion, updated_at: run.updated_at} : null;
+const sha = /^[0-9a-f]{40}$/;
+const login = /^[A-Za-z0-9-]{1,39}$/;
+const queueSeat = /^[a-z0-9-]{1,39}\/(?:anthropic|openai-codex)$/;
+const queueResource = /^isp-insoft-gmbh\/[a-z0-9_.-]{1,100}\/[A-Za-z0-9_-]{1,64}$/;
+const previewLifetime = 60000; // Same freshness window as signed queue callbacks.
 const utc = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value.replace(/Z$/, value.includes('.') ? 'Z' : '.000Z');
 const observedModel = value => typeof value === 'string' && !['unobserved', 'default'].includes(value) && /^[A-Za-z0-9][A-Za-z0-9._:/+@-]{0,127}$/.test(value);
 const outcomes = {changed: 'success', replied: 'success', no_change: 'success', incomplete: 'neutral', blocked: 'failure', stopped: 'cancelled'};
 const shares = (a, b) => a.seat === b.seat || a.resource === b.resource;
+const waiting = row => ['pending', 'reserved'].includes(row.state) && !row.dispatched && row.run_id === null && row.attempt === null;
+const blocks = (row, i, other, j) => other !== row && other.state !== 'terminal' && shares(row, other) && (j < i || other.state !== 'pending');
 const dispatchEligible = (row, i, records) => ['pending', 'reserved'].includes(row.state) && !row.dispatched && row.run_id === null
-  && !records.some((other, j) => other !== row && other.state !== 'terminal' && shares(row, other) && (j < i || other.state !== 'pending'));
+  && !records.some((other, j) => blocks(row, i, other, j));
 const encode = value => btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(value))));
 const decode = value => JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(Uint8Array.from(atob(value.replace(/\s/g, '')), c => c.charCodeAt(0))));
 class Failure extends Error {
@@ -106,11 +117,12 @@ export class Coordinator {
       for (const row of this.queue.records) this.ctx.storage.sql.exec('INSERT INTO queue_projection VALUES (?, ?)', row.id, JSON.stringify(row));
     });
   }
-  async load() {
+  async load(operational = true) {
     let file = await this.api(`${indexPath}?ref=golem-state`, 'GET', undefined, true);
     if (!file) {
       const branch = await this.api(`${ops}/git/ref/heads/golem-state`, 'GET', undefined, true);
       if (branch) throw new Failure(503); // An existing journal must never silently reset.
+      if (!operational) { this.queue = {version: 2, records: []}; this.sha = null; return; }
       const trunk = await this.api(`${ops}/git/ref/heads/trunk`);
       const commit = await this.api(`${ops}/git/commits/${trunk.object.sha}`);
       const tree = await this.api(`${ops}/git/trees`, 'POST', {base_tree: commit.tree.sha, tree: [{path: 'queue.json', mode: '100644', type: 'blob', content: JSON.stringify({version: 2, records: []})}]});
@@ -128,10 +140,10 @@ export class Coordinator {
     if (q.version !== 2 || !Array.isArray(q.records) || q.records.length > capacity) throw new Failure(503);
     const ids = new Set();
     for (const r of q.records) {
-      if (!uuid.test(r.id) || !uuid.test(r.generation) || ids.has(r.id) || !states.has(r.state) || typeof r.seat !== 'string' || typeof r.resource !== 'string' || !/^[0-9a-f]{40}$/.test(r.tag) || (r.run_id !== null && !positive(r.run_id)) || (r.attempt !== null && !positive(r.attempt)) || typeof r.dispatched !== 'boolean') throw new Failure(503);
+      if (typeof r?.id !== 'string' || !uuid.test(r.id) || typeof r.generation !== 'string' || !uuid.test(r.generation) || ids.has(r.id) || !states.has(r.state) || typeof r.seat !== 'string' || typeof r.resource !== 'string' || !/^[0-9a-f]{40}$/.test(r.tag) || (r.run_id !== null && !positive(r.run_id)) || (r.attempt !== null && !positive(r.attempt)) || typeof r.dispatched !== 'boolean') throw new Failure(503);
       ids.add(r.id);
     }
-    this.project();
+    if (operational) this.project();
   }
   async save() {
     const content = encode(this.queue);
@@ -173,18 +185,21 @@ export class Coordinator {
   validate(request) {
     if (!request || request.version !== 2 || !uuid.test(request.delivery_id) || !/^isp-insoft-gmbh\/[A-Za-z0-9_.-]{1,100}$/.test(request.repository) || !/^[A-Za-z0-9_-]{1,64}$/.test(request.golem) || !/^[A-Za-z0-9-]{1,39}$/.test(request.seat_login) || !['anthropic', 'openai-codex'].includes(request.provider) || !/^[0-9a-f]{40}$/.test(request.head_sha) || !positive(request.check_run_id) || (request.issue_number !== null && !positive(request.issue_number)) || (request.comment_id !== null && !positive(request.comment_id))) throw new Failure(400);
   }
-  async request(row) {
+  async request(row, operator = false) {
     let request = this.requestCache.get(row.tag);
-    if (!request) {
+    let requestDate = null;
+    if (!request || operator) {
       const tag = await this.api(`${ops}/git/tags/${row.tag}`);
       if (typeof tag.message !== 'string' || tag.message.length > bodyLimit) throw new Failure(503);
+      if (operator && (tag.sha !== row.tag || tag.tag !== `golem-request/${row.id}`)) throw new Failure(409, 'mismatch');
       request = JSON.parse(tag.message);
       this.validate(request);
+      if (operator && utc(tag.tagger?.date)) requestDate = tag.tagger.date;
     }
     // Cache hits still validate this row, not just the tag's shape.
     if (request.delivery_id !== row.id || request.queue_generation !== row.generation || `${request.repository.toLowerCase()}/${request.golem}` !== row.resource || `${request.seat_login.toLowerCase()}/${request.provider}` !== row.seat) throw new Failure(503);
     this.requestCache.set(row.tag, Object.freeze(request));
-    return request;
+    return operator ? {request, requestDate} : request;
   }
   async enqueue(request) {
     this.validate(request);
@@ -464,7 +479,7 @@ export class Coordinator {
     await this.save();
     await this.api(path, 'PATCH', {status: 'completed', conclusion: 'failure', output: {title: 'blocked', summary: `outcome: blocked\nseat: ${request.seat_login}/${request.provider}\nharness: ${request.harness}\nmodel: unobserved\nbudget: ${request.timeout_seconds}s\nlog: https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id}\nreason: workflow ended (${run.conclusion}) without a valid completed native audit; execution/publication outcome unconfirmed`}});
   }
-  async adminAudit(row) {
+  async adminAudit(row, inspect = false, knownRun = null) {
     const request = await this.request(row);
     if (!positive(request.repository_id) || !['mention', 'dashboard', 'event', 'schedule'].includes(request.trigger)) throw new Failure(503);
     const log = row.run_id === null ? null : `https://github.com/isp-insoft-gmbh/isp-golem-xiv-ops/actions/runs/${row.run_id}`;
@@ -472,7 +487,7 @@ export class Coordinator {
     if ((row.run_id === null) !== (row.attempt === null)) throw new Failure(503);
     const name = `golem-admin/${row.id}`;
     const prior = await this.api(`${ops}/git/ref/tags/${name}`, 'GET', undefined, true);
-    let sha;
+    let auditSha;
     if (prior) {
       if (prior.object?.type !== 'tag' || !/^[0-9a-f]{40}$/.test(prior.object.sha)) throw new Failure(503);
       const tag = await this.api(`${ops}/git/tags/${prior.object.sha}`);
@@ -485,11 +500,12 @@ export class Coordinator {
       if (Object.keys(audit).length !== keys.length || !keys.every(key => Object.hasOwn(audit, key)) || !Object.entries(identity).every(([key, value]) => audit[key] === value)
         || (audit.outcome !== null && !Object.hasOwn(outcomes, audit.outcome)) || (reportedModel !== null && (!observedModel(reportedModel) || row.check_repaired))
         || (audit.duration_s !== null && (row.run_id === null || typeof audit.duration_s !== 'number' || !Number.isFinite(audit.duration_s) || audit.duration_s < 0)) || !utc(audit.completed_at) || audit.log !== log) throw new Failure(503);
-      sha = tag.sha;
+      if (inspect) return audit.outcome === null ? null : {audit, sha: tag.sha};
+      auditSha = tag.sha;
     } else {
       let run = null;
       if (row.run_id !== null) {
-        run = await this.run(row, row.run_id);
+        run = knownRun ?? await this.run(row, row.run_id);
         if (!run || run.run_attempt !== row.attempt || run.status !== 'completed' || !['success', 'failure', 'cancelled', 'timed_out', 'action_required', 'neutral', 'skipped', 'startup_failure', 'stale'].includes(run.conclusion)) return false;
       }
       const check = await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'GET', undefined, true);
@@ -519,22 +535,30 @@ export class Coordinator {
         if (!utc(completed)) return false;
       }
       const audit = {...identity, outcome, model, duration_s: duration, completed_at: completed, log};
-      const tag = await this.api(`${ops}/git/tags`, 'POST', {tag: name, message: JSON.stringify(audit), object: row.tag, type: 'tag'});
-      if (!/^[0-9a-f]{40}$/.test(tag.sha)) throw new Failure(503);
-      const published = await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/${name}`, sha: tag.sha});
-      if (published?.object?.sha !== tag.sha) throw new Failure(503);
-      sha = tag.sha;
+      if (inspect) return check && outcome !== null && typeof check.output?.summary === 'string' && check.output.summary.split('\n').filter(line => /^model: \S[^\r\n]*$/.test(line)).length === 1 ? {audit, sha: null, check} : null;
+      auditSha = await this.publishAdminAudit(row, audit);
     }
+    await this.aliasAdminAudit(row, auditSha);
+    return true;
+  }
+  async publishAdminAudit(row, audit) {
+    const name = `golem-admin/${row.id}`;
+    const tag = await this.api(`${ops}/git/tags`, 'POST', {tag: name, message: JSON.stringify(audit), object: row.tag, type: 'tag'});
+    if (!sha.test(tag?.sha ?? '')) throw new Failure(503);
+    const published = await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/${name}`, sha: tag.sha});
+    if (published?.object?.sha !== tag.sha) throw new Failure(503);
+    return tag.sha;
+  }
+  async aliasAdminAudit(row, auditSha) {
     if (row.run_id !== null) {
       const alias = `golem-run/${row.run_id}`;
       const ref = await this.api(`${ops}/git/ref/tags/${alias}`, 'GET', undefined, true);
-      if (ref) { if (ref.object?.type !== 'tag' || ref.object.sha !== sha) throw new Failure(503); }
+      if (ref) { if (ref.object?.type !== 'tag' || ref.object.sha !== auditSha) throw new Failure(503); }
       else {
-        const published = await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/${alias}`, sha});
-        if (published?.object?.sha !== sha) throw new Failure(503);
+        const published = await this.api(`${ops}/git/refs`, 'POST', {ref: `refs/tags/${alias}`, sha: auditSha});
+        if (published?.object?.sha !== auditSha) throw new Failure(503);
       }
     }
-    return true;
   }
   async reconcile() {
     const rows = this.queue.records;
@@ -560,6 +584,11 @@ export class Coordinator {
           continue;
         }
         if (!row.dispatched) {
+          if (row.operator_action?.operation === 'cancel') {
+            const request = await this.request(row);
+            const check = await this.checkIdentity(request);
+            if (check?.status !== 'queued' && !(row.check_repaired && check?.status === 'completed' && check.conclusion === 'cancelled' && check.output?.summary?.startsWith('outcome: stopped\n'))) continue;
+          }
           await this.stoppedCheck(row);
           row.state = 'terminal';
         } else if (row.run_id === null) {
@@ -579,7 +608,120 @@ export class Coordinator {
     }
     await this.saveChanged();
   }
+  nextRequests(records, verified) {
+    return records.filter((row, index) => waiting(row) && verified.has(row.id) && dispatchEligible(row, index, records)).map(row => row.id);
+  }
+  publicQueueRow(row) {
+    if (!queueSeat.test(row.seat) || !queueResource.test(row.resource)) throw new Failure(503);
+    return {id: row.id, resource: row.resource, seat: row.seat, state: row.state, run_id: row.run_id, attempt: row.attempt, dispatched: row.dispatched};
+  }
+  async queueView() {
+    const verified = new Set();
+    const records = this.queue.records;
+    const snapshot_at = new Date().toISOString();
+    const rows = [];
+    for (const [index, row] of records.entries()) {
+      const result = this.publicQueueRow(row);
+      const blockers = waiting(row) ? records.flatMap((other, j) => blocks(row, index, other, j) ? [{...this.publicQueueRow(other), on: row.seat === other.seat && row.resource === other.resource ? 'seat and repository/golem' : row.seat === other.seat ? 'seat' : 'repository/golem'}] : []) : [];
+      let metadata;
+      try { metadata = await this.request(row, true); } catch { /* List journal evidence even if request metadata is unavailable. */ }
+      const request = metadata?.request;
+      if (positive(request?.repository_id)) verified.add(row.id);
+      rows.push({...result, blockers, waiting_since: waiting(row) ? metadata?.requestDate ?? null : null, request_verified: Boolean(request), check_id: request?.check_run_id ?? null,
+        trigger: ['mention', 'event', 'schedule', 'dashboard'].includes(request?.trigger) ? request.trigger : null,
+        harness: ['claude', 'codex', 'pi'].includes(request?.harness) ? request.harness : null});
+    }
+    return {snapshot_at, rows, next: this.nextRequests(records, verified)};
+  }
+  async checkIdentity(request) {
+    const repo = await this.api(`/repos/${request.repository}`, 'GET', undefined, true, false, 200);
+    if (!positive(request.repository_id) || repo?.id !== request.repository_id) return null;
+    const check = await this.api(`/repos/${request.repository}/check-runs/${request.check_run_id}`, 'GET', undefined, true);
+    return check?.id === request.check_run_id && check.name === `golem/${request.golem}` && check.app?.id === 4605060 && check.head_sha === request.head_sha ? check : null;
+  }
+  async queueProof(row, operation) {
+    if (row.state === 'terminal') return {reason: 'terminal'};
+    if (operation === 'cancel' && (row.state !== 'pending' || !waiting(row))) return {reason: 'not_pending'};
+    if (operation === 'release' && (row.run_id === null || !row.dispatched || !['bound', 'stop_requested'].includes(row.state))) return {reason: waiting(row) ? 'not_running' : 'unbound'};
+    if (operation === 'release' && (row.attempt !== 1 || this.queue.records.some(other => other !== row && other.run_id === row.run_id))) return {reason: 'identity'};
+    let request;
+    try { ({request} = await this.request(row, true)); } catch { return {reason: 'identity'}; }
+    if (operation === 'cancel') {
+      const check = await this.checkIdentity(request);
+      return check && check.status === 'queued' ? {check, reason: null} : {reason: 'check'};
+    }
+    let run;
+    try { run = await this.run(row, row.run_id); } catch { return {reason: 'identity'}; }
+    if (!run) return {reason: 'missing_run'};
+    if (run.run_attempt !== row.attempt) return {reason: 'identity'};
+    if (run.status !== 'completed') return {reason: 'not_terminal', run: activeStatuses.includes(run.status) ? {id: run.id, attempt: run.run_attempt, status: run.status} : null};
+    const summary = terminalRun(run);
+    if (!summary) return {reason: 'not_terminal'};
+    let evidence;
+    try { evidence = await this.adminAudit(row, true, run); } catch { return {reason: 'audit', run: summary}; }
+    if (!evidence) return {reason: 'audit', run: summary};
+    const alias = await this.api(`${ops}/git/ref/tags/golem-run/${row.run_id}`, 'GET', undefined, true);
+    if (alias && (!evidence.sha || alias.object?.type !== 'tag' || alias.object.sha !== evidence.sha)) return {reason: 'audit', run: summary};
+    return {reason: null, run: summary, evidence, alias: alias?.object.sha ?? null};
+  }
+  async operator(body) {
+    const actor = body.actor;
+    if (!positive(actor?.id) || typeof actor.login !== 'string' || !login.test(actor.login)) throw new Failure(400);
+    const view = body.action === 'queue_view';
+    const confirm = body.action === 'queue_confirm';
+    const input = body.input;
+    if (!view && (!input || typeof input.request_id !== 'string' || !uuid.test(input.request_id) || !['release', 'cancel'].includes(input.operation)
+        || Object.keys(input).length !== (confirm ? 4 : 2) || (confirm && (!positive(input.expires) || typeof input.token !== 'string' || !/^[0-9a-f]{64}$/.test(input.token))))) throw new Failure(400);
+    await this.connect();
+    await this.load(false);
+    if (view) return this.queueView();
+    const row = this.queue.records.find(row => row.id === input.request_id);
+    if (!row) throw new Failure(confirm ? 409 : 404, 'row');
+    const request = this.publicQueueRow(row);
+    const proof = await this.queueProof(row, input.operation);
+    if (proof.reason !== null) {
+      if (confirm) throw new Failure(409, 'preview_changed');
+      return {eligible: false, request, reason: proof.reason, run: proof.run ?? null};
+    }
+    const expires = confirm ? input.expires : Date.now() + previewLifetime;
+    const deduced = this.queue.records.filter(other => other !== row);
+    // Highlight newly unblocked resources, not dispatch promises. These rows have not had metadata preflight.
+    const unblocked = deduced.filter((other, i) => waiting(other) && dispatchEligible(other, i, deduced)
+      && !dispatchEligible(other, this.queue.records.indexOf(other), this.queue.records)).map(other => this.publicQueueRow(other));
+    const binding = new TextEncoder().encode(JSON.stringify(['queue-operator-v1', actor.id, actor.login, input.operation, row.id, row.generation, row.tag, this.sha, expires, proof]));
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(this.env.APP_PRIVATE_KEY.trim()), {name: 'HMAC', hash: 'SHA-256'}, false, ['sign', 'verify']);
+    if (!confirm) {
+      const token = [...new Uint8Array(await crypto.subtle.sign('HMAC', key, binding))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      return {eligible: true, request, run: proof.run ?? null, outcome: proof.evidence?.audit.outcome ?? null, unblocked, expires, token};
+    }
+    if (Date.now() >= expires || expires > Date.now() + previewLifetime || !await crypto.subtle.verify('HMAC', key, Uint8Array.from(input.token.match(/../g), hex => Number.parseInt(hex, 16)), binding)) throw new Failure(409, 'preview_changed');
+    // The outer Worker checks before handing off to the serial queue; recheck
+    // here before writes in case confirmation waited behind another operation.
+    const membership = await this.api(`/orgs/isp-insoft-gmbh/memberships/${actor.login}`, 'GET', undefined, true);
+    if (membership?.state !== 'active' || membership.role !== 'admin' || membership.user?.id !== actor.id
+        || typeof membership.user.login !== 'string' || membership.user.login.toLowerCase() !== actor.login.toLowerCase()) throw new Failure(403, 'owner');
+    const current = await this.api(`${indexPath}?ref=golem-state`);
+    if (Date.now() >= expires || current?.sha !== this.sha || current.encoding !== 'base64' || typeof current.content !== 'string' || current.content.length > journalLimit * 2 || atob(current.content.replace(/\s/g, '')) !== this.journalBytes) throw new Failure(409, 'preview_changed');
+    const audit = {operation: input.operation, actor_id: actor.id, actor_login: actor.login, at: new Date().toISOString(), preview_sha: this.sha};
+    if (input.operation === 'cancel') {
+      row.state = 'stop_requested';
+      row.stop_requested_at = Date.now();
+    } else {
+      const auditSha = proof.evidence.sha ?? await this.publishAdminAudit(row, proof.evidence.audit);
+      await this.aliasAdminAudit(row, auditSha);
+      // A rerun can start during immutable audit I/O. Never release if this last
+      // observation changed; a published audit is evidence, not a release receipt.
+      if (JSON.stringify(terminalRun(await this.run(row, row.run_id))) !== JSON.stringify(proof.run)) throw new Failure(409, 'preview_changed');
+      audit.evidence_sha = auditSha;
+      audit.run = proof.run;
+      row.state = 'terminal';
+    }
+    row.operator_action = audit;
+    await this.save(); // Actor and transition share the same authoritative CAS commit.
+    return {request: this.publicQueueRow(row), audit, journal_sha: this.sha};
+  }
   async operate(body) {
+    if (['queue_view', 'queue_preview', 'queue_confirm'].includes(body?.action)) return this.operator(body);
     if (!body || !['enqueue', 'bind', 'complete', 'stop', 'tick'].includes(body.action)) throw new Failure(400);
     await this.ctx.storage.setAlarm(Date.now() + 60000);
     await this.connect();
